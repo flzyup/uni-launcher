@@ -61,6 +61,14 @@ void main() {
     final (_, g) = await open(t);
     expect(g.commands,
         contains(containsPair('action', 'refresh-system-settings')));
+    await t.scrollUntilVisible(
+        find.byKey(const ValueKey('system-setting-oem/wifi')), 350,
+        scrollable: find
+            .descendant(
+                of: find.byKey(const PageStorageKey('system-settings-scroll')),
+                matching: find.byType(Scrollable))
+            .first);
+    await t.pumpAndSettle();
     expect(find.text('无线网络'), findsOneWidget);
     expect(find.text('屏幕显示'), findsOneWidget);
     await t.tap(find.byKey(const ValueKey('system-setting-oem/wifi')));
@@ -81,6 +89,8 @@ void main() {
         isTrue);
     expect(g.commands.where((c) => c['action'] == 'navigation-audio-mode'),
         isEmpty);
+    await t.ensureVisible(find.byKey(const ValueKey('navigation-audio-1')));
+    await t.pumpAndSettle();
     await t.tap(find.byKey(const ValueKey('navigation-audio-1')));
     await t.pumpAndSettle();
     expect(g.commands.last, containsPair('action', 'navigation-audio-mode'));
@@ -106,6 +116,14 @@ void main() {
     g.stream.add(event);
     await t.pumpAndSettle();
     expect(identical(c.native.value['systemSettings'], catalog), isTrue);
+    await t.scrollUntilVisible(
+        find.byKey(const ValueKey('system-setting-oem/wifi')), 350,
+        scrollable: find
+            .descendant(
+                of: find.byKey(const PageStorageKey('system-settings-scroll')),
+                matching: find.byType(Scrollable))
+            .first);
+    await t.pumpAndSettle();
     expect(find.text('无线网络'), findsOneWidget);
     expect((c.native.value['media'] as Map)['title'], '新歌曲');
   });

@@ -136,7 +136,54 @@ void main() {
   });
   test('default OEM layout has no overlap', () {
     expect(validLayout(defaultCards()), true);
-    expect(defaultCards().length, 8);
+    expect(defaultCards().length, 9);
+    final firstPage = defaultCards().where((card) => card.page == 0).toList();
+    expect(
+        firstPage.map((card) => card.type), ['nav', 'music', 'trafficLight']);
+    final clockWeather =
+        defaultCards().singleWhere((card) => card.type == 'clockWeather');
+    expect((
+      clockWeather.page,
+      clockWeather.x,
+      clockWeather.y,
+      clockWeather.w,
+      clockWeather.h,
+      clockWeather.layout
+    ), (
+      1,
+      8,
+      0,
+      4,
+      3,
+      'combined'
+    ));
+    final shortcut =
+        defaultCards().singleWhere((card) => card.type == 'shortcuts');
+    expect((shortcut.page, shortcut.x, shortcut.y, shortcut.w, shortcut.h),
+        (1, 0, 3, 4, 3));
+    final signal = firstPage.last;
+    expect((signal.x, signal.y, signal.w, signal.h), (8, 4, 4, 2));
+  });
+  test('saved weather layout remains intact until reset', () async {
+    final previous = defaultCards()
+        .map((card) => card.id == 'traffic-light-1'
+            ? const LauncherCard('weather-1', 'weather', '天气', 8, 4, 4, 2, 0)
+            : card)
+        .toList();
+    final gateway = FakeGateway()
+      ..state['savedDesign'] = jsonEncode({
+        'preferences': <String, dynamic>{},
+        'cards': previous.map((card) => card.toJson()).toList(),
+      });
+    final controller = LauncherController(gateway);
+    await controller.initialize();
+    expect(controller.cards.any((card) => card.id == 'weather-1'), isTrue);
+    expect(
+        controller.cards.any((card) => card.type == 'trafficLight'), isFalse);
+    controller.resetLayout();
+    expect(controller.cards.any((card) => card.type == 'trafficLight'), isTrue);
+    controller.dispose();
+    await gateway.dispose();
   });
   test('clock and weather layout choice survives design serialization', () {
     const card = LauncherCard(
@@ -158,10 +205,10 @@ void main() {
     final gateway = FakeGateway(), c = LauncherController(gateway);
     await c.initialize();
     c.beginEdit();
-    c.remove('weather-1');
-    expect(c.cards.length, 7);
-    c.cancelEdit();
+    c.remove('traffic-light-1');
     expect(c.cards.length, 8);
+    c.cancelEdit();
+    expect(c.cards.length, 9);
     c.dispose();
     await gateway.dispose();
   });
@@ -183,15 +230,17 @@ void main() {
     final g = FakeGateway(), c = LauncherController(g);
     await c.initialize();
     c.beginEdit();
-    expect(c.moveToPage('weather-1', 1, preferredX: 8, preferredY: 4), true);
-    final moved = c.cards.singleWhere((card) => card.id == 'weather-1');
+    c.remove('air-1');
+    expect(
+        c.moveToPage('traffic-light-1', 1, preferredX: 8, preferredY: 4), true);
+    final moved = c.cards.singleWhere((card) => card.id == 'traffic-light-1');
     expect(moved.page, 1);
     expect(moved.x, 8);
     expect(moved.y, 4);
     expect(c.page, 1);
     expect(validLayout(c.cards), true);
     c.cancelEdit();
-    expect(c.cards.singleWhere((card) => card.id == 'weather-1').page, 0);
+    expect(c.cards.singleWhere((card) => card.id == 'traffic-light-1').page, 0);
     c.dispose();
     await g.dispose();
   });

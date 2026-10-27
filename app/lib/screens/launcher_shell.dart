@@ -19,7 +19,8 @@ class _LauncherShellState extends State<LauncherShell> {
   // Rebuilds used to report geometry on every controller notification; the
   // payload only changes when the layout, page or overlay state does.
   String? _sentViewport;
-
+  late final ValueNotifier<double> pagePosition =
+      ValueNotifier(widget.controller.page.toDouble());
   LauncherController get controller => widget.controller;
 
   void _reportViewport(String metrics) {
@@ -28,6 +29,12 @@ class _LauncherShellState extends State<LauncherShell> {
     AndroidGateway.methods
         .invokeMethod<void>('viewport', metrics)
         .catchError((Object _) {});
+  }
+
+  @override
+  void dispose() {
+    pagePosition.dispose();
+    super.dispose();
   }
 
   @override
@@ -89,7 +96,9 @@ class _LauncherShellState extends State<LauncherShell> {
                                     width: Design.canvasWidth,
                                     height: height / scale,
                                     child: Column(children: [
-                                      Header(controller: controller),
+                                      Header(
+                                          controller: controller,
+                                          position: pagePosition),
                                       Expanded(
                                           child: IndexedStack(
                                               index:
@@ -98,7 +107,8 @@ class _LauncherShellState extends State<LauncherShell> {
                                             TickerMode(
                                                 enabled: !controller.settings,
                                                 child: Desktop(
-                                                    controller: controller)),
+                                                    controller: controller,
+                                                    position: pagePosition)),
                                             controller.settings
                                                 ? SettingsScreen(
                                                     controller: controller)

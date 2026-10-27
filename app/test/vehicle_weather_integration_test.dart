@@ -268,8 +268,6 @@ void main() {
     c.openSettings();
     c.tab('system');
     await t.pumpAndSettle();
-    await t.tap(find.byKey(const ValueKey('system-app-controls')));
-    await t.pumpAndSettle();
     expect(find.byKey(const ValueKey('media-source')), findsOneWidget);
     expect(find.byKey(const ValueKey('navigation-source')), findsOneWidget);
     await t.pumpWidget(const SizedBox.shrink());

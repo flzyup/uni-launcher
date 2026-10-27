@@ -138,6 +138,9 @@ void main() {
     expect(loaded.appearance.spectrumStyle, 'outline');
     loaded.dispose();
     await restored.dispose();
+    expect(const Appearance().spectrumStyle, 'segments');
+    expect(
+        Appearance.fromJson({'spectrumStyle': 'bars'}).spectrumStyle, 'bars');
     expect(Appearance.fromJson({'spectrumStyle': 'invalid'}).spectrumStyle,
         'bars');
     expect(t.takeException(), isNull);

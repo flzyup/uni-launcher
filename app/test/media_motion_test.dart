@@ -232,6 +232,7 @@ void main() {
     await t.pumpAndSettle();
     final dockBefore = t.getRect(find.byKey(const ValueKey('bottom-dock')));
     final indicator = find.byKey(const ValueKey('page-indicator-active'));
+    expect(t.getRect(indicator).center.dy, lessThan(64));
     final start = t.getRect(indicator).left;
     final nav = find.byKey(const ValueKey('nav-1'));
     final navStart = t.getRect(nav).left;

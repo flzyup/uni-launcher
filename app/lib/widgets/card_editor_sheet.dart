@@ -13,7 +13,7 @@ const _libraryDescriptions = {
   'air': '车内 PM2.5 与独立 AQI 读数',
   'clock': '时间、日期与星期',
   'clockWeather': '时钟与天气组合，可切换四种布局',
-  'shortcuts': '你常用的四个应用',
+  'shortcuts': '自选应用，一键启动',
   'vehicle': '车速、总里程、续航与距保养',
 };
 const _desktopTypes = {
@@ -238,19 +238,23 @@ class _CardEditorState extends State<_CardEditor> {
         widget.controller.native.value['demo'] == true;
     final vehicleCard =
         const {'battery', 'air', 'vehicle'}.contains(draft.type);
-    final sizes = draft.type == 'music'
-        ? <(int, int)>[(4, 2), (4, 3), (4, 4), (8, 6)]
-        : <(int, int)>[
-            draft.type == 'weather' ? (4, 2) : (spec.minW, spec.minH),
-            if (draft.type == 'trafficLight') ...[
-              (4, 3),
-              (8, 3)
-            ] else if (vehicleCard)
-              (4, 3)
-            else
-              (spec.minW > 4 ? spec.minW : 4, spec.minH > 4 ? spec.minH : 4),
-            (spec.minW > 8 ? spec.minW : 8, 6),
-          ].toSet().toList();
+    final sizes = draft.type == 'trafficLight'
+        ? <(int, int)>[(4, 2), (4, 3)]
+        : draft.type == 'shortcuts'
+            ? <(int, int)>[(4, 2), (4, 3), (4, 4)]
+            : draft.type == 'music'
+                ? <(int, int)>[(4, 2), (4, 3), (4, 4), (8, 6)]
+                : <(int, int)>[
+                    draft.type == 'weather' ? (4, 2) : (spec.minW, spec.minH),
+                    if (vehicleCard)
+                      (4, 3)
+                    else
+                      (
+                        spec.minW > 4 ? spec.minW : 4,
+                        spec.minH > 4 ? spec.minH : 4
+                      ),
+                    (spec.minW > 8 ? spec.minW : 8, 6),
+                  ].toSet().toList();
     return SingleChildScrollView(
         child:
             Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [

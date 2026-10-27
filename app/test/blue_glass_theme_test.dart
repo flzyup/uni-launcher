@@ -13,12 +13,15 @@ import 'package:uni_launcher/widgets/glass_surface.dart';
 import 'fake_gateway.dart';
 
 void main() {
-  test('old preferences keep classic; new style round trips without data loss',
+  test('new defaults use square blue glass; old preferences and styles survive',
       () {
+    expect(const Appearance().themeStyle, 'blueGlass');
+    expect(const Appearance().radius, 0);
     expect(Appearance.fromJson({}).themeStyle, 'classic');
     expect(
         Appearance.fromJson({'themeStyle': 'unknown'}).themeStyle, 'classic');
     const original = Appearance(
+        themeStyle: 'classic',
         mode: 'smart',
         palette: 'custom',
         custom: '#4488AB',
@@ -260,8 +263,9 @@ void main() {
     await t.pumpAndSettle();
     expect(t.getTopLeft(find.byKey(const ValueKey('system-app-controls'))).dy,
         lessThan(t.getTopLeft(find.text('导航与音乐')).dy));
-    await t.tap(find.byKey(const ValueKey('system-app-controls')));
-    await t.pumpAndSettle();
+    expect(find.byKey(const ValueKey('demo-switch')), findsNothing);
+    expect(find.byKey(const ValueKey('media-source')), findsOneWidget);
+    expect(find.byType(ExpansionTile), findsNothing);
     await t.scrollUntilVisible(find.byKey(const ValueKey('media-source')), 260,
         scrollable: find.byType(Scrollable).first);
     expect(find.byKey(const ValueKey('navigation-source')), findsOneWidget);

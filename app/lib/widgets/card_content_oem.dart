@@ -379,69 +379,169 @@ class _ShortcutCard extends StatelessWidget {
   final LauncherCard card;
   final LauncherController controller;
   const _ShortcutCard({required this.card, required this.controller});
+
   @override
   Widget build(BuildContext context) {
     final s = SurfaceStyle.of(context);
+    final available = (controller.native.value['apps'] is List
+            ? controller.native.value['apps'] as List
+            : const [])
+        .whereType<Map>()
+        .map((a) => Map<String, dynamic>.from(a))
+        .toList();
+    final byId = {
+      for (final app in available)
+        if (app['id'] is String) app['id'] as String: app
+    };
+    final capacity = card.h <= 2
+        ? 4
+        : card.h == 3
+            ? 8
+            : 12;
+    final selected = card.shortcutApps.take(capacity).toList();
+    Future<void> edit() async {
+      if (controller.editing) return;
+      final result = await showLauncherSheet<List<String>>(context,
+          title: '管理快捷应用',
+          subtitle: '选择最多 $capacity 个应用',
+          width: Design.px(900),
+          height: Design.px(700),
+          builder: (_) => _ShortcutPicker(
+              apps: available,
+              initial: card.shortcutApps,
+              capacity: capacity,
+              controller: controller));
+      if (result != null) await controller.setShortcutApps(card.id, result);
+    }
+
     return _CardCanvas(
-        minHeight: 230,
+        minHeight: 190,
         child: Column(children: [
           Row(children: [
             Expanded(
                 child: Text(card.title,
-                    style: TextStyle(
-                        fontSize: Design.px(23), height: 1.2, color: s.muted))),
-            UniIcon('apps', size: Design.px(32), color: s.muted)
+                    style: TextStyle(fontSize: Design.px(23), color: s.muted))),
+            IconAction(
+                key: ValueKey('shortcuts-edit-${card.id}'),
+                icon: Icons.edit_outlined,
+                label: '管理快捷应用',
+                size: Design.px(38),
+                onTap: controller.editing ? null : edit),
           ]),
-          SizedBox(height: Design.px(29)),
+          SizedBox(height: Design.px(8)),
           Expanded(
-              child: Align(
-                  alignment: Alignment.topCenter,
-                  child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        for (final item in const [
-                          ('nav', '导航'),
-                          ('phone', '电话'),
-                          ('music', '音乐'),
-                          ('settings', '系统设置'),
-                        ])
-                          Flexible(
-                              child: Semantics(
-                                  button: true,
-                                  label: item.$2,
-                                  child: GestureDetector(
-                                      onTap: () => item.$1 == 'music'
-                                          ? showMediaPanel(context, controller)
-                                          : controller.command('open-official',
-                                              value: item.$1),
-                                      child: FittedBox(
-                                          fit: BoxFit.scaleDown,
-                                          child: Column(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                Container(
-                                                    width: Design.px(74),
-                                                    height: Design.px(74),
-                                                    decoration: BoxDecoration(
-                                                        color: s.soft,
-                                                        borderRadius: BorderRadius
-                                                            .circular(s
-                                                                .controlRadius)),
-                                                    child: Center(
-                                                        child: UniIcon(item.$1,
-                                                            size: Design.px(33),
-                                                            color: s.text))),
-                                                SizedBox(height: Design.px(15)),
-                                                Text(item.$2,
-                                                    maxLines: 1,
-                                                    overflow:
-                                                        TextOverflow.ellipsis,
-                                                    style: TextStyle(
-                                                        fontSize: Design.px(20),
-                                                        height: 1.2,
-                                                        color: s.muted)),
-                                              ]))))),
-                      ]))),
+              child: GridView.count(
+                  crossAxisCount: 4,
+                  childAspectRatio: card.h <= 2 ? 1.05 : 1.12,
+                  mainAxisSpacing: Design.px(4),
+                  crossAxisSpacing: Design.px(4),
+                  children: [
+                for (final id in selected)
+                  Builder(builder: (context) {
+                    final app = byId[id];
+                    final bytes = app?['iconBytes'];
+                    final name =
+                        app == null ? '应用不可用' : controller.appName(app);
+                    return InkWell(
+                        key: ValueKey('shortcut-$id'),
+                        onTap: controller.editing || app == null
+                            ? null
+                            : () => controller.command('launch-app', value: id),
+                        child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Expanded(
+                                  child: Center(
+                                      child: bytes is Uint8List
+                                          ? Image.memory(bytes,
+                                              width: Design.px(50),
+                                              height: Design.px(50),
+                                              errorBuilder: (_, __, ___) =>
+                                                  Icon(Icons.apps,
+                                                      color: s.muted))
+                                          : Icon(Icons.apps,
+                                              size: Design.px(40),
+                                              color: s.muted))),
+                              Text(name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                      fontSize: Design.px(16), color: s.muted)),
+                            ]));
+                  }),
+                if (selected.length < capacity)
+                  IconButton(
+                      key: ValueKey('shortcuts-add-${card.id}'),
+                      tooltip: '添加应用',
+                      onPressed: controller.editing ? null : edit,
+                      icon: const Icon(Icons.add_circle_outline)),
+              ])),
         ]));
+  }
+}
+
+class _ShortcutPicker extends StatefulWidget {
+  final List<Map<String, dynamic>> apps;
+  final List<String> initial;
+  final int capacity;
+  final LauncherController controller;
+  const _ShortcutPicker(
+      {required this.apps,
+      required this.initial,
+      required this.capacity,
+      required this.controller});
+  @override
+  State<_ShortcutPicker> createState() => _ShortcutPickerState();
+}
+
+class _ShortcutPickerState extends State<_ShortcutPicker> {
+  late final List<String> selected = List.of(widget.initial);
+  @override
+  Widget build(BuildContext context) {
+    final installed = {
+      for (final app in widget.apps)
+        if (app['id'] is String) app['id'] as String: app
+    };
+    return Column(children: [
+      Expanded(
+          child: ListView(children: [
+        for (final id in selected.where((id) => !installed.containsKey(id)))
+          ListTile(
+              key: ValueKey('shortcut-option-$id'),
+              title: Text('应用不可用：$id'),
+              trailing: const Icon(Icons.remove_circle_outline),
+              onTap: () => setState(() => selected.remove(id))),
+        for (final app in widget.apps)
+          if (app['id'] is String)
+            Builder(builder: (context) {
+              final id = app['id'] as String, chosen = selected.contains(id);
+              final bytes = app['iconBytes'];
+              return ListTile(
+                  key: ValueKey('shortcut-option-$id'),
+                  leading: SizedBox.square(
+                      dimension: Design.px(36),
+                      child: bytes is Uint8List
+                          ? Image.memory(bytes,
+                              errorBuilder: (_, __, ___) =>
+                                  const Icon(Icons.apps))
+                          : const Icon(Icons.apps)),
+                  title: Text(widget.controller.appName(app)),
+                  trailing: Icon(
+                      chosen ? Icons.check_circle : Icons.add_circle_outline),
+                  enabled: chosen || selected.length < widget.capacity,
+                  onTap: () => setState(() {
+                        if (chosen) {
+                          selected.remove(id);
+                        } else if (selected.length < widget.capacity) {
+                          selected.add(id);
+                        }
+                      }));
+            }),
+      ])),
+      TextButton(
+          key: const ValueKey('shortcut-picker-save'),
+          onPressed: () => Navigator.pop(context, selected),
+          child: const Text('完成')),
+    ]);
   }
 }

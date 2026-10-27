@@ -129,8 +129,21 @@ class _MusicCard extends StatelessWidget {
             child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  MediaSourceBadge(
-                      controller: controller, titleBar: true, compact: true),
+                  Row(children: [
+                    Expanded(
+                        child: MediaSourceBadge(
+                            controller: controller,
+                            titleBar: true,
+                            compact: true)),
+                    IconAction(
+                        key: const ValueKey('music-app-picker'),
+                        icon: Icons.swap_horiz,
+                        label: '选择音乐应用',
+                        size: Design.px(38),
+                        onTap: controller.editing
+                            ? null
+                            : () => showMusicPicker(context, controller)),
+                  ]),
                   SizedBox(height: Design.px(compact ? 10 : 16)),
                   Expanded(child: LayoutBuilder(builder: (context, box) {
                     final cover = Design.px(compact

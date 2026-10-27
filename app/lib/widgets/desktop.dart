@@ -23,7 +23,8 @@ part 'desktop_drag.dart';
 
 class Header extends StatefulWidget {
   final LauncherController controller;
-  const Header({super.key, required this.controller});
+  final ValueNotifier<double>? position;
+  const Header({super.key, required this.controller, this.position});
   @override
   State<Header> createState() => _HeaderState();
 }
@@ -49,66 +50,57 @@ class _HeaderState extends State<Header> {
     final s = SurfaceStyle.of(context), d = DateTime.now();
     return SizedBox(
         height: Design.px(64),
-        child: Padding(
-            padding: EdgeInsets.symmetric(horizontal: Design.px(40)),
-            child: Row(children: [
-              Text(
-                  '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}',
-                  style: TextStyle(
-                      fontSize: Design.px(23), fontWeight: FontWeight.w500)),
-              const SizedBox(width: 28),
-              GestureDetector(
-                  key: const ValueKey('desktop-name'),
-                  onLongPress: () =>
-                      showDesktopNameDialog(context, widget.controller),
-                  child: ConstrainedBox(
-                      constraints: BoxConstraints(maxWidth: Design.px(480)),
-                      child: Text(widget.controller.appearance.desktopName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                              color: s.muted,
-                              fontSize: 15,
-                              letterSpacing: 2)))),
-              const Spacer(),
-              NativeSliceBuilder(
-                  valueListenable: widget.controller.native,
-                  select: (native) => [
-                        native['demo'],
-                        native['weather'],
-                        native['systemStatus']
-                      ],
-                  builder: (context, native) =>
-                      Row(mainAxisSize: MainAxisSize.min, children: [
-                        if (native['demo'] == true) ...[
-                          Text('演示',
-                              style: TextStyle(
-                                  color: s.muted, fontSize: Design.px(17))),
-                          SizedBox(width: Design.px(20)),
+        child: Stack(alignment: Alignment.center, children: [
+          Padding(
+              padding: EdgeInsets.symmetric(horizontal: Design.px(40)),
+              child: Row(children: [
+                Text(
+                    '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}',
+                    style: TextStyle(
+                        fontSize: Design.px(23), fontWeight: FontWeight.w500)),
+                const SizedBox(width: 28),
+                GestureDetector(
+                    key: const ValueKey('desktop-name'),
+                    onLongPress: () =>
+                        showDesktopNameDialog(context, widget.controller),
+                    child: ConstrainedBox(
+                        constraints: BoxConstraints(maxWidth: Design.px(480)),
+                        child: Text(widget.controller.appearance.desktopName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                                color: s.muted,
+                                fontSize: 15,
+                                letterSpacing: 2)))),
+                const Spacer(),
+                NativeSliceBuilder(
+                    valueListenable: widget.controller.native,
+                    select: (native) => [
+                          native['demo'],
+                          native['weather'],
+                          native['systemStatus']
                         ],
-                        _HeaderWeather(native: native),
-                        SizedBox(width: Design.px(28)),
-                        SystemStatusRow(
-                            status: native['systemStatus'] is Map
-                                ? Map<String, dynamic>.from(
-                                    native['systemStatus'])
-                                : const {}),
-                      ])),
-              if (!widget.controller.settings) ...[
-                SizedBox(width: Design.px(16)),
-                IconAction(
-                    key: const ValueKey('desktop-settings-entry'),
-                    icon: Icons.settings_outlined,
-                    label: '桌面设置',
-                    size: Design.px(40),
-                    iconSize: Design.px(22),
-                    foregroundColor: s.muted,
-                    framed: false,
-                    onTap: widget.controller.editing
-                        ? null
-                        : widget.controller.openSettings),
-              ],
-            ])));
+                    builder: (context, native) =>
+                        Row(mainAxisSize: MainAxisSize.min, children: [
+                          if (native['demo'] == true) ...[
+                            Text('演示',
+                                style: TextStyle(
+                                    color: s.muted, fontSize: Design.px(17))),
+                            SizedBox(width: Design.px(20)),
+                          ],
+                          _HeaderWeather(native: native),
+                          SizedBox(width: Design.px(28)),
+                          SystemStatusRow(
+                              status: native['systemStatus'] is Map
+                                  ? Map<String, dynamic>.from(
+                                      native['systemStatus'])
+                                  : const {}),
+                        ])),
+              ])),
+          if (widget.position != null && !widget.controller.settings)
+            _DesktopPageIndicator(
+                controller: widget.controller, position: widget.position!),
+        ]));
   }
 }
 
@@ -137,7 +129,8 @@ class _HeaderWeather extends StatelessWidget {
 
 class Desktop extends StatefulWidget {
   final LauncherController controller;
-  const Desktop({super.key, required this.controller});
+  final ValueNotifier<double>? position;
+  const Desktop({super.key, required this.controller, this.position});
   @override
   State<Desktop> createState() => _DesktopState();
 }
@@ -145,11 +138,12 @@ class Desktop extends StatefulWidget {
 class _DesktopState extends State<Desktop> with _DesktopDrag {
   LauncherController get controller => widget.controller;
   final _pagerKey = GlobalKey<DesktopPageStackState>();
-  late final _pagePosition = ValueNotifier(controller.page.toDouble());
+  late final _pagePosition =
+      widget.position ?? ValueNotifier(controller.page.toDouble());
   bool warmed = false;
   @override
   void dispose() {
-    _pagePosition.dispose();
+    if (widget.position == null) _pagePosition.dispose();
     super.dispose();
   }
 
@@ -197,7 +191,10 @@ class _DesktopState extends State<Desktop> with _DesktopDrag {
                               key: ValueKey('desktop-page-$i'),
                               enabled: EmbeddedContentPolicy.allowed(context),
                               visible: i == page && !c.settings,
-                              child: grids[i])
+                              child: Padding(
+                                  padding: EdgeInsets.symmetric(
+                                      horizontal: Design.px(32)),
+                                  child: grids[i]))
                       ])),
           _dragFeedback(),
         ]));
@@ -326,45 +323,51 @@ class _DesktopStaticLayers extends StatelessWidget {
             key: const ValueKey('card-grid'),
             behavior: HitTestBehavior.translucent,
             onLongPress: c.editing ? null : c.beginEdit,
-            onHorizontalDragStart:
-                c.editing ? null : (_) => pagerKey.currentState?.dragStart(),
-            onHorizontalDragUpdate: c.editing
-                ? null
-                : (d) => pagerKey.currentState?.dragUpdate(d.primaryDelta ?? 0),
-            onHorizontalDragEnd: c.editing
-                ? null
-                : (d) => pagerKey.currentState?.dragEnd(d.primaryVelocity ?? 0),
-            onHorizontalDragCancel:
-                c.editing ? null : () => pagerKey.currentState?.dragCancel(),
+            onHorizontalDragStart: (_) {
+              if (!c.placing) pagerKey.currentState?.dragStart();
+            },
+            onHorizontalDragUpdate: (d) {
+              if (!c.placing)
+                pagerKey.currentState?.dragUpdate(d.primaryDelta ?? 0);
+            },
+            onHorizontalDragEnd: (d) {
+              if (!c.placing)
+                pagerKey.currentState?.dragEnd(d.primaryVelocity ?? 0);
+            },
+            onHorizontalDragCancel: () => pagerKey.currentState?.dragCancel(),
             child: Padding(
-                padding: EdgeInsets.fromLTRB(
-                    Design.px(32), Design.px(16), Design.px(32), Design.px(24)),
+                padding:
+                    EdgeInsets.fromLTRB(0, Design.px(16), 0, Design.px(24)),
                 child: Column(children: [
                   if (c.editing)
                     SizedBox(
                         height: Design.px(74),
-                        child: Row(children: [
-                          const Text('编辑桌面', style: TextStyle(fontSize: 28)),
-                          const SizedBox(width: 24),
-                          Text('拖动卡片让位 · 边缘停留换页 · 右下角调整尺寸',
-                              style: TextStyle(
-                                  color: SurfaceStyle.of(context).muted,
-                                  fontSize: 17)),
-                          const Spacer(),
-                          TextButton(
-                              key: const ValueKey('cancel-edit'),
-                              onPressed: c.cancelEdit,
-                              child: const Text('取消')),
-                          TextButton.icon(
-                              key: const ValueKey('add-card'),
-                              onPressed: () => showCardLibrary(context, c),
-                              icon: const Icon(Icons.add),
-                              label: const Text('添加卡片')),
-                          FilledButton(
-                              key: const ValueKey('finish-edit'),
-                              onPressed: c.finishEdit,
-                              child: const Text('完成'))
-                        ])),
+                        child: Padding(
+                            padding:
+                                EdgeInsets.symmetric(horizontal: Design.px(32)),
+                            child: Row(children: [
+                              const Text('编辑桌面',
+                                  style: TextStyle(fontSize: 28)),
+                              const SizedBox(width: 24),
+                              Text('拖动卡片让位 · 边缘停留换页 · 右下角调整尺寸',
+                                  style: TextStyle(
+                                      color: SurfaceStyle.of(context).muted,
+                                      fontSize: 17)),
+                              const Spacer(),
+                              TextButton(
+                                  key: const ValueKey('cancel-edit'),
+                                  onPressed: c.cancelEdit,
+                                  child: const Text('取消')),
+                              TextButton.icon(
+                                  key: const ValueKey('add-card'),
+                                  onPressed: () => showCardLibrary(context, c),
+                                  icon: const Icon(Icons.add),
+                                  label: const Text('添加卡片')),
+                              FilledButton(
+                                  key: const ValueKey('finish-edit'),
+                                  onPressed: c.finishEdit,
+                                  child: const Text('完成'))
+                            ]))),
                   Expanded(
                       child: DesktopPageStack(
                           key: pagerKey,
@@ -375,8 +378,6 @@ class _DesktopStaticLayers extends StatelessWidget {
                           effect:
                               c.editing ? 'none' : c.appearance.pageTransition,
                           children: grids)),
-                  SizedBox(height: Design.px(16)),
-                  _DesktopPageIndicator(controller: c, position: position),
                 ]))));
   }
 }
@@ -395,59 +396,63 @@ class _DesktopPageIndicator extends StatelessWidget {
         pill = Design.px(24);
     return SizedBox(
         height: Design.px(16),
-        child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          SizedBox(
-              width: slot * c.pageCount,
-              height: Design.px(16),
-              child: Stack(children: [
-                for (int i = 0; i < c.pageCount; i++)
-                  Positioned(
-                      left: slot * i + (slot - dot) / 2,
-                      top: Design.px(4),
-                      width: dot,
-                      height: dot,
-                      child: DecoratedBox(
-                          decoration: BoxDecoration(
-                              color: s.muted.withValues(alpha: .3),
-                              borderRadius: BorderRadius.circular(dot / 2)))),
-                Positioned(
-                    left: (slot - pill) / 2,
-                    top: Design.px(4),
-                    width: pill,
-                    height: dot,
-                    child: RepaintBoundary(
-                        child: ValueListenableBuilder<double>(
-                            valueListenable: position,
-                            builder: (context, value, child) =>
-                                Transform.translate(
-                                    offset: Offset(slot * value, 0),
-                                    child: KeyedSubtree(
-                                        key: const ValueKey(
-                                            'page-indicator-active'),
-                                        child: child!)),
-                            child: DecoratedBox(
-                                decoration: BoxDecoration(
-                                    color: s.accent,
-                                    borderRadius:
-                                        BorderRadius.circular(dot / 2)))))),
-                for (int i = 0; i < c.pageCount; i++)
-                  Positioned(
-                      left: slot * i,
-                      width: slot,
-                      top: 0,
-                      bottom: 0,
-                      child: Semantics(
-                          label: '桌面第${i + 1}页',
-                          button: true,
-                          child: GestureDetector(
-                              key: ValueKey('page-$i'),
-                              behavior: HitTestBehavior.opaque,
-                              onTap: () => c.switchPage(i))))
-              ])),
-          if (c.editing)
-            IconAction(
-                icon: Icons.add, label: '新建桌面页', size: 32, onTap: c.newPage)
-        ]));
+        child: Row(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              SizedBox(
+                  width: slot * c.pageCount,
+                  height: Design.px(16),
+                  child: Stack(children: [
+                    for (int i = 0; i < c.pageCount; i++)
+                      Positioned(
+                          left: slot * i + (slot - dot) / 2,
+                          top: Design.px(4),
+                          width: dot,
+                          height: dot,
+                          child: DecoratedBox(
+                              decoration: BoxDecoration(
+                                  color: s.muted.withValues(alpha: .3),
+                                  borderRadius:
+                                      BorderRadius.circular(dot / 2)))),
+                    Positioned(
+                        left: (slot - pill) / 2,
+                        top: Design.px(4),
+                        width: pill,
+                        height: dot,
+                        child: RepaintBoundary(
+                            child: ValueListenableBuilder<double>(
+                                valueListenable: position,
+                                builder: (context, value, child) =>
+                                    Transform.translate(
+                                        offset: Offset(slot * value, 0),
+                                        child: KeyedSubtree(
+                                            key: const ValueKey(
+                                                'page-indicator-active'),
+                                            child: child!)),
+                                child: DecoratedBox(
+                                    decoration: BoxDecoration(
+                                        color: s.accent,
+                                        borderRadius:
+                                            BorderRadius.circular(dot / 2)))))),
+                    for (int i = 0; i < c.pageCount; i++)
+                      Positioned(
+                          left: slot * i,
+                          width: slot,
+                          top: 0,
+                          bottom: 0,
+                          child: Semantics(
+                              label: '桌面第${i + 1}页',
+                              button: true,
+                              child: GestureDetector(
+                                  key: ValueKey('page-$i'),
+                                  behavior: HitTestBehavior.opaque,
+                                  onTap: () => c.switchPage(i))))
+                  ])),
+              if (c.editing)
+                IconAction(
+                    icon: Icons.add, label: '新建桌面页', size: 32, onTap: c.newPage)
+            ]));
   }
 }
 

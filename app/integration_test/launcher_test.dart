@@ -185,7 +185,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('add-air')));
     await settle();
     verify('Card library allocates page when full',
-        c.page == 2 && c.pageCount == 3 && c.cards.length == 9);
+        c.page == 2 && c.pageCount == 3 && c.cards.length == 10);
     final air = c.cards.last,
         grid = tester.getSize(find.byKey(const ValueKey('grid-bounds')));
     await tester.drag(
@@ -202,7 +202,7 @@ void main() {
     await c.persist();
     final layout = await c.gateway.bootstrap();
     verify('Edited card layout committed to Android preferences',
-        (jsonDecode(layout['savedDesign'])['cards'] as List).length == 9);
+        (jsonDecode(layout['savedDesign'])['cards'] as List).length == 10);
     await binding.takeScreenshot('flutter-card-edited');
     c.home();
     await settle();
@@ -415,8 +415,6 @@ void main() {
     await settle();
     c.openSettings();
     c.tab('system');
-    await settle();
-    await tester.tap(find.byKey(const ValueKey('system-app-controls')));
     await settle();
     await binding.takeScreenshot('flutter-integration-settings');
     await tester.scrollUntilVisible(

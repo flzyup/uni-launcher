@@ -85,16 +85,18 @@ class SystemSettingsPanel extends StatelessWidget {
               return Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    ExpansionTile(
+                    Column(
                         key: const ValueKey('system-app-controls'),
-                        title: const Text('应用与底栏'),
-                        subtitle: const Text('导航、播放器、全局底栏与系统导航栏'),
-                        tilePadding:
-                            EdgeInsets.symmetric(horizontal: Design.px(24)),
-                        collapsedShape: s.controlShape(),
-                        shape: s.controlShape(),
-                        childrenPadding: EdgeInsets.all(Design.px(16)),
-                        children: [RuntimeSettings(controller: controller)]),
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Padding(
+                              padding: EdgeInsets.symmetric(
+                                  horizontal: Design.px(16),
+                                  vertical: Design.px(12)),
+                              child: Text('应用与底栏',
+                                  style: TextStyle(fontSize: Design.px(26)))),
+                          RuntimeSettings(controller: controller),
+                        ]),
                     SizedBox(height: Design.px(22)),
                     GlassSurface(
                         child: Column(

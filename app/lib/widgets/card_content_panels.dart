@@ -73,9 +73,17 @@ class _AppTile extends StatelessWidget {
         id = app['id']?.toString(),
         keyId = app['package']?.toString() ?? id ?? 'index-$index',
         radius = BorderRadius.circular(s.controlRadius),
+        settingsEntry = id != null &&
+            (id.endsWith('/.DesktopSettings') ||
+                id.endsWith('/xyz.i4o.uni.launcher.DesktopSettings')),
         tap = id == null
             ? null
-            : () => controller.command('launch-app', value: id);
+            : settingsEntry
+                ? () {
+                    if (!controller.isGlobalDock) Navigator.of(context).pop();
+                    controller.openSettings();
+                  }
+                : () => controller.command('launch-app', value: id);
     return Column(children: [
       Semantics(
           button: true,
