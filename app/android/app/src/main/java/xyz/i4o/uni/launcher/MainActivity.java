@@ -36,6 +36,7 @@ public final class MainActivity extends FlutterActivity {
     private String cached="{}";
     private JSONObject flutterViewport=new JSONObject();
     private int reservedBottomPx;
+    private int sentStaticRevision=-1;
     private boolean initialSettings;
     private EventChannel.EventSink sink;
     private EventChannel events;
@@ -120,7 +121,11 @@ public final class MainActivity extends FlutterActivity {
 
     private void updateSnapshot(){updateSnapshot(false);}
     private void updateSnapshot(boolean includeSettings){
-        JSONObject state=includeSettings?rt.snapshotWithSettings():rt.snapshot();
+        // Icons, artwork, lyrics and the saved design travel once per change, not with
+        // every telemetry tick; a telemetry-only packet is a fraction of the size.
+        boolean includeStatic=includeSettings||rt.staticRevision()!=sentStaticRevision;
+        JSONObject state=includeSettings?rt.snapshotWithSettings():rt.snapshot(includeStatic);
+        if(!includeSettings&&includeStatic)sentStaticRevision=rt.staticRevision();
         try{
             View content=findViewById(android.R.id.content),decor=getWindow().getDecorView();
             WindowInsets insets=decor.getRootWindowInsets();
@@ -148,6 +153,10 @@ public final class MainActivity extends FlutterActivity {
                 .put("globalDock",GlobalDockService.snapshot(this));
         }catch(Exception e){android.util.Log.e("UniState","Window snapshot failed",e);}
         cached=state.toString();
+        // Invariant: a telemetry-only packet must stay small. If a payload key ever
+        // leaks back into the delta pack, say so instead of silently stalling frames.
+        if(!includeStatic&&!includeSettings&&cached.length()>65536)
+            android.util.Log.w("UniPerf","Telemetry packet "+cached.length()+" chars; payload leaked into the delta pack");
     }
 
     private void handle(JSONObject request)throws Exception{

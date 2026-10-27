@@ -41,6 +41,7 @@ public final class GlobalDockService extends Service {
     private byte[] panelBackdrop;
     private boolean panelReady;
     private static final long PANEL_IDLE_MS=5000;
+    private static final JSONArray NO_RECENTS=new JSONArray();
     private final Runnable releaseIdlePanel=()->{
         if(!panel.isEmpty()||panelWindow==null)return;
         panelWindow.suspend();
@@ -202,6 +203,8 @@ public final class GlobalDockService extends Service {
         final EventChannel events;
         EventChannel.EventSink sink;
         int relayouts;
+        int sentStaticRevision=-1;
+        JSONArray sentRecentItems;
         boolean attached;
         OverlayWindow(boolean isPanel){
             this.isPanel=isPanel;
@@ -210,7 +213,7 @@ public final class GlobalDockService extends Service {
             methods=new MethodChannel(engine.getDartExecutor().getBinaryMessenger(),"xyz.i4o.uni.launcher/platform");
             methods.setMethodCallHandler((call,result)->{
                 try{
-                    if("snapshot".equals(call.method))result.success(state(isPanel).toString());
+                    if("snapshot".equals(call.method))result.success(packet(true).toString());
                     else if("panel-backdrop".equals(call.method))result.success(isPanel?panelBackdrop:null);
                     else if("saveDesign".equals(call.method))result.success(runtime.saveDesign((String)call.arguments));
                     else if("action".equals(call.method)){
@@ -270,7 +273,20 @@ public final class GlobalDockService extends Service {
             if(show){engine.getLifecycleChannel().appIsResumed();if(isPanel)view.requestFocus();}
             else engine.getLifecycleChannel().appIsPaused();
         }
-        void publish(){if(sink!=null)sink.success(state(isPanel).toString());}
+        void publish(){
+            if(sink==null)return;
+            sink.success(packet(runtime.staticRevision()!=sentStaticRevision).toString());
+        }
+        JSONObject packet(boolean includeStatic){
+            // Thumbnails are the heaviest payload of the panel; send them when the
+            // set changes, and an empty list to retire them when recents closes.
+            JSONArray items=isPanel?("recents".equals(panel)?recentTaskItems:NO_RECENTS):null;
+            boolean sendRecent=items!=null&&items!=sentRecentItems;
+            JSONObject snapshot=state(isPanel,includeStatic,sendRecent);
+            if(sendRecent)sentRecentItems=items;
+            if(includeStatic)sentStaticRevision=runtime.staticRevision();
+            return snapshot;
+        }
         void suspend(){
             if(!attached)return;
             show(false);view.detachFromFlutterEngine();windows.removeViewImmediate(view);attached=false;
@@ -284,12 +300,12 @@ public final class GlobalDockService extends Service {
             engine.destroy();
         }
     }
-    private JSONObject state(boolean isPanel){
-        JSONObject j=runtime.snapshot();try{
+    private JSONObject state(boolean isPanel,boolean includeStatic,boolean includeRecent){
+        JSONObject j=runtime.snapshot(includeStatic);try{
             j.put("hostMode",isPanel?"global-panel":"global-dock").put("globalDock",snapshot(this))
              .put("systemNavigationHidden",runtime.prefs().getBoolean("systemNavigationHidden",false))
              .put("systemNavigationGranted",SystemNavigationPolicy.granted(this));
-            if(isPanel&&"recents".equals(panel))j.put("recentTasks",recentTaskItems);
+            if(includeRecent)j.put("recentTasks","recents".equals(panel)?recentTaskItems:NO_RECENTS);
         }catch(Exception ignored){}return j;
     }
     private void showPanel(String kind){

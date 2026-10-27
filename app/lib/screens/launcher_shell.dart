@@ -8,9 +8,28 @@ import '../theme/design_tokens.dart';
 import '../widgets/bottom_dock.dart';
 import 'settings_screen.dart';
 
-class LauncherShell extends StatelessWidget {
+class LauncherShell extends StatefulWidget {
   final LauncherController controller;
   const LauncherShell({super.key, required this.controller});
+  @override
+  State<LauncherShell> createState() => _LauncherShellState();
+}
+
+class _LauncherShellState extends State<LauncherShell> {
+  // Rebuilds used to report geometry on every controller notification; the
+  // payload only changes when the layout, page or overlay state does.
+  String? _sentViewport;
+
+  LauncherController get controller => widget.controller;
+
+  void _reportViewport(String metrics) {
+    if (metrics == _sentViewport) return;
+    _sentViewport = metrics;
+    AndroidGateway.methods
+        .invokeMethod<void>('viewport', metrics)
+        .catchError((Object _) {});
+  }
+
   @override
   Widget build(BuildContext context) {
     return PopScope(
@@ -55,11 +74,9 @@ class LauncherShell extends StatelessWidget {
                         'page': controller.page,
                         'settings': controller.settings
                       });
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        AndroidGateway.methods
-                            .invokeMethod<void>('viewport', metrics)
-                            .catchError((Object _) {});
-                      });
+                      final pending = metrics;
+                      WidgetsBinding.instance
+                          .addPostFrameCallback((_) => _reportViewport(pending));
                     }
                     return Align(
                         alignment: Alignment.topCenter,

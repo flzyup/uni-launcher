@@ -27,6 +27,9 @@ import xyz.i4o.uni.launcher.integration.*;
 public final class LauncherRuntime {
     private static volatile LauncherRuntime instance;
     private static final Handler main=new Handler(Looper.getMainLooper());
+    /** Upper bound of telemetry packets per second; 80ms is faster than a frame
+     * budget but slow enough that a burst of source callbacks costs one rebuild. */
+    private static final long PUBLISH_INTERVAL_MS=80;
     private final Context context;
     private final SharedPreferences prefs;
     private final AppRepository apps;
@@ -46,6 +49,12 @@ public final class LauncherRuntime {
     private boolean homeVisible;
     private boolean desktopContent=true;
     private boolean demoPlaying=true;
+    /** Icons, artwork, lyrics and the saved design rarely change. Each window
+     * sends them once, then streams telemetry-only deltas. */
+    private int staticRevision;
+    private String staticFingerprint="";
+    private boolean publishScheduled;
+    private long publishedAt;
     private int demoTrack;
     private long demoPositionMs,demoSampleAt=android.os.SystemClock.elapsedRealtime();
     private final BroadcastReceiver packages=new BroadcastReceiver(){
@@ -82,13 +91,21 @@ public final class LauncherRuntime {
 
     public SharedPreferences prefs(){return prefs;}
 
-    public JSONObject snapshot(){
-        // Detach nested JSON so window geometry cannot mutate shared state.
-        return onMain(()->new JSONObject(buildSnapshot(false).toString()));
+    public JSONObject snapshot(){return snapshot(true);}
+
+    /** includeStatic=false omits the base64 payloads (app icons, artwork, lyrics,
+     * design) and marks the packet "partial"; the reader keeps its previous copy.
+     * Telemetry-only packets are 1-2 orders of magnitude smaller, so an ordinary
+     * climate or media change no longer serializes hundreds of kilobytes. */
+    public JSONObject snapshot(boolean includeStatic){
+        return onMain(()->buildSnapshot(false,includeStatic));
     }
 
     /** Large settings catalogs are requested explicitly, never polled with telemetry. */
-    public JSONObject snapshotWithSettings(){return onMain(()->new JSONObject(buildSnapshot(true).toString()));}
+    public JSONObject snapshotWithSettings(){return onMain(()->buildSnapshot(true,true));}
+
+    /** Bumped whenever the static payload changes; every window compares it. */
+    public int staticRevision(){return staticRevision;}
 
     public boolean saveDesign(String raw){return onMain(()->saveDesignOnMain(raw));}
 
@@ -96,7 +113,7 @@ public final class LauncherRuntime {
     public boolean handle(JSONObject request)throws Exception{return callOnMain(()->handleOnMain(request));}
 
     private long demoPosition(){return demoPositionMs+(demoPlaying?Math.max(0,android.os.SystemClock.elapsedRealtime()-demoSampleAt):0);}
-    private JSONObject buildSnapshot(boolean includeSettings){
+    private JSONObject buildSnapshot(boolean includeSettings,boolean includeStatic){
         JSONObject state=new JSONObject();try{
             JSONObject climate=new JSONObject().put("left",simulator.left).put("right",simulator.right).put("fan",simulator.fan).put("power",simulator.power)
                 .put("auto",simulator.auto).put("ac",simulator.ac).put("sync",simulator.sync).put("recirc",simulator.recirc)
@@ -109,17 +126,38 @@ public final class LauncherRuntime {
                 .put("globalNavigation",prefs.getBoolean("globalNavigation",false))
                 .put("globalNavigationGranted",context.checkSelfPermission("android.permission.WRITE_SECURE_SETTINGS")==android.content.pm.PackageManager.PERMISSION_GRANTED)
                 .put("dark",(context.getResources().getConfiguration().uiMode&Configuration.UI_MODE_NIGHT_MASK)==Configuration.UI_MODE_NIGHT_YES)
-                .put("apps",installed).put("climate",climate).put("vehicle",telemetry).put("media",media.snapshot().put("preferredPackage",prefs.getString("mediaPackage","auto"))).put("version",xyz.i4o.uni.launcher.BuildConfig.VERSION_NAME+"-flutter");
+                .put("climate",climate).put("vehicle",telemetry).put("version",xyz.i4o.uni.launcher.BuildConfig.VERSION_NAME+"-flutter");
             state.put("desktopSelected",homeVisible&&desktopContent);
             state.put("trafficLights",trafficLights.snapshot());
-            state.put("savedDesign",prefs.getString("savedDesign", "")).put("appNames",storedAppNames()).put("runtimeOwnerCount",listeners.size());
-            if(prefs.getBoolean("demo",false))state.put("media",new JSONObject().put("available",true).put("playing",demoPlaying)
+            JSONObject mediaState=prefs.getBoolean("demo",false)?demoMedia():media.snapshot().put("preferredPackage",prefs.getString("mediaPackage","auto"));
+            JSONObject appNames=storedAppNames();
+            String design=prefs.getString("savedDesign", "");
+            trackStatic(design,appNames,mediaState);
+            if(includeStatic){
+                state.put("apps",installed).put("savedDesign",design).put("appNames",appNames);
+            }else{
+                mediaState.remove("artwork");mediaState.remove("lyrics");
+                state.put("partial",true);
+            }
+            state.put("runtimeOwnerCount",listeners.size()).put("media",mediaState);
+        }catch(Exception e){android.util.Log.e("UniState","Snapshot failed",e);}return state;
+    }
+
+    /** Bumps [staticRevision] only when icons, design, artwork or lyrics change, so
+     * a window can resend the heavy payload instead of streaming it every frame. */
+    private void trackStatic(String design,JSONObject names,JSONObject media){
+        String fingerprint=System.identityHashCode(installed)+":"+design.length()+":"+names.length()
+            +":"+media.optString("artwork","").hashCode()+":"+media.optString("lyrics","").hashCode();
+        if(!fingerprint.equals(staticFingerprint)){staticFingerprint=fingerprint;staticRevision++;}
+    }
+
+    private JSONObject demoMedia(){try{
+        return new JSONObject().put("available",true).put("playing",demoPlaying)
                 .put("title",demoTrack%2==0?"向海而行":"山海之间").put("artist",demoTrack%2==0?"Coastline":"Northbound").put("collection","晨间驾驶歌单").put("source","simulator").put("canNext",true).put("canPrevious",true).put("canToggle",true).put("canSeek",true)
                 .put("lyrics","[00:00.00]晨光沿着海岸慢慢亮起\n[00:03.00]风把远方带进了呼吸\n[00:06.00]穿过山与海的交界\n[00:09.00]每一程都有新的风景\n[00:12.00]跟着潮声向前去\n[00:15.00]让今天从容开启")
                 .put("lyricsSource","demo").put("durationMs",258000).put("positionMs",demoPosition()).put("positionKnown",true)
-                .put("sampledAtMs",System.currentTimeMillis()).put("speed",1));
-        }catch(Exception e){android.util.Log.e("UniState","Snapshot failed",e);}return state;
-    }
+                .put("sampledAtMs",System.currentTimeMillis()).put("speed",1);
+    }catch(Exception e){android.util.Log.e("UniState","Demo media failed",e);return new JSONObject();}}
     private boolean saveDesignOnMain(String raw){
             if(raw==null||raw.length()>65536)return false;
             try{
@@ -159,6 +197,10 @@ public final class LauncherRuntime {
                 SharedPreferences.Editor editor=prefs.edit().putString("savedDesign",raw);
                 if(data.has("appNames"))editor.putString("appNames",data.getJSONObject("appNames").toString());
                 if(!editor.commit())return false;
+                // A rename can keep the same key count and a design can keep its
+                // length; the payload revision must still change so the next packet
+                // carries it instead of streaming only telemetry.
+                staticRevision++;
             }catch(Exception e){return false;}
             publish();return true;
         }
@@ -168,7 +210,7 @@ public final class LauncherRuntime {
             if(zone.length()==0||zone.length()>255||zone.indexOf('\n')>=0||zone.indexOf('\r')>=0||value.length()>96||value.indexOf('\n')>=0||value.indexOf('\r')>=0)return true;
             JSONObject names=storedAppNames();
             if(value.isEmpty())names.remove(zone);else names.put(zone,value);
-            prefs.edit().putString("appNames",names.toString()).commit();publish();return true;
+            prefs.edit().putString("appNames",names.toString()).commit();staticRevision++;publish();return true;
         }
         if("desktop-page".equals(action)){
             setDesktopContent("0".equals(value));return true;
@@ -252,17 +294,29 @@ public final class LauncherRuntime {
         });
     }
 
+    /** Climate, media and status sources each publish on their own callback. A burst
+     * of them must reach the window as one packet: coalesce per looper turn and cap
+     * the rate so a chatty source cannot force a rebuild on every single event. */
     public void publish(){
         onMain(()->{
-            // An owner may remove itself/another owner during notification.
-            for(Map.Entry<Object,Runnable> entry:new IdentityHashMap<>(listeners).entrySet()){
-                if(listeners.get(entry.getKey())!=entry.getValue())continue;
-                try{entry.getValue().run();}
-                catch(RuntimeException e){android.util.Log.w("UniState","Listener failed",e);}
-            }
+            if(publishScheduled)return null;
+            publishScheduled=true;
+            long wait=PUBLISH_INTERVAL_MS-(android.os.SystemClock.elapsedRealtime()-publishedAt);
+            if(wait<=0)main.post(deliver);else main.postDelayed(deliver,wait);
             return null;
         });
     }
+
+    private final Runnable deliver=()->{
+        publishScheduled=false;
+        publishedAt=android.os.SystemClock.elapsedRealtime();
+        // An owner may remove itself/another owner during notification.
+        for(Map.Entry<Object,Runnable> entry:new IdentityHashMap<>(listeners).entrySet()){
+            if(listeners.get(entry.getKey())!=entry.getValue())continue;
+            try{entry.getValue().run();}
+            catch(RuntimeException e){android.util.Log.w("UniState","Listener failed",e);}
+        }
+    };
 
     public void setDesktopContent(boolean selected){
         onMain(()->{if(desktopContent!=selected){desktopContent=selected;publish();}return null;});

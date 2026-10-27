@@ -111,9 +111,50 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
   SurfaceStyle copyWith() => this;
   @override
   SurfaceStyle lerp(covariant SurfaceStyle? other, double t) => other ?? this;
+  // ThemeData compares extensions with mapEquals, which falls back to identity for
+  // types without value equality. Without these, every rebuild produced a "new"
+  // theme and Theme re-inflated the whole subtree — repainting every card on each
+  // controller notification.
+  @override
+  bool operator ==(Object other) =>
+      other is SurfaceStyle &&
+      other.dark == dark &&
+      other.glass == glass &&
+      other.technicalFrame == technicalFrame &&
+      other.radius == radius &&
+      other.spectrumStyle == spectrumStyle &&
+      other.accent == accent &&
+      other.accentText == accentText &&
+      other.seed == seed &&
+      other.text == text &&
+      other.muted == muted &&
+      other.surface == surface &&
+      other.strong == strong &&
+      other.soft == soft &&
+      other.edge == edge &&
+      other.shadow == shadow;
+  @override
+  int get hashCode => Object.hash(dark, glass, technicalFrame, radius,
+      spectrumStyle, accent, accentText, seed, text, muted, surface, strong,
+      soft, edge, shadow);
 }
 
+SurfaceStyle? _cachedStyle;
+ThemeData? _cachedTheme;
+
 ThemeData launcherTheme(SurfaceStyle s) {
+  final cached = _cachedTheme;
+  if (cached != null && _cachedStyle == s) return cached;
+  final data = _buildTheme(s);
+  _cachedStyle = s;
+  _cachedTheme = data;
+  return data;
+}
+
+/// ColorScheme.fromSeed runs a full HCT derivation; the result depends only on the
+/// resolved style, so the launcher builds it once per appearance instead of once
+/// per frame.
+ThemeData _buildTheme(SurfaceStyle s) {
   final shape = s.controlShape();
   final button = ButtonStyle(
     shape: WidgetStatePropertyAll(shape),
