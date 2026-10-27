@@ -177,3 +177,41 @@ adb logcat -s UniPerf
 ```
 
 判读规则：`Total frames rendered` 在静止 10 秒里接近 600 → 2.2/3.2 命中；`Janky frames` 比例在点击后集中出现 → 2.2/2.4/2.5；`Native Heap` 长期上涨 → 3.3 的图像缓存。
+
+## 7. 探针工具（已就绪）
+
+`tools/car_perf_probe.ps1` 把上面第 6 节整条流程自动化，一次跑完输出一份 JSON + 原始 `framestats.csv` + 截图。
+
+```powershell
+# 车机（无线 adb 连好之后）
+pwsh tools/car_perf_probe.ps1 -Label before
+pwsh tools/car_perf_probe.ps1 -Label before-r2      # 第二遍取中位数
+# 装上新包后再跑
+pwsh tools/car_perf_probe.ps1 -Label after
+```
+
+行为约定：
+
+- **只读为主**：不 `pm clear`（除非显式 `-ClearData`）、不卸载、不改偏好设置；装包由人手动做。
+- 跑之前先 `pm path` + 把已装 APK 拉下来用 `apksigner` 验证书，打印出 `certificate`；两次对照该字段必须一致，否则 A/B 无意义。
+- 采集：冷启动 ×N（force-stop → `am start -W`）取中位数、静止 N 秒出帧数、翻页 N 次后的 `framestats`、`meminfo`、Impeller 后端日志行、一张 `screencap`。
+- 产物落 `car-reports/perf/<label>/`（已被 `.gitignore` 忽略），报告在 `car-reports/perf/<label>.json`。
+
+模拟器干跑（`-Label emulator-dryrun`，2 轮冷启动 / 6s 静止 / 4 次翻页）：
+
+| 字段 | 值 |
+| --- | --- |
+| `coldStart.medianTotalMs` | 2832.5（2822–2843） |
+| `idle` | 9 帧 / 6s = **1.5 fps** |
+| `interaction.summary` | 33 帧，p50 5ms，janky 0% |
+| `memory.totalPssKb` | 112137 |
+| `identity.certificate` | `c8a2e9bc…`（与 IP753 证书一致，覆盖安装链路可用） |
+| `identity.backendLog` | `Using the Impeller rendering backend (OpenGLES).` |
+
+顺带发现两件事：
+
+1. **模拟器上 Impeller 走的是 OpenGLES 后端**，不是 Vulkan。所以 3.1 的四组 A/B 在车机上第一件事就是看这行日志——如果车机是 Vulkan，那"降级到 GLES"才有意义；如果车机本来就是 GLES，那 3.1 只剩 `lazy-shader` / `antialias-lines` 两个开关值得试。
+2. 模拟器日志里有 `Fragment shader active uniforms exceed GL_MAX_FRAGMENT_UNIFORM_VECTORS (261)`（因为模拟器 GLES 上限低）。Adreno 530 的上限高得多，正常不会触发，但车机上要顺手看一眼有没有同类 `Impeller validation` 报错——有就说明某些 shader 在该 GPU 上走了退化路径。
+
+调用前需要人工确认的只有一件：**车机当前用的是哪种外观（classic / blueGlass）**。这个值存在应用私有 prefs 里，无 root 读不到，截图我也看不了（当前会话的模型没有图像输入），所以要么你瞄一眼告诉我，要么我用一个临时变体包把外观打印进 logcat。
+
