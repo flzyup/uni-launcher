@@ -17,7 +17,7 @@
 - [天气图标日间总览](../app/verification/weather-icons-day.png)、[夜间总览](../app/verification/weather-icons-night.png)、[导航与播放器接入设置](../app/verification/flutter-integration-settings.png)。
 - **当前实现**：[Flutter 构建与架构](../app/README.md)、[Android 9 验证报告](../app/verification/emulator-report.json)。Flutter 绘制界面，复用 Java 原车适配器；毛玻璃可在设置开启，默认关闭。
 - [Flutter 深色首页](../app/verification/flutter-home-dark.png)、[浅色直角首页](../app/verification/flutter-home-light-square.png)、[毛玻璃设置](../app/verification/flutter-settings-blur-on.png)、[未连接状态](../app/verification/flutter-live-unavailable.png)。
-- [早期 WebView 基线与原生适配器](../android/README.md)、[基线验证报告](../android/verification/emulator-report.json)。保留供对照；当前 APK 入口已使用 Flutter。
+- [早期 WebView 基线与原生适配器](../archive/webview-android/README.md)、[基线验证报告](../archive/webview-android/verification/emulator-report.json)。保留供对照；当前 APK 入口已使用 Flutter。
 
 - [歌词与切换动效](../docs/MEDIA_LYRICS_AND_MOTION.md)：音乐卡片/底栏/详情的同步歌词、官方宿主证据与早期翻屏设置；最新实现见 0.6.11。
 - [设计与实现一致性审计](../docs/UI_FIDELITY_AUDIT.md)：样式偏差修正、座椅控制和验证边界。

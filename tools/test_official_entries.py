@@ -10,8 +10,8 @@ import tempfile
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / 'android/src/xyz/i4o/uni/launcher/integration'
-TEST = ROOT / 'android/test-official-entry'
+SOURCE = ROOT / 'app/android/app/src/main/java/xyz/i4o/uni/launcher/integration'
+TEST = ROOT / 'app/native-tests/test-official-entry'
 HARNESS = 'xyz.i4o.uni.fixture.officialentry'
 PROVIDER = 'ecarx.calendar'
 

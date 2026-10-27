@@ -61,9 +61,9 @@
 ```sh
 python3 app/tools/flutter_task.py analyze --no-pub
 python3 app/tools/flutter_task.py test --no-pub
-python3 android/tools/test-navigation-media-performance.py --prove-regressions
-python3 android/tools/test-netease-adapter.py
-python3 android/tools/test-official-media-bridge.py
+python3 app/native-tests/tools/test-navigation-media-performance.py --prove-regressions
+python3 app/native-tests/tools/test-netease-adapter.py
+python3 app/native-tests/tools/test-official-media-bridge.py
 python3 app/tools/flutter_task.py drive --driver=test_driver/page_motion_driver.dart --target=integration_test/page_motion_test.dart --profile --no-dds -d emulator-5580
 python3 app/tools/flutter_task.py build apk --release --target-platform android-arm64,android-x64 --split-per-abi
 ```

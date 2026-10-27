@@ -43,7 +43,7 @@ public class AdapterContractTest {
 for name,body in files.items():
  p=s/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_text(body)
 jvm=Path('/data/tools/linkco-android/java-runtime/usr/lib/jvm/java-17-openjdk-amd64/bin');out=r/'jvm-classes';out.mkdir(exist_ok=True)
-source=Path(__file__).resolve().parents[1]/'src/xyz/i4o/uni/launcher/integration/NeteaseMediaAdapter.java'
+source=Path(__file__).resolve().parents[3]/'app/android/app/src/main/java/xyz/i4o/uni/launcher/integration/NeteaseMediaAdapter.java'
 subprocess.run([str(jvm/'javac'),'-encoding','UTF-8','-d',str(out),*[str(p) for p in s.rglob('*.java')],str(source)],check=True)
 subprocess.run([str(jvm/'java'),'-cp',str(out),'AdapterContractTest'],check=True)
 

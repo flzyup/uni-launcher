@@ -11,9 +11,18 @@
 
 红绿灯卡片支持已核对的高德广播；百度、腾讯地图的多方向数据出口仍在研究。各项能力和验证边界详见[更新日志](CHANGELOG.md)及[红绿灯接入记录](docs/TRAFFIC_LIGHT_PROVIDERS.md)。
 
+## 支持车型
+
+| 车型 | 年份 | 车机系统版本 | 支持情况 | 备注 |
+| --- | --- | --- | --- | --- |
+| 领克 05 PHEV | 2021 年 | 753（IP753） | ✅ | 主功能均可用 |
+| 领克 06 燃油版 | 2023 年 | E02 | ✅ | 主功能均可用 |
+
+欢迎在 Issue 中反馈其他车型的支持情况，请注明车型、年份、车机系统版本和测试结果，以便同步更新本清单。
+
 ## 运行环境
 
-- 目标车机：领克 05 PHEV，IP753，Android 9（API 28）；其他车型或车机版本的兼容性尚未验证。
+- 已验证的车型和车机版本见上表；未列出的车型或车机版本的兼容性尚未验证。
 - 开发环境：Flutter、Android SDK、Java 17；Android 最低 API 24。已验证的工具链及详细配置见 [Flutter 工程说明](app/README.md)。
 - 应用当前版本以 [pubspec.yaml](app/pubspec.yaml) 为准。模拟器验证不能替代车机功能和性能验证。
 
@@ -40,7 +49,9 @@ flutter build apk --release --target-platform android-arm64,android-x64 --split-
 | 目录 | 内容 |
 | --- | --- |
 | `app/` | Flutter 界面、Android 应用入口和测试 |
-| `android/` | 原生适配模块及早期实现参考 |
+| `app/android/` | Android 平台入口、原生适配和导航栏资源 |
+| `app/native-tests/` | 原生适配测试、模拟器夹具和测试工具 |
+| `archive/webview-android/` | 早期 WebView 基线与历史验证资料 |
 | `docs/` | 设计、接口、版本验证与实车记录 |
 | `design/` | 设计稿及交互原型 |
 | `analysis/` | APK 分析摘要与证据索引 |
@@ -52,7 +63,13 @@ flutter build apk --release --target-platform android-arm64,android-x64 --split-
 - [Flutter 工程说明](app/README.md)与[原车车辆接口](docs/OFFICIAL_CAR_API.md)
 - [导航与红绿灯](docs/AMAP_TRAFFIC_LIGHT_CARD.md)、[媒体歌词与动效](docs/MEDIA_LYRICS_AND_MOTION.md)
 - [产品与界面设计](docs/PRODUCT_DESIGN.md)、[车辆卡片设计](docs/VEHICLE_CARD_DESIGN.md)
-- [完整参考资料与历史设计](docs/PROJECT_REFERENCE.md)
+- [项目目录与原生代码](docs/PROJECT_STRUCTURE.md)、[完整参考资料与历史设计](docs/PROJECT_REFERENCE.md)
+
+## 贡献与 Pull Request
+
+永远欢迎提交 Pull Request！请使用 `feat/lynkco-<车型>` 命名车型功能分支，例如领克 05 使用 `feat/lynkco-05`。
+
+提交 PR 前，请在对应车型的车机上完成测试并确认验证通过，在 PR 描述中说明车型、车机系统版本及测试结果。同时请同步最新的 `main` 分支，解决所有合并冲突，确保 PR 可以无冲突地合并到 `main`。
 
 ## 免费使用与许可声明
 

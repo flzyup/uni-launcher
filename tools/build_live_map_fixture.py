@@ -18,8 +18,8 @@ sdk = Path('/data/tools/linkco-android/sdk')
 build = sdk / 'build-tools/36.0.0'
 java = Path('/data/tools/linkco-android/java-runtime/usr/lib/jvm/java-17-openjdk-amd64/bin')
 android = sdk / 'platforms/android-9/android.jar'
-source = root / 'android/test-navigation'
-out = root / 'android/build/live-navigation'
+source = root / 'app/native-tests/test-navigation'
+out = root / 'app/native-tests/build/live-navigation'
 classes = out / 'classes'
 classes.mkdir(parents=True, exist_ok=True)
 

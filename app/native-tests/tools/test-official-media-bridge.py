@@ -2,7 +2,7 @@
 """JVM transport/lifecycle contract tests. No device, OEM APK, or vehicle access."""
 from pathlib import Path
 import subprocess,tempfile
-root=Path(__file__).resolve().parents[2]
+root=Path(__file__).resolve().parents[3]
 files={
 'android/content/pm/PackageManager.java':'''package android.content.pm; public class PackageManager {public static int PERMISSION_GRANTED=0;public android.content.Intent getLaunchIntentForPackage(String p){return new android.content.Intent();}}''',
 'android/content/Intent.java':'''package android.content; public class Intent {public Intent(){}public Intent(String a){}public Intent setComponent(ComponentName c){return this;}public static int FLAG_ACTIVITY_NEW_TASK=1; public Intent addFlags(int f){return this;}}''',
@@ -43,5 +43,5 @@ with tempfile.TemporaryDirectory(prefix='uni-oem-media-') as tmp:
   f=p/name;f.parent.mkdir(parents=True,exist_ok=True);f.write_text(text)
  jvm=Path('/data/tools/linkco-android/java-runtime/usr/lib/jvm/java-17-openjdk-amd64/bin')
  out=p/'classes';out.mkdir()
- subprocess.run([str(jvm/'javac'),'-encoding','UTF-8','-d',str(out),*[str(f) for f in p.rglob('*.java')],str(root/'android/src/xyz/i4o/uni/launcher/integration/OfficialMediaBridge.java')],check=True)
+ subprocess.run([str(jvm/'javac'),'-encoding','UTF-8','-d',str(out),*[str(f) for f in p.rglob('*.java')],str(root/'app/android/app/src/main/java/xyz/i4o/uni/launcher/integration/OfficialMediaBridge.java')],check=True)
  subprocess.run([str(jvm/'java'),'-cp',str(out),'OfficialMediaBridgeTest'],check=True)

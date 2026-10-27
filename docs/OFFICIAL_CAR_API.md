@@ -87,7 +87,7 @@
 
 四轮原始值已由用户实读。其物理单位与单位偏好是否同步变化仍未完成证据闭环；`wire=1 → data=-1` 只能确认原厂会默认 kPa，不能确认收到有效 kPa 设置。因此压力保留 `unit=raw、unitVerified=false`；单位字段保留无效状态、原始值及 `sdkFallback=kPa`，不显示成 PSI，不按数值量级擅自转换。
 
-车辆信息补充路径中，SDK 实现了车速 `1048832`、车内 PM2.5 `1049344`、AQI `1049856`、燃油 `1050112`、里程 `1050368`、续航 `1050624` 等连续读取。厂商车速原始整数除以 100；燃油原始 Double 乘 1000，不能直接当百分比。独立 [OfficialVehicleSensors.java](../android/src/xyz/i4o/uni/launcher/integration/OfficialVehicleSensors.java) 已实现下表七项，由 Reader 的工作线程调用；helper 不创建新连接，也不修改 Reader。
+车辆信息补充路径中，SDK 实现了车速 `1048832`、车内 PM2.5 `1049344`、AQI `1049856`、燃油 `1050112`、里程 `1050368`、续航 `1050624` 等连续读取。厂商车速原始整数除以 100；燃油原始 Double 乘 1000，不能直接当百分比。独立 [OfficialVehicleSensors.java](../app/android/app/src/main/java/xyz/i4o/uni/launcher/integration/OfficialVehicleSensors.java) 已实现下表七项，由 Reader 的工作线程调用；helper 不创建新连接，也不修改 Reader。
 
 | fields 键 | SDK ID | 精确 PA getter | PA 范围与归一化 | 默认单位及有效性 |
 | --- | --- | --- | --- | --- |
@@ -116,7 +116,7 @@ helper 不订阅、不持有 Context、不关闭借来的对象，没有车控�
 
 **Reader API 与本地验证**
 
-实现位于 [OfficialCarReader.java](../android/src/xyz/i4o/uni/launcher/integration/OfficialCarReader.java)，常量与写合约见 [OfficialCarContract.java](../android/src/xyz/i4o/uni/launcher/integration/OfficialCarContract.java)。
+实现位于 [OfficialCarReader.java](../app/android/app/src/main/java/xyz/i4o/uni/launcher/integration/OfficialCarReader.java)，常量与写合约见 [OfficialCarContract.java](../app/android/app/src/main/java/xyz/i4o/uni/launcher/integration/OfficialCarContract.java)。
 
 ```java
 OfficialCarReader reader = new OfficialCarReader(context, changedOnMain);

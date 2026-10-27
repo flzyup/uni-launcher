@@ -9,11 +9,11 @@ from pathlib import Path
 import subprocess
 import tempfile
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 JAVA = Path('/data/tools/linkco-android/java-runtime/usr/lib/jvm/java-17-openjdk-amd64/bin')
 SDK = Path('/data/tools/linkco-android/sdk')
-INTEGRATION = ROOT / 'android/src/xyz/i4o/uni/launcher/integration'
-CORE = ROOT / 'android/src/xyz/i4o/uni/launcher/core/MediaSourcePolicy.java'
+INTEGRATION = ROOT / 'app/android/app/src/main/java/xyz/i4o/uni/launcher/integration'
+CORE = ROOT / 'app/android/app/src/main/java/xyz/i4o/uni/launcher/core/MediaSourcePolicy.java'
 STUBS = {
 'android/content/Context.java': '''package android.content;
 import android.content.pm.*;import android.content.res.*;import android.media.session.*;import java.util.*;
@@ -119,7 +119,7 @@ def main():
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(body)
         sources = [*doubles.rglob('*.java'), CORE, INTEGRATION/'NeteaseMediaAdapter.java']
-        tests = ROOT/'android/test-performance'
+        tests = ROOT/'app/native-tests/test-performance'
         adapters = [INTEGRATION/'NavigationApps.java', INTEGRATION/'MediaAdapter.java']
         out = temp/'classes';out.mkdir()
         run([JAVA/'javac', '-encoding', 'UTF-8', '-cp', json_jar, '-d', out, *sources, *adapters, *tests.glob('*.java')])

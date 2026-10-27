@@ -1,6 +1,6 @@
 # UNI Launcher 0.1.0
 
-这是保留的 WebView 基线。当前版本入口已迁移到 [Flutter 工程](../app/README.md)，继续复用本目录的 `core/`、`integration/` 与资源；以下说明只描述基线 APK。
+这是保留的 WebView 基线。当前版本入口已迁移到 [Flutter 工程](../../app/README.md)，复用 `app/android/app/src/main/` 中的 `core/`、`integration/` 与资源；以下说明只描述基线 APK。
 
 包名 `xyz.i4o.uni.launcher`。一个 APK，Java 原生 Android 宿主 + APK 内的离线界面，复用已评审的 V04 组件。当前为 Android 9 模拟器验证版；实车空调、胎压和官方字段一致性仍待上车核对。
 
@@ -31,13 +31,13 @@
 | 路径 | 职责 |
 | --- | --- |
 | `src/.../MainActivity.java` | 生命周期、离线资源、白名单桥接、原生保存 |
-| `src/.../core/` | 与 Android 无关的命令边界和模拟状态 |
-| `src/.../integration/` | 应用、媒体、车辆、导航栏、官方目录和 Widget 宿主 |
-| `../design/*.js` / `*.css` | 共享主题 token、图标、卡片、设置和编辑交互 |
+| `../../app/android/app/src/main/java/.../core/` | 与 Android 无关的命令边界和模拟状态 |
+| `../../app/android/app/src/main/java/.../integration/` | 应用、媒体、车辆、导航栏、官方目录和 Widget 宿主 |
+| `../../design/*.js` / `*.css` | 共享主题 token、图标、卡片、设置和编辑交互 |
 | `ui/runtime.*` | 正式 App 的数据/动作适配、空态和旧 WebView 兼容 |
-| `../analysis/official-widgets.json` | 原厂 Provider 目录唯一来源 |
-| `test/` | Java 状态边界测试 |
-| `test-fixture/` | 仅供模拟器的合成 MediaSession / RemoteViews 源 |
+| `../../analysis/official-widgets.json` | 原厂 Provider 目录唯一来源 |
+| `../../app/native-tests/test/` | Java 状态边界测试 |
+| `../../app/native-tests/test-fixture/` | 仅供模拟器的合成 MediaSession / RemoteViews 源 |
 | `tools/verify-emulator.mjs` | 真正的 Android WebView + ADB 触控验证 |
 
 界面未申请 INTERNET；仅加载 HTTPS 虚拟源映射的 APK assets，禁用 file/content 访问和外部页面导航。桥接不支持任意 shell 或组件执行。音乐元数据在 HTML 输出边界转义。
@@ -49,7 +49,7 @@ Android 9 自带 WebView 66 不支持实时 `backdrop-filter`：使用半透明�
 本机 Java 17、D8、aapt2、apksigner 在 `/tmp/linkco-build`，API 28 SDK 在 `/data/tools/linkco-android/sdk`。可用 `--toolchain`、`--sdk` 覆盖，目录结构见 `build.py`。无 Gradle 和第三方 Android 运行库。
 
 ```sh
-cd android
+cd archive/webview-android
 npm ci
 python3 build.py --test-only
 python3 build.py
@@ -74,7 +74,7 @@ ANDROID_SDK_ROOT=/data/tools/linkco-android/sdk \
 
 ```sh
 adb -s emulator-5580 install -r dist/UNI-Launcher-0.1.0-debug.apk
-python3 tools/build-fixture.py
+python3 ../../app/native-tests/tools/build-fixture.py
 node tools/verify-emulator.mjs --fixture
 ```
 
@@ -82,6 +82,6 @@ node tools/verify-emulator.mjs --fixture
 
 真实模拟器截图和 [验证报告](verification/emulator-report.json) 验证的是 Android 接入和界面逻辑。车控、休眠/启动、倒车接管、窗口边界、权限和长时性能需要实车验证。
 
-下一轮按 [IP753 实车验证记录](../docs/CAR_ACCEPTANCE.md) 补齐提供者字段、权限与车控契约。
+下一轮按 [IP753 实车验证记录](../../docs/CAR_ACCEPTANCE.md) 补齐提供者字段、权限与车控契约。
 
-依据：本地 [官方 APK 分析](../docs/APK_ANALYSIS.md)、[AppWidgetHost 契约](https://developer.android.com/reference/android/appwidget/AppWidgetHost)、[Android 模拟器启动/安装](https://developer.android.com/studio/run/emulator-commandline)。
+依据：本地 [官方 APK 分析](../../docs/APK_ANALYSIS.md)、[AppWidgetHost 契约](https://developer.android.com/reference/android/appwidget/AppWidgetHost)、[Android 模拟器启动/安装](https://developer.android.com/studio/run/emulator-commandline)。

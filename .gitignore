@@ -6,8 +6,8 @@ __pycache__/
 *.apk
 *.pk8
 *.keystore
-/android/build/
-/android/dist/
-/android/node_modules/
+/archive/webview-android/build/
+/archive/webview-android/dist/
+/archive/webview-android/node_modules/
 
 /car-reports/

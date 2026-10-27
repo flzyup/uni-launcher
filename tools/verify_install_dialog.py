@@ -39,7 +39,7 @@ def main():
                 sign(temp/'target-unsigned.apk',temp/f'target-{version}.apk')
             classes=temp/'classes';classes.mkdir();assets=temp/'assets';assets.mkdir()
             (assets/'candidate.apk').write_bytes((temp/'target-2.apk').read_bytes())
-            source=ROOT/'android/test-install-preview'
+            source=ROOT/'app/native-tests/test-install-preview'
             call(JAVA/'javac','-source','8','-target','8','-Xlint:-options','-encoding','UTF-8','-bootclasspath',platform,'-d',classes,*source.joinpath('src').rglob('*.java'))
             call(JAVA/'java','-cp',SDK/'cmdline-tools/latest/lib/r8.jar','com.android.tools.r8.D8','--min-api','24','--lib',platform,'--output',temp,*classes.rglob('*.class'))
             call(aapt,'link','-I',platform,'--manifest',source/'AndroidManifest.xml','-A',assets,'-o',temp/'preview-unsigned.apk')

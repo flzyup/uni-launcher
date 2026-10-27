@@ -17,6 +17,7 @@ import xyz.i4o.uni.launcher.core.MediaSourcePolicy;
 import android.graphics.Bitmap;
 import android.util.Base64;
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.util.List;
 import java.util.ArrayList;
 
@@ -29,6 +30,7 @@ public final class MediaAdapter {
     private final ComponentName listener;
     private final Runnable changed;
     private final NeteaseMediaAdapter netease;
+    private final LyricsResolver lyrics;
     private final Handler handler=new Handler();
     private MediaController controller;
     private boolean authorized;
@@ -54,6 +56,7 @@ public final class MediaAdapter {
     };
     public MediaAdapter(Context context,Runnable changed){
         this.context=context;this.changed=changed;netease=new NeteaseMediaAdapter(changed);manager=(MediaSessionManager)context.getSystemService(Context.MEDIA_SESSION_SERVICE);
+        lyrics=new LyricsResolver(new File(context.getFilesDir(),"media-lyrics"),changed);
         listener=new ComponentName(context,MediaAccessService.class);
         officialBridge=new OfficialMediaBridge(context,(action,source)->{
             if(controller==null||!source.equals(controller.getPackageName()))return false;
@@ -151,8 +154,10 @@ public final class MediaAdapter {
                 .put("reason",!authorized?"请授权媒体访问":controller==null?"所选播放器尚未建立媒体会话":"");
             if(controller!=null){
                 MediaMetadata m=controller.getMetadata();PlaybackState p=controller.getPlaybackState();
-                j.put("source",controller.getPackageName()).put("title",m==null?"":m.getString(MediaMetadata.METADATA_KEY_TITLE))
-                    .put("artist",m==null?"":m.getString(MediaMetadata.METADATA_KEY_ARTIST))
+                String title=m==null?"":m.getString(MediaMetadata.METADATA_KEY_TITLE);
+                String artist=m==null?"":m.getString(MediaMetadata.METADATA_KEY_ARTIST);
+                long duration=m==null?0:Math.max(0,m.getLong(MediaMetadata.METADATA_KEY_DURATION));
+                j.put("source",controller.getPackageName()).put("title",title).put("artist",artist)
                     .put("collection",m==null?"":m.getString(MediaMetadata.METADATA_KEY_ALBUM))
                     .put("playing",p!=null&&p.getState()==PlaybackState.STATE_PLAYING);
                 long actions=p==null?0:p.getActions();
@@ -161,15 +166,23 @@ public final class MediaAdapter {
                     .put("canPrevious",(actions&PlaybackState.ACTION_SKIP_TO_PREVIOUS)!=0)
                     .put("canToggle",p!=null&&(actions&(p.getState()==PlaybackState.STATE_PLAYING?(PlaybackState.ACTION_PAUSE|PlaybackState.ACTION_PLAY_PAUSE):(PlaybackState.ACTION_PLAY|PlaybackState.ACTION_PLAY_PAUSE)))!=0)
                     .put("artwork",artwork(m));
-                // Android has no universal lyrics contract. Only accept an explicit
-                // text payload; URIs, cache files and private OEM APIs are not guessed.
-                String lyrics=readLyrics(m,controller.getExtras());
-                j.put("lyrics",lyrics).put("lyricsSource",lyrics.isEmpty()?"":"media-session")
-                    .put("durationMs",m==null?0:Math.max(0,m.getLong(MediaMetadata.METADATA_KEY_DURATION)))
+                // Android has no universal lyrics contract. Take an explicit text payload
+                // when the source publishes one; otherwise identify the recording from the
+                // session metadata. An unmatched track stays empty, it is never guessed.
+                String text=readLyrics(m,controller.getExtras());
+                String source=text.isEmpty()?"":"media-session";
+                if(text.isEmpty()){
+                    text=lyrics.cached(title,artist,duration);
+                    source=text.isEmpty()?"":"lyrics-resolver";
+                    if(text.isEmpty())lyrics.request(title,artist,duration);
+                }
+                j.put("lyrics",text).put("lyricsSource",source)
+                    .put("durationMs",duration)
                     .put("positionMs",position(p)).put("positionKnown",p!=null&&p.getPosition()>=0)
                     .put("sampledAtMs",System.currentTimeMillis())
                     .put("speed",p==null?0:p.getPlaybackSpeed());
                 netease.augmentSnapshot(j);
+                if(!text.isEmpty())j.put("lyricsReason","");
             }
         }catch(Exception ignored){}return j;
     }

@@ -21,7 +21,7 @@ flowchart TD
   System --> Platform[PackageManager / Configuration / Window Insets]
 ```
 
-当前采用 Flutter 渲染层和 Java 集成适配器，卡片、设置、底栏和主题均由 Dart Widget 构建，不载入 WebView。`app/` 的 Android 工程直接编译 `android/src/.../integration` 与 `core`，原厂 Provider 目录仍仅有一份。平台通道交换状态与限定动作；原厂 Widget 兼容页保留 Android View。
+当前采用 Flutter 渲染层和 Java 集成适配器，卡片、设置、底栏和主题均由 Dart Widget 构建，不载入 WebView。`app/` 的 Android 工程直接编译 `app/android/app/src/main/java/xyz/i4o/uni/launcher/` 下的 `integration` 与 `core`，原厂 Provider 目录仍仅有一份。平台通道交换状态与限定动作；原厂 Widget 兼容页保留 Android View。
 
 毛玻璃是独立外观开关，默认关闭；关闭时不创建 `BackdropFilter`，保留半透明材质，开启时按卡片边界裁切模糊。性能指标仍为实车验收目标：暖回桌面 300ms 内出现主界面、稳定后避免高频轮询；冷启动、帧率、PSS 在 IP753 上实测，不能以模拟器代替。
 

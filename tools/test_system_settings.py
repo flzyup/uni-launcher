@@ -21,7 +21,7 @@ def main():
     platform = sdk / 'platforms/android-28/android.jar'
     if not platform.exists():
         platform = sdk / 'platforms/android-9/android.jar'
-    source = ROOT / 'android/src/xyz/i4o/uni/launcher/integration'
+    source = ROOT / 'app/android/app/src/main/java/xyz/i4o/uni/launcher/integration'
     with tempfile.TemporaryDirectory(prefix='uni-settings-') as temp:
         temp = Path(temp)
         classes = temp / 'classes'
@@ -32,7 +32,7 @@ def main():
             '-Xlint:-options', '-encoding', 'UTF-8', '-bootclasspath', str(platform),
             '-d', str(classes), str(source / 'SystemSettingsRepository.java'),
             str(source / 'NavigationAudioAdapter.java'),
-            str(ROOT / 'android/test-settings/SettingsProbe.java')], check=True)
+            str(ROOT / 'app/native-tests/test-settings/SettingsProbe.java')], check=True)
         subprocess.run([str(java / 'java'), '-cp', str(sdk / 'cmdline-tools/latest/lib/r8.jar'),
             'com.android.tools.r8.D8', '--min-api', '24', '--lib', str(platform),
             '--output', str(dex), *map(str, classes.rglob('*.class'))], check=True)

@@ -8,8 +8,8 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / 'android/src/xyz/i4o/uni/launcher/integration'
-TESTS = ROOT / 'android/test-official-car/xyz/i4o/uni/launcher/integration'
+SOURCE = ROOT / 'app/android/app/src/main/java/xyz/i4o/uni/launcher/integration'
+TESTS = ROOT / 'app/native-tests/test-official-car/xyz/i4o/uni/launcher/integration'
 
 
 def executable(explicit, name):

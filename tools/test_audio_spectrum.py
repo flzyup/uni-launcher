@@ -44,10 +44,10 @@ if args.install_fixture:
     adb=['adb','-s',args.serial]
     if subprocess.check_output(adb+['shell','getprop','ro.kernel.qemu'],text=True).strip()!='1':
         raise SystemExit('Refusing physical device')
-    out=root/'android/build/spectrum-fixture'
+    out=root/'app/native-tests/build/spectrum-fixture'
     classes=out/'classes';classes.mkdir(parents=True,exist_ok=True)
     android=sdk/'platforms/android-9/android.jar';build=sdk/'build-tools/36.0.0'
-    source=root/'android/test-spectrum'
+    source=root/'app/native-tests/test-spectrum'
     run(java/'javac','-source','8','-target','8','-Xlint:-options','-bootclasspath',android,'-d',classes,*source.rglob('*.java'))
     run(java/'java','-cp',sdk/'cmdline-tools/latest/lib/r8.jar','com.android.tools.r8.D8','--min-api','26','--lib',android,'--output',out,*classes.rglob('*.class'))
     run(build/'aapt2','link','-I',android,'--manifest',source/'AndroidManifest.xml','-o',out/'unsigned.apk')

@@ -33,8 +33,7 @@ android {
     }
 
     sourceSets.getByName("main") {
-        java.srcDirs("../../../android/src/xyz/i4o/uni/launcher/integration", "../../../android/src/xyz/i4o/uni/launcher/core")
-        res.srcDir("../../../android/res")
+        java.srcDirs("src/main/java/xyz/i4o/uni/launcher/integration", "src/main/java/xyz/i4o/uni/launcher/core")
         assets.srcDir(layout.buildDirectory.dir("generated/officialCatalog").get().asFile)
     }
     signingConfigs {

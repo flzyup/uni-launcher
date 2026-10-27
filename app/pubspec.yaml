@@ -1,7 +1,7 @@
 name: uni_launcher
 description: Flutter launcher for Lynk 05 IP753 with native Android integrations.
 publish_to: none
-version: 0.6.16+27
+version: 0.6.17+28
 environment:
   sdk: '>=3.5.0 <4.0.0'
 dependencies:

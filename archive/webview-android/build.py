@@ -9,7 +9,7 @@ import zipfile
 from pathlib import Path
 
 project = Path(__file__).resolve().parent
-repo = project.parent
+repo = project.parent.parent
 parser = argparse.ArgumentParser()
 parser.add_argument('--toolchain', type=Path, default=Path('/tmp/linkco-build'))
 parser.add_argument('--sdk', type=Path, default=Path('/data/tools/linkco-android/sdk'))
@@ -31,15 +31,15 @@ def run(*command):
 tests = build / 'tests'
 tests.mkdir(exist_ok=True)
 run(jvm / 'javac', '--release', '8', '-encoding', 'UTF-8', '-d', tests,
-    *sorted((project / 'src/xyz/i4o/uni/launcher/core').glob('*.java')),
-    *sorted((project / 'test').rglob('*.java')))
+    *sorted((repo / 'app/android/app/src/main/java/xyz/i4o/uni/launcher/core').glob('*.java')),
+    *sorted((repo / 'app/native-tests/test').rglob('*.java')))
 run(jvm / 'java', '-cp', tests, 'xyz.i4o.uni.launcher.core.ClimateStateTest')
 if args.test_only:
     raise SystemExit(0)
 if not android.exists():
     raise SystemExit('Android API 28 platform android.jar required; pass --sdk.')
 if not (project / 'node_modules/.bin/esbuild').exists():
-    raise SystemExit('Run npm ci in android/ first.')
+    raise SystemExit('Run npm ci in archive/webview-android/ first.')
 assets = build / 'assets'
 ui = assets / 'ui'
 ui.mkdir(parents=True, exist_ok=True)
@@ -74,7 +74,7 @@ run(project / 'node_modules/.bin/esbuild', build / 'ui-source.js', '--target=chr
 classes=build / 'classes'
 if classes.exists():shutil.rmtree(classes)
 classes.mkdir()
-run(jvm / 'javac', '-source','8','-target','8','-Xlint:-options','-encoding','UTF-8','-bootclasspath',android,'-d',classes,*sorted((project/'src').rglob('*.java')))
+run(jvm / 'javac', '-source','8','-target','8','-Xlint:-options','-encoding','UTF-8','-bootclasspath',android,'-d',classes,*sorted((project/'src').rglob('*.java')),*sorted((repo/'app/android/app/src/main/java/xyz/i4o/uni/launcher/core').glob('*.java')),*sorted((repo/'app/android/app/src/main/java/xyz/i4o/uni/launcher/integration').glob('*.java')))
 run(jvm / 'java','-cp',toolchain/'r8.jar','com.android.tools.r8.D8','--min-api','23','--lib',android,'--output',build,*sorted(classes.rglob('*.class')))
 run(toolchain/'aapt2','compile','--dir',project/'res','-o',build/'res.zip')
 run(toolchain/'aapt2','link','-I',android,'--manifest',project/'AndroidManifest.xml','-A',assets,'-R',build/'res.zip','-o',build/'unsigned.apk')

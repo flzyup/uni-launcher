@@ -53,7 +53,7 @@
 | `lib/screens/` | 首页、桌面设置 |
 | `lib/platform/` | `NativeGateway` 接口、MethodChannel / EventChannel |
 | `android/app/src/main/java/.../MainActivity.java` | FlutterActivity、生命周期、限定命令与状态桥接 |
-| `../android/src/.../core`、`integration` | 共用 Java 应用列表、媒体、车辆、导航栏和原厂 Widget 宿主 |
+| `android/app/src/main/java/.../core`、`integration` | 共用 Java 应用列表、媒体、车辆、导航栏和原厂 Widget 宿主 |
 | `../analysis/official-widgets.json` | 共用原厂提供者目录，Gradle 构建时同步到 assets |
 | `test/`、`integration_test/` | 状态/组件测试与 Android 9 真模拟器交互测试 |
 
@@ -90,7 +90,7 @@ JDK 保存在 `/data/tools/linkco-android/java-runtime/`，不再依赖 `/tmp`�
 
 ## 验证
 
-启动已有 API 28 / 1920×1080 横屏模拟器（配置见[基线模拟器说明](../android/README.md)）后：
+启动已有 API 28 / 1920×1080 横屏模拟器（配置见[基线模拟器说明](../archive/webview-android/README.md)）后：
 
 ```sh
 python3 tools/flutter_task.py drive \
@@ -108,7 +108,7 @@ python3 tools/flutter_task.py drive \
 歌词集成测试需先在模拟器安装合成媒体源，不能安装到车机：
 
 ```sh
-python3 ../android/tools/build-fixture.py
+python3 native-tests/tools/build-fixture.py
 python3 tools/flutter_task.py drive --driver=test_driver/driver.dart --target=integration_test/launcher_test.dart -d emulator-5580
 ```
 
@@ -116,6 +116,6 @@ python3 tools/flutter_task.py drive --driver=test_driver/driver.dart --target=in
 
 [验证报告](verification/emulator-report.json)和同目录的 `flutter-*.png` 是实际模拟器输出。只验证功能，不把模拟器帧率视为 MSM8996 实车性能。后续按[实车验收记录](../docs/CAR_ACCEPTANCE.md)继续核对。
 
-离线官方接口回归：`python3 ../tools/test_official_car.py`；网易云兼容回归：`python3 ../android/tools/test-netease-adapter.py`。
+离线官方接口回归：`python3 ../tools/test_official_car.py`；网易云兼容回归：`python3 native-tests/tools/test-netease-adapter.py`。
 
 最终静态分析、状态/组件测试、Android 9 集成与 release 验证结果见[构建报告](verification/build-report.json)。实际 release [首页](verification/flutter-release-home.png)与[设置](verification/flutter-release-settings.png)截图单独保存；实时车控和性能仍待实车。

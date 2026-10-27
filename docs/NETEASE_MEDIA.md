@@ -18,7 +18,7 @@
 
 以上来自现车 APK 的 session 构造、callback、MediaButtonEventReceiver、歌词配置和事件发布代码；嘟嘟的网易云插件使用相同 MediaSession 路径，官方 Launcher3 主要托管媒体中心 Widget。`.inter.apk` 是资源覆盖包，实际接口位于主 APK。原始 APK、字节码与个人媒体日志保存在 Git 忽略的 `car-reports/`。
 
-运行 `python3 android/tools/test-netease-adapter.py` 验证零 actions 按键、seek 单位/边界、QQ 零接触、歌词清理和旧回调隔离。JVM 替身测试不代替实车回调验证；实车结果另见验收记录。
+运行 `python3 app/native-tests/tools/test-netease-adapter.py` 验证零 actions 按键、seek 单位/边界、QQ 零接触、歌词清理和旧回调隔离。JVM 替身测试不代替实车回调验证；实车结果另见验收记录。
 
 ## IP753 原车媒体中心与仪表盘（0.6.4）
 
@@ -26,4 +26,4 @@
 
 `OfficialMediaBridge` 为选中的网易云或 QQ 会话注册在线音源 `6`，提供真实的当前歌曲条目、标题、歌手、专辑、播放状态和进度。它不接管原车收音机、USB 或蓝牙客户端；播放时申请音源，普通进度刷新不重新抢占。原车下一首、上一首、播放、暂停回调定向交给当前播放器。切歌时允许会话短暂消失 2.5 秒，超时释放本工具注册的令牌；停止后拒绝旧回调，播放器切换后不向旧会话发送控制。
 
-2026-10-26 实车：用户分别确认 QQ、网易云的方向盘下一首和仪表盘歌曲信息更新正常。网易云桌面按钮播放/暂停、前后切歌、进度调整亦已观察到状态回读。这不代表网易云已对外共享歌词，歌词仍受上述播放器版本限制。测试与剩余边界见 [0.6.4 实车记录](IP753_0_6_4.md)。桥接替身测试命令为 `python3 android/tools/test-official-media-bridge.py`。
+2026-10-26 实车：用户分别确认 QQ、网易云的方向盘下一首和仪表盘歌曲信息更新正常。网易云桌面按钮播放/暂停、前后切歌、进度调整亦已观察到状态回读。这不代表网易云已对外共享歌词，歌词仍受上述播放器版本限制。测试与剩余边界见 [0.6.4 实车记录](IP753_0_6_4.md)。桥接替身测试命令为 `python3 app/native-tests/tools/test-official-media-bridge.py`。
