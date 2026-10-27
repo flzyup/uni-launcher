@@ -1,6 +1,6 @@
-# 0.6.17：交互卡顿的 P0/P1/P2 修复
+# 0.6.18：交互卡顿的 P0/P1/P2 修复
 
-版本 `0.6.17+28`，包名 `xyz.i4o.uni.launcher`。本轮只在本机做静态检查（`flutter analyze`、`flutter test`、`javac` 类型检查），**没有连接或安装车机**；仓库内 `app/verification/page-motion/profile-report.json` 的帧耗时来自模拟器，不能换算成高通 820A / Adreno 530 的实车帧率。
+版本 `0.6.18+31`，包名 `xyz.i4o.uni.launcher`。本轮以 `origin/main` 的 0.6.18（`b1f68d3`）为基线合并，只在本机做静态检查（`flutter analyze`、`flutter test`、`javac` 类型检查），**没有连接或安装车机**；仓库内 `app/verification/page-motion/profile-report.json` 与 `app/verification/0.6.18/page-motion/profile-report.json` 的帧耗时来自模拟器，不能换算成高通 820A / Adreno 530 的实车帧率。
 
 ## 结论回顾：两个独立成因
 
@@ -46,7 +46,7 @@
 
 ## P2：栅格侧
 
-- **翻屏出页裁剪**：`slide` 与 `depth` 共用"未覆盖区域"裁剪器。翻屏时旧页只绘制仍然可见的那部分，被新页盖住的半边不再参与填充。几何推导对所有跳页距离与方向都成立（`(to-position)/|to-from|` 恰好等于旧页右缘比例），画面完全不变。
+- **翻屏出页裁剪**：`slide` 与 `depth` 共用"未覆盖区域"裁剪器。翻屏时旧页只绘制仍然可见的那部分，被新页盖住的半边不再参与填充。0.6.18 给两页之间留了 24px 间隙（`workspace_motion_test` 的 "adjacent pages retain a visible gutter"），这层裁剪与之相容：裁剪只去掉超出旧页自身右缘（前进）或左缘（后退）的区域，间隙里露出的背景从不落在裁剪范围内，画面像素不变。
 - **壁纸采样**：`cacheWidth` 已经等于面板宽度，属于 1:1 贴图，`FilterQuality.medium`（mipmap）不改变任何像素却要额外的显存与上传，改为 `low`。
 - **能量流动画**：这张卡会**永久**按 1.6s 循环重绘，原先每帧重新排版 4 个中文标签（文字整形是全帧里最贵的一步）。改为按"文本+颜色"缓存 `TextPainter`，像素不变。
 
@@ -78,7 +78,8 @@ adb shell top -H -p $(adb shell pidof xyz.i4o.uni.launcher)
 
 ## 验证记录
 
+- 合并基线：`origin/main` `b1f68d3`（0.6.18），与本轮改动无同区冲突；`LauncherShell` 两边都改成了 `StatefulWidget`，人工合并后保留 0.6.18 的 `pagePosition` 与本轮的 `viewport` 去重
 - `flutter analyze`：No issues found
-- `flutter test`：158 项通过（新增 1 项：增量包保留被省略的负载与图标缓存）
+- `flutter test`：167 项通过（0.6.18 自带 166 项 + 新增 1 项：增量包保留被省略的负载与图标缓存）
 - Android 源文件 `javac --release 8`（android-36 + flutter.jar + androidx 子集）：通过
 - `app/native-tests/tools/*.py`：本轮改动不涉及它们编译的类（媒体/歌词适配器），且本机缺 `org.json` jar 无法运行
