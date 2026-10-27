@@ -35,6 +35,8 @@ void main() {
       'reviewed palette uses rectangular corners, modes and palette have separate heights',
       (t) async {
     final (c, _) = await launch(t);
+    c.setAppearance(c.appearance.copyWith(themeStyle: 'classic', radius: 28),
+        save: false);
     c.openSettings();
     await t.pumpAndSettle();
     final palette = find.byKey(const ValueKey('palette-mint'));
@@ -62,6 +64,7 @@ void main() {
       'zero radius reaches palette and input controls while color chips stay circular',
       (t) async {
     final (c, _) = await launch(t);
+    c.setAppearance(c.appearance.copyWith(themeStyle: 'classic'), save: false);
     c.openSettings();
     c.setAppearance(c.appearance.copyWith(radius: 0));
     await t.pumpAndSettle();

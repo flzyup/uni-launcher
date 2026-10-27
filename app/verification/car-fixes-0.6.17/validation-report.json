@@ -1,0 +1,21 @@
+{
+  "version": "0.6.17",
+  "flutterAnalyze": "no issues",
+  "flutterFullSuite": 161,
+  "targetedWidgetTests": 5,
+  "shortcutLayouts": [
+    "4x2",
+    "4x3",
+    "4x4"
+  ],
+  "emulator": {
+    "api": 28,
+    "abi": "x86_64",
+    "settingsAliasColdStart": true,
+    "settingsEntryInAppList": true,
+    "musicPickerFiltersApps": true,
+    "musicChoiceSurvivesProcessRestart": true
+  },
+  "physicalVehicleTested": false,
+  "apkSha256": "bafd18b1305fa0f23047f38d9c8ac7a612b319c52b87746adace62ebe0021752"
+}

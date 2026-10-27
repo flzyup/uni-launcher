@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/scheduler.dart';
+import '../theme/design_tokens.dart';
 
 /// Changes only at motion boundaries, never on animation ticks.
 class DesktopMotionScope extends InheritedWidget {
@@ -290,10 +291,13 @@ class _PageTransform extends AnimatedWidget {
             ? _UncoveredPageClipper(
                 (to - position) / (to - from).abs(), to > from)
             : null,
-        child: FractionalTranslation(
-            translation: Offset(offset, 0),
-            child: Transform.scale(
-                scale: scale, child: Opacity(opacity: opacity, child: child))));
+        child: Transform.translate(
+            offset: Offset(offset * Design.px(24), 0),
+            child: FractionalTranslation(
+                translation: Offset(offset, 0),
+                child: Transform.scale(
+                    scale: scale,
+                    child: Opacity(opacity: opacity, child: child)))));
   }
 }
 

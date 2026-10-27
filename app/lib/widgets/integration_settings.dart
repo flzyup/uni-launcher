@@ -130,13 +130,6 @@ class RuntimeSettings extends StatelessWidget {
                               child: const Text('授权媒体访问'))
                         ]),
                         DesignSwitchTile(
-                            key: const ValueKey('demo-switch'),
-                            title: const Text('演示数据'),
-                            subtitle: const Text('关闭后显示真实接入状态'),
-                            value: n['demo'] == true,
-                            onChanged: (v) =>
-                                c.command('demo-mode', enabled: v)),
-                        DesignSwitchTile(
                             key: const ValueKey('global-dock'),
                             title: const Text('全局底栏'),
                             subtitle: Text(

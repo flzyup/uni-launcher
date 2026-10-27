@@ -19,6 +19,8 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.HashSet;
+import java.util.Set;
 
 public final class AppRepository {
     private final Context context;
@@ -26,6 +28,7 @@ public final class AppRepository {
     public AppRepository(Context context) {this.context=context;}
     public JSONArray refresh() {
         allowed.clear(); JSONArray result=new JSONArray();
+        Set<String> players=musicPackages();
         Intent query=new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
         List<ResolveInfo> apps=context.getPackageManager().queryIntentActivities(query,0);
         Collections.sort(apps,new Comparator<ResolveInfo>() {
@@ -33,7 +36,8 @@ public final class AppRepository {
         });
         for(ResolveInfo app:apps) try {
             if (!usable(app.activityInfo)) continue;
-            if(context.getPackageName().equals(app.activityInfo.packageName))continue;
+            if(context.getPackageName().equals(app.activityInfo.packageName)
+                && !"xyz.i4o.uni.launcher.DesktopSettings".equals(app.activityInfo.name))continue;
             ComponentName c=new ComponentName(app.activityInfo.packageName,app.activityInfo.name);
             String key=c.flattenToString(); if(allowed.containsKey(key))continue;
             allowed.put(key,c);
@@ -41,9 +45,19 @@ public final class AppRepository {
             Bitmap bitmap=Bitmap.createBitmap(72,72,Bitmap.Config.ARGB_8888);Canvas canvas=new Canvas(bitmap);
             drawable.setBounds(0,0,72,72);drawable.draw(canvas);
             ByteArrayOutputStream out=new ByteArrayOutputStream();bitmap.compress(Bitmap.CompressFormat.PNG,100,out);bitmap.recycle();
-            result.put(new JSONObject().put("id",key).put("package",app.activityInfo.packageName).put("label",app.loadLabel(context.getPackageManager()).toString()).put("canUninstall",canUninstall(app.activityInfo.packageName))
+            result.put(new JSONObject().put("id",key).put("package",app.activityInfo.packageName).put("label",app.loadLabel(context.getPackageManager()).toString()).put("canUninstall",canUninstall(app.activityInfo.packageName)).put("isMusic",players.contains(app.activityInfo.packageName))
                 .put("icon","data:image/png;base64,"+Base64.encodeToString(out.toByteArray(),Base64.NO_WRAP)));
         } catch(Exception e){android.util.Log.w("UniApps","Unable to read app icon",e);}
+        return result;
+    }
+    private Set<String> musicPackages(){
+        Set<String> result=new HashSet<>();
+        Collections.addAll(result,"com.tencent.qqmusiccar","com.tencent.qqmusic","com.netease.cloudmusic.iot","ecarx.xsf.mediacenter");
+        PackageManager pm=context.getPackageManager();
+        try{for(ResolveInfo r:pm.queryIntentServices(new Intent("android.media.browse.MediaBrowserService"),0))
+            if(r.serviceInfo!=null&&r.serviceInfo.enabled&&r.serviceInfo.exported)result.add(r.serviceInfo.packageName);}catch(RuntimeException ignored){}
+        try{for(ResolveInfo r:pm.queryIntentActivities(new Intent(Intent.ACTION_MAIN).addCategory("android.intent.category.APP_MUSIC"),0))
+            if(usable(r.activityInfo))result.add(r.activityInfo.packageName);}catch(RuntimeException ignored){}
         return result;
     }
     public boolean canUninstall(String pkg){

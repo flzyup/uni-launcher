@@ -31,8 +31,6 @@ void main() {
     c.openSettings();
     c.tab('system');
     await t.pumpAndSettle();
-    await t.tap(find.byKey(const ValueKey('system-app-controls')));
-    await t.pumpAndSettle();
     await binding.convertFlutterSurfaceToImage();
     await t.scrollUntilVisible(find.byKey(const ValueKey('global-dock')), 250,
         scrollable: find.byType(Scrollable).first);
@@ -68,8 +66,6 @@ void main() {
     // Restore the pre-test state: global dock off returns the system bar.
     c.openSettings();
     c.tab('system');
-    await t.pumpAndSettle();
-    await t.tap(find.byKey(const ValueKey('system-app-controls')));
     await t.pumpAndSettle();
     await t.scrollUntilVisible(find.byKey(const ValueKey('global-dock')), 250,
         scrollable: find.byType(Scrollable).first);

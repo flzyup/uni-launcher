@@ -7,6 +7,7 @@ import '../widgets/bottom_dock.dart';
 import '../widgets/card_content.dart';
 import '../widgets/dock_window_scope.dart';
 import '../widgets/navigation_app_picker.dart';
+import '../widgets/music_app_picker.dart';
 import '../widgets/recent_tasks_panel.dart';
 
 /// Separate, reusable window above the dock; never resizes its surface.
@@ -81,6 +82,8 @@ class _GlobalPanelAppState extends State<GlobalPanelApp> {
           await showVehiclePanel(context, widget.controller);
         case 'navigation':
           await showNavigationPicker(context, widget.controller);
+        case 'music-picker':
+          await showMusicPicker(context, widget.controller);
         case 'apps':
           await showAppsPanel(context, widget.controller);
         default:

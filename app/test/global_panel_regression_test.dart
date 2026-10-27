@@ -320,7 +320,8 @@ void main() {
       'global panel replacement, close revision, source badge and glass setting',
       (t) async {
     final (c, g) = await setup(t, host: 'global-panel', global: true);
-    c.setAppearance(c.appearance.copyWith(glass: true), save: false);
+    c.setAppearance(c.appearance.copyWith(themeStyle: 'classic', glass: true),
+        save: false);
     await t.pumpWidget(GlobalPanelApp(controller: c));
     await t.pumpAndSettle();
     void panel(String name, int rev) {
@@ -417,7 +418,8 @@ void main() {
         findsOneWidget);
     await t.tap(find.byTooltip('关闭音乐详情'));
     await t.pumpAndSettle();
-    c.setAppearance(c.appearance.copyWith(glass: true), save: false);
+    c.setAppearance(c.appearance.copyWith(themeStyle: 'classic', glass: true),
+        save: false);
     await t.pumpAndSettle();
     await t.tap(find.byKey(const ValueKey('music-info')));
     await t.pumpAndSettle();

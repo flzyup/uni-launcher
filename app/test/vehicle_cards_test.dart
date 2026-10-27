@@ -87,10 +87,11 @@ void main() {
     expect(defaultCards().map((c) => c.type), [
       'nav',
       'music',
-      'weather',
+      'trafficLight',
       'tpms',
       'battery',
-      'clock',
+      'clockWeather',
+      'shortcuts',
       'vehicle',
       'air'
     ]);
@@ -336,7 +337,7 @@ void main() {
     await loaded.initialize();
     expect(
         jsonDecode(loaded.serialize())['cards'], jsonDecode(g.saved!)['cards']);
-    expect(loaded.cards.take(8).map((c) => c.toJson()),
+    expect(loaded.cards.take(defaultCards().length).map((c) => c.toJson()),
         defaultCards().map((c) => c.toJson()));
     expect(g.commands, isEmpty);
     expect(validLayout(loaded.cards), isTrue);

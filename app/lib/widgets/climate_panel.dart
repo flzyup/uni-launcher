@@ -4,6 +4,7 @@ import '../theme/design_tokens.dart';
 import '../theme/launcher_theme.dart';
 import 'glass_surface.dart';
 import 'uni_icon.dart';
+import 'circulation_icon.dart';
 import '../model/vehicle_data.dart';
 import 'launcher_dialog.dart';
 import 'seat_controls.dart';
@@ -23,6 +24,13 @@ Future<void> showClimatePanel(
             final s = SurfaceStyle.of(context),
                 demo = n['demo'] == true,
                 climate = mapOf(n['climate']);
+            final autoField = VehicleField.fromNative(n, 'auto');
+            final fanField = VehicleField.fromNative(n, 'fan');
+            final automatic = demo
+                ? climate['auto'] == true
+                : (autoField.valid && autoField.value == true) ||
+                    (fanField.valid &&
+                        '${fanField.value}'.toLowerCase() == 'auto');
             Widget step(String label, IconData icon, VoidCallback? tap) =>
                 IconAction(
                     icon: icon,
@@ -85,14 +93,19 @@ Future<void> showClimatePanel(
                             : null),
                     SizedBox(width: Design.px(25)),
                     SizedBox(
-                        width: Design.px(46),
-                        child: Text(
-                            demo
-                                ? '${climate['fan'] ?? 3}'
-                                : VehicleField.fromNative(n, 'fan')
-                                    .display(decimals: 0),
-                            textAlign: TextAlign.center,
-                            style: TextStyle(fontSize: Design.px(38)))),
+                        width: Design.px(90),
+                        child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            child: Text(
+                                automatic
+                                    ? 'AUTO'
+                                    : (demo
+                                        ? '${climate['fan'] ?? 3}'
+                                        : fanField.display(decimals: 0)),
+                                textAlign: TextAlign.center,
+                                maxLines: 1,
+                                softWrap: false,
+                                style: TextStyle(fontSize: Design.px(38))))),
                     SizedBox(width: Design.px(25)),
                     step(
                         '提高风量',
@@ -122,14 +135,16 @@ Future<void> showClimatePanel(
                                           ? () => c.command('climate-mode',
                                               value: mode.$1)
                                           : null,
-                                      style: s
-                                          .selectionStyle((demo ||
-                                                  VehicleField.fromNative(n, mode.$1)
-                                                      .valid) &&
-                                              climate[mode.$1] == true)
-                                          .copyWith(
-                                              padding: const WidgetStatePropertyAll(EdgeInsets.zero)),
-                                      child: Text(mode.$2, style: TextStyle(fontSize: Design.px(23)))))))
+                                      style: s.selectionStyle((demo || VehicleField.fromNative(n, mode.$1).valid) && climate[mode.$1] == true).copyWith(
+                                          padding: const WidgetStatePropertyAll(
+                                              EdgeInsets.zero)),
+                                      child: mode.$1 == 'recirc'
+                                          ? CirculationIcon(
+                                              key: const ValueKey('climate-circulation-icon'),
+                                              recirculating: (demo || VehicleField.fromNative(n, 'recirc').valid) ? (demo ? climate['recirc'] == true : VehicleField.fromNative(n, 'recirc').value == true) : null,
+                                              color: (demo || VehicleField.fromNative(n, 'recirc').valid) ? s.accent : s.muted,
+                                              size: Design.px(34))
+                                          : Text(mode.$2, maxLines: 1, softWrap: false, style: TextStyle(fontSize: Design.px(23)))))))
                   ]),
                   SeatControls(controller: c, native: n),
                   if (!demo && vehicleCommandLabel(n).isNotEmpty)

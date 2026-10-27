@@ -5,32 +5,26 @@ import 'package:uni_launcher/controller/launcher_controller.dart';
 import 'package:uni_launcher/launcher_app.dart';
 import 'package:uni_launcher/model/appearance.dart';
 import 'package:uni_launcher/theme/launcher_theme.dart';
-import 'package:uni_launcher/theme/design_tokens.dart';
 import 'package:uni_launcher/widgets/system_status_row.dart';
 import 'package:uni_launcher/widgets/card_content.dart';
 import 'package:uni_launcher/model/card_layout.dart';
 import 'fake_gateway.dart';
 
 void main() {
-  testWidgets('compact header gear opens settings without adding a row',
+  testWidgets(
+      'settings shortcut bootstrap opens settings without a header gear',
       (t) async {
     t.view.physicalSize = const Size(1920, 1080);
     t.view.devicePixelRatio = 1;
     final g = FakeGateway();
+    g.state['initialSettings'] = true;
     final controller = LauncherController(g);
     await controller.initialize();
     await t.pumpWidget(LauncherApp(controller: controller));
     await t.pumpAndSettle();
-    final entry = find.byKey(const ValueKey('desktop-settings-entry'));
-    expect(entry, findsOneWidget);
-    expect(t.getSize(entry), Size.square(Design.px(40)));
-    expect(t.getCenter(entry).dy, closeTo(32, .1));
-    await t.tap(entry);
-    await t.pumpAndSettle();
     expect(controller.settings, isTrue);
-    expect(entry, findsNothing);
+    expect(find.byKey(const ValueKey('desktop-settings-entry')), findsNothing);
     expect(find.text('桌面设置'), findsOneWidget);
-    expect(t.takeException(), isNull);
     await t.pumpWidget(const SizedBox());
     controller.dispose();
     await g.dispose();

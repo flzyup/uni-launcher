@@ -470,6 +470,21 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
     return true;
   }
 
+  Future<void> setShortcutApps(String id, List<String> apps) async {
+    if (editing || !cards.any((c) => c.id == id && c.type == 'shortcuts'))
+      return;
+    final selected = apps
+        .where((id) => id.isNotEmpty && id.length <= 512)
+        .toSet()
+        .take(12)
+        .toList();
+    cards = cards
+        .map((c) => c.id == id ? c.copyWith(shortcutApps: selected) : c)
+        .toList();
+    notifyListeners();
+    await persist();
+  }
+
   /// Move a card to another desktop and select the nearest free cell to the
   /// pointer's original grid position. This is used by edge dragging while the
   /// editor is open, so a card never lands on top of another card.

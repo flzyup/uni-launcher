@@ -1,0 +1,158 @@
+{
+  "frames-slide": {
+    "frameCount": 240,
+    "build": {
+      "p50Ms": 1.014,
+      "p90Ms": 2.689,
+      "p99Ms": 5.658,
+      "maxMs": 10.19,
+      "over16_67Ms": 0
+    },
+    "raster": {
+      "p50Ms": 30.691,
+      "p90Ms": 37.663,
+      "p99Ms": 48.123,
+      "maxMs": 151.254,
+      "over16_67Ms": 240
+    },
+    "totalSpan": {
+      "p50Ms": 40.054,
+      "p90Ms": 62.567,
+      "p99Ms": 84.944,
+      "maxMs": 163.215,
+      "over16_67Ms": 240
+    }
+  },
+  "frames-fade": {
+    "frameCount": 240,
+    "build": {
+      "p50Ms": 1.056,
+      "p90Ms": 2.744,
+      "p99Ms": 4.387,
+      "maxMs": 6.114,
+      "over16_67Ms": 0
+    },
+    "raster": {
+      "p50Ms": 29.753,
+      "p90Ms": 42.391,
+      "p99Ms": 61.11,
+      "maxMs": 85.305,
+      "over16_67Ms": 240
+    },
+    "totalSpan": {
+      "p50Ms": 40.656,
+      "p90Ms": 58.701,
+      "p99Ms": 81.056,
+      "maxMs": 123.786,
+      "over16_67Ms": 240
+    }
+  },
+  "frames-zoom": {
+    "frameCount": 240,
+    "build": {
+      "p50Ms": 1.092,
+      "p90Ms": 2.749,
+      "p99Ms": 6.186,
+      "maxMs": 6.529,
+      "over16_67Ms": 0
+    },
+    "raster": {
+      "p50Ms": 33.163,
+      "p90Ms": 45.479,
+      "p99Ms": 79.992,
+      "maxMs": 144.553,
+      "over16_67Ms": 240
+    },
+    "totalSpan": {
+      "p50Ms": 54.657,
+      "p90Ms": 80.645,
+      "p99Ms": 166.267,
+      "maxMs": 212.653,
+      "over16_67Ms": 240
+    }
+  },
+  "frames-depth": {
+    "frameCount": 240,
+    "build": {
+      "p50Ms": 1.191,
+      "p90Ms": 2.893,
+      "p99Ms": 6.344,
+      "maxMs": 9.279,
+      "over16_67Ms": 0
+    },
+    "raster": {
+      "p50Ms": 31.924,
+      "p90Ms": 40.998,
+      "p99Ms": 81.119,
+      "maxMs": 108.728,
+      "over16_67Ms": 240
+    },
+    "totalSpan": {
+      "p50Ms": 52.421,
+      "p90Ms": 76.083,
+      "p99Ms": 119.495,
+      "maxMs": 146.184,
+      "over16_67Ms": 240
+    }
+  },
+  "frames-none": {
+    "frameCount": 240,
+    "build": {
+      "p50Ms": 0.767,
+      "p90Ms": 2.94,
+      "p99Ms": 4.818,
+      "maxMs": 5.736,
+      "over16_67Ms": 0
+    },
+    "raster": {
+      "p50Ms": 30.873,
+      "p90Ms": 38.188,
+      "p99Ms": 56.199,
+      "maxMs": 60.028,
+      "over16_67Ms": 240
+    },
+    "totalSpan": {
+      "p50Ms": 40.582,
+      "p90Ms": 63.924,
+      "p99Ms": 103.727,
+      "maxMs": 112.436,
+      "over16_67Ms": 240
+    }
+  },
+  "performanceSurface": "Normal Flutter SurfaceView; measured BEFORE screenshot conversion; warmed pages; glass disabled",
+  "performanceScope": "Steady-state page switches with synthetic gateway events, no screenshot capture or VM timeline service in measured interval",
+  "source": "Android 9 emulator / profile mode / production widgets / synthetic telemetry; not 820A or real AMap",
+  "checks": [
+    "slow drag moves outgoing page before release",
+    "neighbour is visible during drag",
+    "indicator tracks same in-flight position",
+    "dock remains fixed during drag",
+    "slow drag commits without requiring a fling",
+    "outgoing page is offstage after settle",
+    "page retains the same card element",
+    "slide: two pages paint mid-transition",
+    "slide: only target paints after settle",
+    "slide: repeated transitions retain card element",
+    "slide: dock stays fixed after repeated transitions",
+    "fade: two pages paint mid-transition",
+    "fade: effect opacity is intermediate",
+    "fade: only target paints after settle",
+    "fade: repeated transitions retain card element",
+    "fade: dock stays fixed after repeated transitions",
+    "zoom: two pages paint mid-transition",
+    "zoom: only target paints after settle",
+    "zoom: repeated transitions retain card element",
+    "zoom: dock stays fixed after repeated transitions",
+    "depth: two pages paint mid-transition",
+    "depth: only target paints after settle",
+    "depth: repeated transitions retain card element",
+    "depth: dock stays fixed after repeated transitions",
+    "none switches immediately",
+    "slide setting exists",
+    "fade setting exists",
+    "zoom setting exists",
+    "depth setting exists",
+    "none setting exists",
+    "no framework exceptions"
+  ]
+}

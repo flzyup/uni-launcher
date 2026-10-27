@@ -68,13 +68,13 @@ class Appearance {
   const Appearance(
       {this.desktopName = defaultDesktopName,
       this.mode = 'system',
-      this.themeStyle = 'classic',
+      this.themeStyle = 'blueGlass',
       this.palette = 'mint',
       this.custom = '#38A4A0',
-      this.radius = 28,
+      this.radius = 0,
       this.glass = false,
       this.pageTransition = 'slide',
-      this.spectrumStyle = 'bars',
+      this.spectrumStyle = 'segments',
       this.wallpaper = 'gradient',
       this.wallpaperPath = '',
       this.wallpaperLuminance});

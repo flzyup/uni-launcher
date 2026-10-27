@@ -23,7 +23,7 @@ void main() {
       await t.pumpAndSettle();
       expect(find.text('60'), findsOneWidget);
       expect(find.text('24'), findsOneWidget);
-      expect(find.text('灯态待确认'), findsOneWidget);
+      expect(find.text('灯态待确认'), findsNothing);
       expect(find.text('信号暂未更新'), findsOneWidget);
       expect(find.text('等待路口信号'), findsOneWidget);
       expect(t.takeException(), isNull);

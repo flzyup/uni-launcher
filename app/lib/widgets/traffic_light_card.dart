@@ -184,38 +184,22 @@ class _TrafficLightCardState extends State<TrafficLightCard>
                 signal: data.lights.single, elapsedMs: elapsed, large: !short)),
       ]);
     }
-    final columns = data.lights.length.clamp(1, 3);
+    final lights = data.lights.take(3).toList(growable: false);
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      _heading(s, small: short),
-      SizedBox(height: Design.px(short ? 12 : 24)),
+      _heading(s, small: true),
       Expanded(
-          child: LayoutBuilder(
-              builder: (context, box) => GridView.builder(
-                  key: const ValueKey('traffic-light-directions'),
-                  padding: EdgeInsets.zero,
-                  itemCount: data.lights.length,
-                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: columns,
-                      mainAxisExtent: data.lights.length <= 3
-                          ? box.maxHeight
-                          : (box.maxHeight / 2)
-                              .clamp(Design.px(100), Design.px(150)),
-                      crossAxisSpacing: Design.px(10),
-                      mainAxisSpacing: Design.px(10)),
-                  itemBuilder: (context, i) => _SignalReading(
-                      signal: data.lights[i],
-                      elapsedMs: elapsed,
-                      large: false,
-                      stacked: true)))),
-      if (!short) ...[
-        SizedBox(height: Design.px(18)),
-        Container(height: 1, color: s.edge),
-        SizedBox(height: Design.px(14)),
-        Text('${data.lights.length} 个方向 · 以路口实际信号为准',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(fontSize: Design.px(15), color: s.muted)),
-      ],
+          child:
+              Row(key: const ValueKey('traffic-light-directions'), children: [
+        for (var i = 0; i < lights.length; i++) ...[
+          if (i > 0) SizedBox(width: Design.px(18)),
+          Expanded(
+              child: _SignalReading(
+                  signal: lights[i],
+                  elapsedMs: elapsed,
+                  large: !short,
+                  compact: lights.length == 3)),
+        ],
+      ])),
     ]);
   }
 
@@ -240,13 +224,12 @@ class _TrafficLightCardState extends State<TrafficLightCard>
 class _SignalReading extends StatelessWidget {
   final TrafficSignal signal;
   final int elapsedMs;
-  final bool large;
-  final bool stacked;
+  final bool large, compact;
   const _SignalReading(
       {required this.signal,
       required this.elapsedMs,
       required this.large,
-      this.stacked = false});
+      this.compact = false});
   @override
   Widget build(BuildContext context) {
     final s = SurfaceStyle.of(context);
@@ -259,86 +242,53 @@ class _SignalReading extends StatelessWidget {
     final symbol = switch (signal.direction) {
       'left' => 'signal-left',
       'straight' => 'signal-straight',
-      'right' => 'signal-right',
+      'right' => 'signal-left',
       'uturn' => 'signal-uturn',
       _ => 'traffic-light',
     };
     final seconds = signal.remaining(elapsedMs);
-    if (stacked) {
-      return Semantics(
-          label:
-              '${signal.directionLabel}，${signal.lampLabel}，${seconds ?? '未知'}秒',
-          child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                Row(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      UniIcon(symbol, size: Design.px(38), color: color),
-                      SizedBox(width: Design.px(10)),
-                      Text(seconds?.toString() ?? '—',
-                          key: const ValueKey('traffic-light-seconds'),
-                          style: TextStyle(
-                              fontSize: Design.px(46),
-                              height: 1.1,
-                              color: color,
-                              fontFeatures: const [
-                                FontFeature.tabularFigures()
-                              ])),
-                      SizedBox(width: Design.px(4)),
-                      Text('秒',
-                          style: TextStyle(
-                              fontSize: Design.px(15), color: s.muted)),
-                    ]),
-                SizedBox(height: Design.px(10)),
-                Text('${signal.directionLabel} · ${signal.lampLabel}',
-                    style: TextStyle(fontSize: Design.px(17), color: s.muted)),
-              ])));
-    }
-    return FittedBox(
-        fit: BoxFit.scaleDown,
-        alignment: Alignment.center,
-        child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Container(
-              width: Design.px(large ? 76 : 64),
-              height: Design.px(large ? 76 : 64),
-              decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: color.withValues(alpha: .12),
-                  border: Border.all(color: color.withValues(alpha: .25))),
-              child: Center(
-                  child: UniIcon(symbol,
-                      size: Design.px(large ? 42 : 36), color: color))),
-          SizedBox(width: Design.px(large ? 20 : 14)),
-          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(
-                crossAxisAlignment: CrossAxisAlignment.baseline,
-                textBaseline: TextBaseline.alphabetic,
+    return Semantics(
+        label:
+            '${signal.directionLabel}，${signal.lampLabel}，${seconds == null ? '倒计时未知' : '$seconds 秒'}',
+        excludeSemantics: true,
+        child: FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.center,
+            child: Row(
+                key: ValueKey('traffic-reading-${signal.direction}'),
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(seconds?.toString() ?? '—',
-                      key: const ValueKey('traffic-light-seconds'),
-                      style: TextStyle(
-                          fontSize: Design.px(large ? 74 : 62),
-                          height: 1.05,
-                          color: color,
-                          fontFeatures: const [FontFeature.tabularFigures()])),
-                  if (seconds != null) ...[
-                    SizedBox(width: Design.px(8)),
-                    Text('秒',
-                        style:
-                            TextStyle(fontSize: Design.px(21), color: s.muted)),
-                  ],
-                ]),
-            SizedBox(height: Design.px(large ? 10 : 6)),
-            Row(children: [
-              Text(signal.directionLabel,
-                  style: TextStyle(fontSize: Design.px(17), color: s.muted)),
-              SizedBox(width: Design.px(10)),
-              Text(signal.lampLabel,
-                  style: TextStyle(fontSize: Design.px(17), color: color)),
-            ]),
-          ]),
-        ]));
+                  Container(
+                      width: Design.px(compact ? 64 : (large ? 76 : 64)),
+                      height: Design.px(compact ? 64 : (large ? 76 : 64)),
+                      decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: color.withValues(alpha: .12),
+                          border:
+                              Border.all(color: color.withValues(alpha: .25))),
+                      child: Center(
+                          child: Transform.scale(
+                              scaleX: signal.direction == 'right' ? -1 : 1,
+                              child: UniIcon(symbol,
+                                  size: Design.px(
+                                      compact ? 38 : (large ? 42 : 36)),
+                                  color: color)))),
+                  SizedBox(width: Design.px(compact ? 8 : (large ? 12 : 9))),
+                  Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Text(seconds?.toString() ?? '—',
+                            key: const ValueKey('traffic-light-seconds'),
+                            style: TextStyle(
+                                fontSize:
+                                    Design.px(compact ? 64 : (large ? 74 : 62)),
+                                height: 1.05,
+                                color: color,
+                                fontFeatures: const [
+                                  FontFeature.tabularFigures()
+                                ])),
+                      ]),
+                ])));
   }
 }

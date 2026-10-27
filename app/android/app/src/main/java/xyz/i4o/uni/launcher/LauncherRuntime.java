@@ -66,6 +66,8 @@ public final class LauncherRuntime {
     private LauncherRuntime(Context application){
         context=application;
         prefs=context.getSharedPreferences("launcher",Context.MODE_PRIVATE);
+        // Only initialize a brand-new install; upgrades retain explicit preferences.
+        if(prefs.getAll().isEmpty())prefs.edit().putBoolean("globalDockEnabled",true).commit();
         if(!prefs.contains("demo"))prefs.edit().putBoolean("demo",Build.FINGERPRINT.contains("generic")||Build.MODEL.contains("sdk_gphone")||Build.MODEL.contains("Android SDK")).apply();
         apps=new AppRepository(context);catalog=new OfficialCatalog(context);
         vehicle=new VehicleTelemetry(context,this::publish);navigation=new NavigationApps(context,prefs);

@@ -86,8 +86,7 @@ void main() {
     expect(data.lights.map((s) => s.lamp), ['red', 'unknown']);
   });
 
-  testWidgets(
-      'all reported directions remain reachable without duplicating lanes',
+  testWidgets('shows at most three signals with the same icon treatment',
       (t) async {
     final signals = List.generate(
         8,
@@ -99,10 +98,20 @@ void main() {
         TrafficLightSnapshot(available: true, demo: true, lights: signals)));
     await t.pump();
     expect(find.text('60'), findsOneWidget);
-    await t.drag(find.byKey(const ValueKey('traffic-light-directions')),
-        const Offset(0, -400));
-    await t.pumpAndSettle();
-    expect(find.text('67').hitTestable(), findsOneWidget);
+    expect(find.text('61'), findsOneWidget);
+    expect(find.text('62'), findsOneWidget);
+    expect(find.text('63'), findsNothing);
+    final left =
+        t.getRect(find.byKey(const ValueKey('traffic-reading-left')).first);
+    final straight =
+        t.getRect(find.byKey(const ValueKey('traffic-reading-straight')).first);
+    final right =
+        t.getRect(find.byKey(const ValueKey('traffic-reading-right')).first);
+    expect(straight.left - left.right, greaterThan(8));
+    expect(right.left - straight.right, greaterThan(8));
+    expect(find.text('左转'), findsNothing);
+    expect(find.text('红灯'), findsNothing);
+    expect(find.text('秒'), findsNothing);
     expect(t.takeException(), isNull);
   });
   test('unknown enums stay neutral, validity is bounded and monotonic', () {
@@ -144,12 +153,10 @@ void main() {
     expect(TrafficLightSnapshot.fromNative({'demo': false}).lights, isEmpty);
   });
 
-  test(
-      'optional card preserves existing defaults and supports layout serialization',
-      () {
+  test('default card and legacy sizes support layout serialization', () {
     final spec = specFor('trafficLight');
-    expect((spec.w, spec.h, spec.minW, spec.minH), (4, 3, 4, 2));
-    expect(defaultCards().any((c) => c.type == 'trafficLight'), isFalse);
+    expect((spec.w, spec.h, spec.minW, spec.minH), (4, 2, 4, 2));
+    expect(defaultCards().any((c) => c.type == 'trafficLight'), isTrue);
     for (final size in [(4, 2), (4, 3), (8, 3), (8, 6)]) {
       final card = LauncherCard(
           'signal', 'trafficLight', '路口', 0, 0, size.$1, size.$2, 0);
@@ -244,6 +251,7 @@ void main() {
     await t.pumpWidget(LauncherApp(controller: controller));
     await t.pumpAndSettle();
     controller.beginEdit();
+    controller.remove('traffic-light-1');
     await t.pumpAndSettle();
     showCardLibrary(t.element(find.byType(EditableCard).first), controller);
     await t.pumpAndSettle();

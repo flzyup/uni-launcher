@@ -293,7 +293,7 @@ public final class GlobalDockService extends Service {
         }catch(Exception ignored){}return j;
     }
     private void showPanel(String kind){
-        if(!java.util.Arrays.asList("apps","climate","media","vehicle","navigation").contains(kind))return;
+        if(!java.util.Arrays.asList("apps","climate","media","vehicle","navigation","music-picker").contains(kind))return;
         // Tapping the same button again closes it; different buttons replace it.
         if(kind.equals(panel)){dismissPanel();return;}
         main.removeCallbacks(releaseIdlePanel);

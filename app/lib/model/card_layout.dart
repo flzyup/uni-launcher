@@ -7,7 +7,7 @@ class CardSpec {
 
 const cardSpecs = [
   CardSpec('nav', '导航', '原车导航服务', 8, 6, 6, 3),
-  CardSpec('trafficLight', '红绿灯', '高德路口信号', 4, 3, 4, 2),
+  CardSpec('trafficLight', '红绿灯', '高德路口信号', 4, 2, 4, 2),
   CardSpec('music', '音乐', '原车媒体中心', 4, 3, 3, 2),
   CardSpec('weather', '天气', '原车天气', 4, 2, 3, 2),
   CardSpec('calendar', '日历', '原车日历', 4, 3, 3, 2),
@@ -29,13 +29,15 @@ CardSpec specFor(String type) => cardSpecs.firstWhere((s) => s.type == type);
 class LauncherCard {
   final String id, type, title;
   final String layout;
+  final List<String> shortcutApps;
   final int x, y, w, h, page;
   const LauncherCard(
       this.id, this.type, this.title, this.x, this.y, this.w, this.h, this.page,
-      {this.layout = ''});
+      {this.layout = '', this.shortcutApps = const []});
   LauncherCard copyWith(
           {String? title,
           String? layout,
+          List<String>? shortcutApps,
           int? x,
           int? y,
           int? w,
@@ -43,7 +45,8 @@ class LauncherCard {
           int? page}) =>
       LauncherCard(id, type, title ?? this.title, x ?? this.x, y ?? this.y,
           w ?? this.w, h ?? this.h, page ?? this.page,
-          layout: layout ?? this.layout);
+          layout: layout ?? this.layout,
+          shortcutApps: shortcutApps ?? this.shortcutApps);
   Map<String, dynamic> toJson() => {
         'id': id,
         'type': type,
@@ -54,6 +57,7 @@ class LauncherCard {
         'h': h,
         'page': page,
         if (layout.isNotEmpty) 'layout': layout,
+        if (shortcutApps.isNotEmpty) 'shortcutApps': shortcutApps,
       };
   factory LauncherCard.fromJson(Map<String, dynamic> j) => LauncherCard(
       j['id'] as String,
@@ -64,7 +68,14 @@ class LauncherCard {
       j['w'] as int,
       j['h'] as int,
       j['page'] as int,
-      layout: j['layout'] as String? ?? '');
+      layout: j['layout'] as String? ?? '',
+      shortcutApps:
+          (j['shortcutApps'] is List ? j['shortcutApps'] as List : const [])
+              .whereType<String>()
+              .where((id) => id.isNotEmpty && id.length <= 512)
+              .toSet()
+              .take(12)
+              .toList());
   bool get inBounds {
     if (!cardSpecs.any((s) => s.type == type)) return false;
     final s = specFor(type);
@@ -89,12 +100,14 @@ class LauncherCard {
 List<LauncherCard> defaultCards() => const [
       LauncherCard('nav-1', 'nav', '导航', 0, 0, 8, 6, 0),
       LauncherCard('music-1', 'music', '正在播放', 8, 0, 4, 4, 0),
-      LauncherCard('weather-1', 'weather', '天气', 8, 4, 4, 2, 0),
+      LauncherCard('traffic-light-1', 'trafficLight', '红绿灯', 8, 4, 4, 2, 0),
       LauncherCard('tpms-1', 'tpms', '胎压', 0, 0, 4, 3, 1),
       LauncherCard('battery-1', 'battery', '动力电池', 4, 0, 4, 3, 1),
-      LauncherCard('clock-1', 'clock', '时钟', 8, 0, 4, 3, 1),
-      LauncherCard('vehicle-1', 'vehicle', '行车信息', 0, 3, 4, 3, 1),
-      LauncherCard('air-1', 'air', '车内空气', 4, 3, 4, 3, 1),
+      LauncherCard('clock-weather-1', 'clockWeather', '时钟与天气', 8, 0, 4, 3, 1,
+          layout: 'combined'),
+      LauncherCard('shortcuts-1', 'shortcuts', '快捷应用', 0, 3, 4, 3, 1),
+      LauncherCard('vehicle-1', 'vehicle', '行车信息', 4, 3, 4, 3, 1),
+      LauncherCard('air-1', 'air', '车内空气', 8, 3, 4, 3, 1),
     ].toList();
 bool validLayout(List<LauncherCard> cards) {
   if (cards.length > 200 ||

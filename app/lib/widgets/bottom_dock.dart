@@ -11,6 +11,7 @@ import 'media_artwork.dart';
 import '../model/vehicle_data.dart';
 import 'vehicle_readout.dart';
 import 'climate_panel.dart';
+import 'circulation_icon.dart';
 export 'climate_panel.dart' show showClimatePanel;
 
 class BottomDock extends StatelessWidget {
@@ -56,41 +57,43 @@ class BottomDock extends StatelessWidget {
                 radius: s.controlRadius,
                 shadow: false,
                 tone: SurfaceTone.soft,
-                padding: EdgeInsets.zero,
+                padding: EdgeInsets.symmetric(horizontal: Design.px(12)),
                 child: child)
             : child;
-        Widget zone(String id, String label) =>
-            Row(mainAxisSize: MainAxisSize.min, children: [
-              IconAction(
-                  icon: Icons.remove,
-                  label: '降低${label}温度',
-                  size: Design.px(40),
-                  iconSize: Design.px(21),
-                  foregroundColor: s.muted,
-                  onTap: climateWritable(native, id)
-                      ? () => c.command('temp-down', zone: id)
-                      : null),
-              SizedBox(
-                  width: Design.px(88),
-                  height: Design.px(64),
-                  child: InkWell(
-                      onTap: () => showClimatePanel(context, c),
-                      child: Center(
-                          child: Text(
-                              demo
-                                  ? '${(climate[id] as num? ?? 22.5).toStringAsFixed(1)}°'
-                                  : '${VehicleField.fromNative(native, id).display()}°',
-                              style: TextStyle(fontSize: Design.px(32)))))),
-              IconAction(
-                  icon: Icons.add,
-                  label: '升高${label}温度',
-                  size: Design.px(40),
-                  iconSize: Design.px(21),
-                  foregroundColor: s.muted,
-                  onTap: climateWritable(native, id)
-                      ? () => c.command('temp-up', zone: id)
-                      : null)
-            ]);
+        bool? climateFlag(String id) {
+          if (demo) return climate[id] is bool ? climate[id] as bool : null;
+          final field = VehicleField.fromNative(native, id);
+          return field.valid && field.value is bool
+              ? field.value as bool
+              : null;
+        }
+
+        Widget zone(String id, String label) => SizedBox(
+            width: Design.px(82),
+            height: Design.px(64),
+            child: InkWell(
+                key: ValueKey('dock-temperature-$id'),
+                onTap: () => showClimatePanel(context, c),
+                child: Center(
+                    child: Text(
+                        demo
+                            ? '${(climate[id] as num? ?? 22.5).toStringAsFixed(1)}°'
+                            : '${VehicleField.fromNative(native, id).display()}°',
+                        maxLines: 1,
+                        style: TextStyle(fontSize: Design.px(30))))));
+        final ac = climateFlag('ac'), recirc = climateFlag('recirc');
+        Widget climateIndicator(
+                String id, String mode, Widget child, String label) =>
+            IconAction(
+                key: ValueKey(id),
+                icon: Icons.air,
+                label: label,
+                size: Design.px(46),
+                framed: false,
+                onTap: climateWritable(native, mode)
+                    ? () => c.command('climate-mode', value: mode)
+                    : null,
+                child: child);
         return SizedBox(
             key: const ValueKey('bottom-dock'),
             height: Design.px(96),
@@ -151,8 +154,31 @@ class BottomDock extends StatelessWidget {
                       child: climateGroup(Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
+                            climateIndicator(
+                                'dock-ac-indicator',
+                                'ac',
+                                Text('A/C',
+                                    maxLines: 1,
+                                    style: TextStyle(
+                                        fontSize: Design.px(17),
+                                        fontWeight: FontWeight.w600,
+                                        color:
+                                            ac == true ? s.accent : s.muted)),
+                                ac == null
+                                    ? '空调制冷状态未知'
+                                    : (ac ? '空调制冷开启' : '空调制冷关闭')),
                             zone('left', '主驾'),
                             DockClimateButton(controller: c, native: native),
+                            climateIndicator(
+                                'dock-circulation-indicator',
+                                'recirc',
+                                CirculationIcon(
+                                    recirculating: recirc,
+                                    color: recirc == null ? s.muted : s.accent,
+                                    size: Design.px(28)),
+                                recirc == null
+                                    ? '空气循环状态未知'
+                                    : (recirc ? '内循环' : '外循环')),
                             zone('right', '副驾'),
                             action(
                                 'climate-power',

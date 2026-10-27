@@ -105,7 +105,7 @@ public final class MainActivity extends FlutterActivity {
 
     @Override protected void onCreate(Bundle saved){
         rt=LauncherRuntime.get(this);
-        initialSettings=getIntent()!=null&&getIntent().getBooleanExtra("uniSettings",false);
+        initialSettings=isSettingsIntent(getIntent());
         super.onCreate(saved);getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
         // Android can create a separate HOME task after a regular app launch.
         // Keep one host/engine so hidden instances cannot retain map displays.
@@ -275,17 +275,21 @@ public final class MainActivity extends FlutterActivity {
             owner.requestPermissions(new String[]{android.Manifest.permission.RECORD_AUDIO},4106);
         }else context.startActivity(new Intent(context,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra("uniSpectrumPermission",true));
     }
+    private boolean isSettingsIntent(Intent intent){
+        return intent!=null&&(intent.getBooleanExtra("uniSettings",false)||
+            (intent.getComponent()!=null&&"xyz.i4o.uni.launcher.DesktopSettings".equals(intent.getComponent().getClassName())));
+    }
     private void dispatchIntent(Intent intent){
         if(intent!=null&&intent.getBooleanExtra("uniSpectrumPermission",false)){
             getWindow().getDecorView().post(()->requestPermissions(new String[]{android.Manifest.permission.RECORD_AUDIO},4106));
             intent.removeExtra("uniSpectrumPermission");
         }
-        if(channel!=null)channel.invokeMethod(intent!=null&&intent.getBooleanExtra("uniSettings",false)?"open-settings":"home",null);
+        if(channel!=null)channel.invokeMethod(isSettingsIntent(intent)?"open-settings":"home",null);
     }
 
     @Override protected void onNewIntent(Intent intent){
         super.onNewIntent(intent);setIntent(intent);
-        initialSettings=intent!=null&&intent.getBooleanExtra("uniSettings",false);
+        initialSettings=isSettingsIntent(intent);
         dispatchIntent(intent);publish();
     }
 

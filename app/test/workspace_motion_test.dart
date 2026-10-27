@@ -45,6 +45,10 @@ void main() {
         expect(incoming.left, greaterThan(start.left + 300));
         expect(outgoing.right, lessThanOrEqualTo(incoming.left + .1),
             reason: 'no overlapping page content');
+        if (effect.id == 'slide') {
+          expect(incoming.left - outgoing.right, greaterThan(10),
+              reason: 'adjacent pages retain a visible gutter');
+        }
         if (effect.id == 'zoom') expect(outgoing.width, lessThan(start.width));
       } else if (effect.id == 'fade') {
         final opacity = find.descendant(

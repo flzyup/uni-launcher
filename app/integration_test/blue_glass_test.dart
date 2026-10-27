@@ -137,8 +137,6 @@ void main() {
         t.getTopLeft(find.byKey(const ValueKey('system-app-controls'))).dy <
             t.getTopLeft(find.text('导航与音乐')).dy);
     await binding.takeScreenshot('blue-glass-system-settings-top');
-    await t.tap(find.byKey(const ValueKey('system-app-controls')));
-    await settle();
     await t.scrollUntilVisible(find.byKey(const ValueKey('media-source')), 320,
         scrollable: find.byType(Scrollable).first);
     await settle();

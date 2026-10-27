@@ -8,9 +8,24 @@ import '../theme/design_tokens.dart';
 import '../widgets/bottom_dock.dart';
 import 'settings_screen.dart';
 
-class LauncherShell extends StatelessWidget {
+class LauncherShell extends StatefulWidget {
   final LauncherController controller;
   const LauncherShell({super.key, required this.controller});
+  @override
+  State<LauncherShell> createState() => _LauncherShellState();
+}
+
+class _LauncherShellState extends State<LauncherShell> {
+  late final ValueNotifier<double> pagePosition =
+      ValueNotifier(widget.controller.page.toDouble());
+  LauncherController get controller => widget.controller;
+
+  @override
+  void dispose() {
+    pagePosition.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return PopScope(
@@ -72,7 +87,9 @@ class LauncherShell extends StatelessWidget {
                                     width: Design.canvasWidth,
                                     height: height / scale,
                                     child: Column(children: [
-                                      Header(controller: controller),
+                                      Header(
+                                          controller: controller,
+                                          position: pagePosition),
                                       Expanded(
                                           child: IndexedStack(
                                               index:
@@ -81,7 +98,8 @@ class LauncherShell extends StatelessWidget {
                                             TickerMode(
                                                 enabled: !controller.settings,
                                                 child: Desktop(
-                                                    controller: controller)),
+                                                    controller: controller,
+                                                    position: pagePosition)),
                                             controller.settings
                                                 ? SettingsScreen(
                                                     controller: controller)

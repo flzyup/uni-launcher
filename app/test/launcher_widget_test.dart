@@ -37,6 +37,7 @@ void main() {
   testWidgets('home hold opens settings; blur switch adds and removes filters',
       (t) async {
     final (c, g) = await launch(t);
+    c.setAppearance(c.appearance.copyWith(themeStyle: 'classic'), save: false);
     await t.longPress(find.byKey(const ValueKey('home')));
     await t.pumpAndSettle();
     expect(c.settings, true);
@@ -53,12 +54,25 @@ void main() {
     expect(g.saved, contains('"glass":false'));
     expect(t.takeException(), null);
   });
+  testWidgets(
+      'edit mode allows horizontal page swipes without starting card placement',
+      (t) async {
+    final (c, _) = await launch(t);
+    c.beginEdit();
+    await t.pumpAndSettle();
+    await t.dragFrom(const Offset(1269, 700), const Offset(-700, 0));
+    await t.pumpAndSettle();
+    expect(c.page, 1);
+    expect(c.editing, isTrue);
+    expect(c.placing, isFalse);
+    await t.dragFrom(const Offset(1269, 700), const Offset(700, 0));
+    await t.pumpAndSettle();
+    expect(c.page, 0);
+  });
   testWidgets('native navigation switch sends platform action', (t) async {
     final (c, g) = await launch(t);
     c.openSettings();
     c.tab('system');
-    await t.pumpAndSettle();
-    await t.tap(find.byKey(const ValueKey('system-app-controls')));
     await t.pumpAndSettle();
     await t.scrollUntilVisible(
         find.byKey(const ValueKey('system-navigation-hidden')), 300,
@@ -79,7 +93,7 @@ void main() {
     await t.pumpAndSettle();
     await t.tap(find.byKey(const ValueKey('add-air')));
     await t.pumpAndSettle();
-    expect(c.cards.length, 9);
+    expect(c.cards.length, 10);
     await t.tap(find.byKey(const ValueKey('finish-edit')));
     await t.pumpAndSettle();
     expect(c.editing, false);

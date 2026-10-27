@@ -32,9 +32,11 @@ class SceneBackground extends StatelessWidget {
         WallpaperImage(appearance: wallpaper, cacheWidth: wallpaperCacheWidth)
       else
         const SizedBox.expand(),
-      if (s.technicalFrame)
+      if (s.technicalFrame && !hasWallpaper)
+        _technicalGradient(s)
+      else if (s.technicalFrame)
         ColoredBox(
-            color: forceOverlay && hasWallpaper
+            color: forceOverlay
                 ? s.background.withValues(alpha: .9)
                 : Colors.transparent)
       else if (showOverlay)
@@ -44,6 +46,18 @@ class SceneBackground extends StatelessWidget {
       KeyedSubtree(key: const ValueKey('scene-content'), child: child),
     ]);
   }
+
+  Widget _technicalGradient(SurfaceStyle s) => DecoratedBox(
+      key: const ValueKey('technical-theme-gradient'),
+      decoration: BoxDecoration(
+          gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+            Color.lerp(s.background, s.seed, s.dark ? .22 : .12)!,
+            s.background,
+            Color.lerp(s.background, s.seed, s.dark ? .12 : .08)!,
+          ])));
 
   Widget _classicBackdrop(SurfaceStyle s, bool hasWallpaper) => DecoratedBox(
       decoration: BoxDecoration(
