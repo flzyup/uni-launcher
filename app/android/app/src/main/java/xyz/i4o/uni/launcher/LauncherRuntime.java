@@ -58,7 +58,7 @@ public final class LauncherRuntime {
     private int demoTrack;
     private long demoPositionMs,demoSampleAt=android.os.SystemClock.elapsedRealtime();
     private final BroadcastReceiver packages=new BroadcastReceiver(){
-        @Override public void onReceive(Context c,Intent i){installed=apps.refresh();systemSettings.refresh();trafficLights.navigationChanged();publish();}
+        @Override public void onReceive(Context c,Intent i){installed=apps.refresh();new Thread(()->{systemSettings.refresh();main.post(()->{trafficLights.navigationChanged();publish();});},"uni-packages").start();}
     };
 
     public static LauncherRuntime get(Context context){
@@ -73,22 +73,40 @@ public final class LauncherRuntime {
     }
 
     private LauncherRuntime(Context application){
+        long traceStart=android.os.SystemClock.uptimeMillis();
         context=application;
         prefs=context.getSharedPreferences("launcher",Context.MODE_PRIVATE);
         // Only initialize a brand-new install; upgrades retain explicit preferences.
         if(prefs.getAll().isEmpty())prefs.edit().putBoolean("globalDockEnabled",true).commit();
         if(!prefs.contains("demo"))prefs.edit().putBoolean("demo",Build.FINGERPRINT.contains("generic")||Build.MODEL.contains("sdk_gphone")||Build.MODEL.contains("Android SDK")).apply();
+        long afterPrefs=android.os.SystemClock.uptimeMillis();
         apps=new AppRepository(context);catalog=new OfficialCatalog(context);
+        long afterRepos=android.os.SystemClock.uptimeMillis();
         vehicle=new VehicleTelemetry(context,this::publish);navigation=new NavigationApps(context,prefs);
+        long afterTelemetry=android.os.SystemClock.uptimeMillis();
         trafficLights=new AmapTrafficLightAdapter(context,navigation::selected,this::publish);
         media=new MediaAdapter(context,this::publish);weather=new OfficialWeatherAdapter(context,this::publish);systemStatus=new SystemStatusAdapter(context,this::publish);calendar=new SystemCalendarAdapter(context,this::publish);
+        long afterAdapters=android.os.SystemClock.uptimeMillis();
         systemSettings=new SystemSettingsRepository(context);navigationAudio=new NavigationAudioAdapter(context);
+        long afterSettings=android.os.SystemClock.uptimeMillis();
         // setPreferredPackage() starts MediaAdapter; defer it until the first owner.
         installed=apps.refresh();
+        long afterApps=android.os.SystemClock.uptimeMillis();
+        android.util.Log.i("UNI-Startup","runtime split: prefs="+(afterPrefs-traceStart)
+            +" repos="+(afterRepos-afterPrefs)+" telemetry="+(afterTelemetry-afterRepos)
+            +" adapters="+(afterAdapters-afterTelemetry)+" settings="+(afterSettings-afterAdapters)
+            +" apps="+(afterApps-afterSettings)+" runtime="+(afterApps-traceStart));
         IntentFilter filter=new IntentFilter();
         filter.addAction(Intent.ACTION_PACKAGE_ADDED);filter.addAction(Intent.ACTION_PACKAGE_REMOVED);filter.addAction(Intent.ACTION_PACKAGE_CHANGED);filter.addDataScheme("package");
         // One Application-lifetime package receiver/cache, independent of windows.
         context.registerReceiver(packages,filter);
+        // The settings catalogue and the OEM audio probe are only needed by the
+        // settings panel; warm them after the first frame instead of blocking it.
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
+            ()->new Thread(()->{systemSettings.prewarm();navigationAudio.prewarm();},"uni-warmup").start(),
+            1500);
+        android.util.Log.i("UNI-Startup","runtime ready after receiver: "
+            +(android.os.SystemClock.uptimeMillis()-traceStart));
     }
 
     public SharedPreferences prefs(){return prefs;}
@@ -229,7 +247,7 @@ public final class LauncherRuntime {
             publish();return true;
         }
         if("embed-navigation".equals(action)){prefs.edit().putBoolean("embedNavigation",request.optBoolean("enabled",true)).commit();publish();return true;}
-        if("refresh-system-settings".equals(action)){systemSettings.refresh();navigationAudio.refresh();publish();return true;}
+        if("refresh-system-settings".equals(action)){new Thread(()->{systemSettings.refresh();navigationAudio.refresh();main.post(this::publish);},"uni-settings").start();return true;}
         if("open-system-setting".equals(action)){if(!systemSettings.open(value))toast("系统设置入口不可用或权限不足");return true;}
         if("navigation-audio-mode".equals(action)){if(!navigationAudio.setMode(value))toast("导航混音模式不可用或原车未确认变更");publish();return true;}
         if("calendar-refresh".equals(action)){calendar.refresh();publish();return true;}

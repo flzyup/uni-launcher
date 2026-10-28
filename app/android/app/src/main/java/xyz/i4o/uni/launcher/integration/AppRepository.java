@@ -27,11 +27,13 @@ public final class AppRepository {
     private final Map<String, ComponentName> allowed = new LinkedHashMap<String, ComponentName>();
     public AppRepository(Context context) {this.context=context;}
     public JSONArray refresh() {
+        long traceStart=android.os.SystemClock.uptimeMillis();
         allowed.clear(); JSONArray result=new JSONArray();
         Set<String> players=musicPackages();
         Intent query=new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
         PackageManager pm=context.getPackageManager();
         List<ResolveInfo> apps=pm.queryIntentActivities(query,0);
+        long afterQuery=android.os.SystemClock.uptimeMillis();
         // loadLabel is a resource lookup per call; the old comparator called it
         // twice for every comparison (~n log n IPCs). Read each label once.
         int count=apps.size();
@@ -47,6 +49,7 @@ public final class AppRepository {
         // Device-policy answers are identical for every app in one refresh.
         boolean uninstallAllowed=uninstallAllowed();
         Set<String> admins=activeAdminPackages();
+        long afterLabels=android.os.SystemClock.uptimeMillis();
         String self=context.getPackageName();
         for(Integer index:order){
             ResolveInfo app=apps.get(index);
@@ -67,6 +70,10 @@ public final class AppRepository {
                     .put("icon","data:image/webp;base64,"+iconBase64(app,info,pkg,pm)));
             }catch(Exception e){android.util.Log.w("UniApps","Unable to read app icon",e);}
         }
+        long end=android.os.SystemClock.uptimeMillis();
+        android.util.Log.i("UNI-Startup","apps="+result.length()
+            +" query="+(afterQuery-traceStart)+" labels="+(afterLabels-afterQuery)
+            +" icons="+(end-afterLabels)+" refresh="+(end-traceStart));
         return result;
     }
 

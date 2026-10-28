@@ -301,6 +301,74 @@ pwsh tools/car_perf_probe.ps1 -Label after
 同时 `mapViews` 的 `taskMoves` 增加、`consumedFrames` 停止增长——也就是桌面上的导航卡变成 0fps 的死图，
 直到再次进入桌面才恢复。这个比毫秒级调优更值得先修：它直接表现为"导航卡有时候不动"。
 
+## 10. B：把冷启动拆开打点，然后砍掉最大的一段
+
+### 10.1 打点
+
+`StartupTrace`（原生）+ `main.dart` 里的两个记号，全部用 `uptimeMillis`，与 `am start -W` 的 TotalTime 同一时钟。
+读法：`adb logcat -s UNI-Startup`。
+
+打点后的第一次测量（未优化）：
+
+```
+apps=24 query=7 labels=75 icons=25 refresh=107
+runtime split: prefs=4 repos=2 telemetry=6 adapters=56 settings=1090 apps=141 runtime=1299
+host total=3799 onCreate=2163 runtime=3463 window=3639 firstDraw=3799
+dart bootstrap=151 firstFrame=317 style=blueGlass glass=false radius=0.0
+```
+
+结论：**`LauncherRuntime` 构造里 1090ms 花在 `SystemSettingsRepository` + `NavigationAudioAdapter` 的构造函数上**，
+而这两样东西（系统设置入口清单、原车导航混音接口探测）首帧完全用不到。
+
+- `SystemSettingsRepository.refresh()` 会反射 `Settings.class` 取全部 `android.settings.*` 动作（约 150 个），
+  每个动作一次 `queryIntentActivities`，再加一次 `getInstalledPackages(0)`，最后生成 254 条入口。
+- `NavigationAudioAdapter.refresh()` 要加载原车音频类、`create(context)`、`getAudioState()`。
+
+### 10.2 改法
+
+两处都改成惰性：构造只存 context，`refresh()` 加 `warmed` 标记与同步保护，`snapshot()`/`open()` 首次访问时兜底加载；
+`LauncherRuntime` 在首帧后 1.5s 起一个后台线程预热（`uni-warmup`），
+包变更广播与手动刷新也移到后台线程（原来在主线程跑 1 秒的扫描，等于给自己埋 ANR）。
+
+### 10.3 效果
+
+```
+runtime split: prefs=4 repos=2 telemetry=11 adapters=55 settings=1 apps=204 runtime=277
+host total=870 onCreate=129 runtime=408 window=753 firstDraw=870
+```
+
+| | 改前 | 改后 |
+| --- | --- | --- |
+| 应用侧启动（进程起→firstDraw） | 3799 / 1733 ms | **870 / 710 ms** |
+| 冷启动中位（6 轮） | 3449 ms | **2691 ms**（另一轮 2908） |
+| 冷启动最小 | 3004 ms | **2322 ms** |
+| 设置入口清单 | 254 条 | **254 条**（惰性加载后仍在，面板打开即有） |
+
+剩下的约 2s 是 Flutter engine 初始化 + 首帧（`dart bootstrap=151 firstFrame=317`，engine 本身未纳入 Dart 计时）。
+这一段的两个尝试都做了 A/B，都被否决：
+
+| 尝试 | 结果 | 处置 |
+| --- | --- | --- |
+| 关掉 Impeller 用 Skia（怕着色器编译拖慢启动） | 冷启动中位 2964 vs 2908，噪声内；且 opt-out 已标记弃用 | 撤回 |
+| 翻页期间不画卡片阴影（省入场页首帧） | 平均帧间隔 55.6ms，而保留阴影是 39.2ms——`moving` 翻转会整页重建，翻完还要再光栅一次 | 撤回 |
+
+## 11. C：翻页
+
+同源 A/B，同一台车、同一图层、同样 3-4 次滑动：
+
+| 阴影参数 | 样本 | p50 | p90 | max | 平均 |
+| --- | --- | --- | --- | --- | --- |
+| 44 / 偏移 16（原值） | 164 | 50 ms | 99.9 ms | 150 ms | **48.1 ms** |
+| 20 / 偏移 10（现在） | 205 | **33.3 ms** | **66.6 ms** | 116.6 ms | **36.3 ms** |
+
+**收窄阴影确实换来约 25% 的翻页帧时间**（p90 从 99.9 到 66.6），这一项保留。
+对比会话开始时那条记录（含 750ms、250ms 尖峰，平均约 63ms），翻页已经从"明显卡一下"变成"偶尔掉到 33-66ms"。
+
+但真正的下一步不是继续压微秒：**入场页首帧的整体光栅**（卡片内容 + 图标纹理 + 中文排版）仍是主体，
+而且 `_RetainedPage(offstage:)` 让未激活页面不参与绘制，所以它没有预热过的图层。
+要彻底解决，需要让相邻页在空闲时就被光栅进图层缓存——那是一次结构性改动，得先确认被覆盖页面不会透出。
+
+
 
 ## 9. 与车机原厂桌面的对照基线
 

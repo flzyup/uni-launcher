@@ -17,15 +17,21 @@ import org.json.JSONObject;
 public final class NavigationAudioAdapter {
     private static final String API="com.ecarx.xui.adaptapi.audio.audiofx.";
     private final Context context;
-    private Object audio;
-    private Method setter;
-    private int mode=-1;
-    private boolean available;
-    private String reason="尚未读取";
+    private volatile Object audio;
+    private volatile Method setter;
+    private volatile int mode=-1;
+    private volatile boolean available;
+    private volatile String reason="尚未读取";
 
-    public NavigationAudioAdapter(Context context){this.context=context;refresh();}
+    public NavigationAudioAdapter(Context context){this.context=context;}
 
-    public void refresh(){
+    /** Reflection plus an OEM service round trip; never on the cold-start path. */
+    private volatile boolean warmed;
+    public void prewarm(){if(warmed)return;try{refresh();}catch(RuntimeException ignored){}}
+    private void ensureWarmed(){if(warmed)return;try{refresh();}catch(RuntimeException ignored){}}
+
+    public synchronized void refresh(){
+        warmed=true;
         available=false;mode=-1;audio=null;setter=null;
         try{
             Class<?> api=loadAudioClass();
@@ -79,6 +85,7 @@ public final class NavigationAudioAdapter {
     }
 
     public JSONObject snapshot(){
+        ensureWarmed();
         JSONObject result=new JSONObject();
         try{
             JSONArray modes=new JSONArray();

@@ -107,7 +107,9 @@ public final class MainActivity extends FlutterActivity {
     }
 
     @Override protected void onCreate(Bundle saved){
+        long traceStart=StartupTrace.mark();
         rt=LauncherRuntime.get(this);
+        StartupTrace.began(traceStart);StartupTrace.runtime(StartupTrace.mark());
         initialSettings=isSettingsIntent(getIntent());
         super.onCreate(saved);getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
         // Android can create a separate HOME task after a regular app launch.
@@ -119,6 +121,11 @@ public final class MainActivity extends FlutterActivity {
             if(r-l!=orr-ol||b-t!=ob-ot)v.post(this::publish);
         });
         dispatchIntent(getIntent());publish();
+        StartupTrace.window(StartupTrace.mark());
+        final android.view.View traceRoot=getWindow().getDecorView();
+        traceRoot.getViewTreeObserver().addOnPreDrawListener(new android.view.ViewTreeObserver.OnPreDrawListener(){
+            public boolean onPreDraw(){traceRoot.getViewTreeObserver().removeOnPreDrawListener(this);StartupTrace.firstDraw();return true;}
+        });
     }
 
     private void updateSnapshot(){updateSnapshot(false);}

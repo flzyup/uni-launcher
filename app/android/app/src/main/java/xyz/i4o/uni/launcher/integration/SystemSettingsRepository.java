@@ -27,12 +27,17 @@ public final class SystemSettingsRepository {
     private static final String ANDROID="http://schemas.android.com/apk/res/android";
     private final Context context;
     private final PackageManager pm;
-    private final Map<String,Intent> intents=new LinkedHashMap<>();
-    private JSONArray entries=new JSONArray();
+    private volatile Map<String,Intent> intents=new LinkedHashMap<>();
+    private volatile JSONArray entries=new JSONArray();
+    /** The settings list is only read by the settings panel; building it costs a
+     * package scan per platform action (~1s on the head unit), so it is deferred
+     * off the cold-start path and warmed in the background after the first frame. */
+    private volatile boolean warmed;
 
-    public SystemSettingsRepository(Context context){this.context=context;pm=context.getPackageManager();refresh();}
+    public SystemSettingsRepository(Context context){this.context=context;pm=context.getPackageManager();}
 
     public void refresh(){
+        synchronized(this){
         intents.clear();entries=new JSONArray();
         Set<String> packages=new TreeSet<>();
         Set<String> actions=new TreeSet<>();
@@ -53,6 +58,19 @@ public final class SystemSettingsRepository {
             }
         }catch(RuntimeException ignored){}
         for(String pkg:new TreeSet<>(packages))discoverManifest(pkg);
+        warmed=true;
+        }
+    }
+
+    /** Runs the scan once, off the cold-start path. */
+    public void prewarm(){
+        if(warmed)return;
+        try{refresh();}catch(RuntimeException ignored){}
+    }
+
+    private void ensureWarmed(){
+        if(warmed)return;
+        try{refresh();}catch(RuntimeException ignored){}
     }
 
     private void discover(String action,String pkg,Set<String> packages){
@@ -226,10 +244,12 @@ public final class SystemSettingsRepository {
     }
 
     public JSONArray snapshot(){
+        ensureWarmed();
         try{return new JSONArray(entries.toString());}catch(org.json.JSONException e){return new JSONArray();}
     }
 
     public boolean open(String id){
+        ensureWarmed();
         Intent intent=intents.get(id);if(intent==null)return false;
         try{
             if(!allowed(pm.getActivityInfo(intent.getComponent(),0)))return false;
