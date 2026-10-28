@@ -4,11 +4,20 @@ import '../controller/launcher_controller.dart';
 import '../theme/design_tokens.dart';
 import '../theme/launcher_theme.dart';
 import 'glass_surface.dart';
+import 'dock_window_scope.dart';
 
 /// A compact, right-aligned panel above the global dock.
 Future<void> showFileTransferPopup(
-        BuildContext context, LauncherController c) =>
-    Navigator.of(context).push(_TransferRoute(c));
+    BuildContext context, LauncherController c) async {
+  if (await c.presentGlobalPanel('transfer') || !context.mounted) return;
+  final scope = DockWindowScope.of(context);
+  final closed = Navigator.of(context).push(_TransferRoute(c));
+  if (scope?.onPresented != null) {
+    await WidgetsBinding.instance.endOfFrame;
+    if (context.mounted) await scope!.onPresented!();
+  }
+  await closed;
+}
 
 class _TransferRoute extends PopupRoute<void> {
   final LauncherController launcherController;

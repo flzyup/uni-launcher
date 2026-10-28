@@ -16,6 +16,7 @@ import 'package:uni_launcher/widgets/lyrics_view.dart';
 import 'fake_gateway.dart';
 import 'package:uni_launcher/widgets/recent_tasks_panel.dart';
 import 'package:uni_launcher/widgets/uni_icon.dart';
+import 'package:uni_launcher/widgets/desktop.dart';
 
 void main() {
   Future<(LauncherController, FakeGateway)> setup(WidgetTester t,
@@ -63,6 +64,28 @@ void main() {
     });
     return (c, g);
   }
+
+  testWidgets('header transfer icon follows service and opens global popup',
+      (t) async {
+    final (c, g) = await setup(t, global: true);
+    await t.pumpWidget(MaterialApp(
+      theme: launcherTheme(SurfaceStyle.from(const Appearance(), true)),
+      home: Scaffold(body: Header(controller: c)),
+    ));
+    expect(find.byKey(const ValueKey('status-file-transfer')), findsNothing);
+    g.state['transfer'] = {'running': true};
+    g.stream.add(Map.of(g.state));
+    await t.pump();
+    expect(find.byKey(const ValueKey('status-file-transfer')), findsOneWidget);
+    await t.tap(find.byKey(const ValueKey('status-file-transfer')));
+    await t.pump();
+    expect(g.commands.last['action'], 'show-dock-panel');
+    expect(g.commands.last['value'], 'transfer');
+    g.state['transfer'] = {'running': false};
+    g.stream.add(Map.of(g.state));
+    await t.pump();
+    expect(find.byKey(const ValueKey('status-file-transfer')), findsNothing);
+  });
 
   testWidgets('custom recents renders task cards and native task actions',
       (t) async {
@@ -305,6 +328,31 @@ void main() {
     await t.pumpAndSettle();
     expect(
         g.commands.any((entry) => entry['action'] == 'transfer-start'), isTrue);
+    expect(t.takeException(), isNull);
+  });
+
+  testWidgets('direct global transfer panel signals readiness and closes',
+      (t) async {
+    final (c, g) = await setup(t, host: 'global-panel', global: true);
+    await t.pumpWidget(GlobalPanelApp(controller: c));
+    await t.pumpAndSettle();
+    g.state['globalDock'] = {
+      'enabled': true,
+      'running': true,
+      'panel': 'transfer',
+      'panelRevision': 3
+    };
+    g.stream.add(Map.of(g.state));
+    await t.pumpAndSettle();
+    expect(find.byKey(const ValueKey('transfer-popup')), findsOneWidget);
+    expect(
+        g.commands.any((entry) =>
+            entry['action'] == 'panel-ready' && entry['value'] == '3'),
+        isTrue);
+    await t.tap(find.byTooltip('关闭传文件'));
+    await t.pumpAndSettle();
+    expect(g.commands.any((entry) => entry['action'] == 'dismiss-dock-panel'),
+        isTrue);
     expect(t.takeException(), isNull);
   });
 
