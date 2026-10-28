@@ -221,8 +221,19 @@ function Get-UptimeNs {
 function Get-LayerName([string]$Needle) {
     $lines = Invoke-AdbLines 'shell dumpsys SurfaceFlinger --list' |
         Where-Object { $_ -match $Needle }
-    $surface = $lines | Where-Object { $_ -match '^SurfaceView - ' } | Select-Object -First 1
-    if ($surface) { return $surface.Trim() }
+    $surfaces = @($lines | Where-Object { $_ -match '^SurfaceView - ' } | ForEach-Object { $_.Trim() })
+    # The package can own more than one SurfaceView (the embedded navigation host
+    # creates its own, and the Flutter view's index moves). The layer that is
+    # actually presenting frames is the one with a populated latency buffer.
+    if ($surfaces.Count -gt 1) {
+        $best = $null; $bestCount = -1
+        foreach ($candidate in $surfaces) {
+            $count = @(Get-PresentTimes $candidate).Count
+            if ($count -gt $bestCount) { $best = $candidate; $bestCount = $count }
+        }
+        if ($best) { return $best }
+    }
+    if ($surfaces.Count -ge 1) { return $surfaces[0] }
     $any = $lines | Select-Object -First 1
     if ($any) { return $any.Trim() }
     return $null

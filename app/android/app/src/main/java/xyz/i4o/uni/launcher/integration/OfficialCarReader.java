@@ -81,8 +81,19 @@ public final class OfficialCarReader implements VehicleAdapter {
         if (started || closed) return;
         started = true;
         main.post(new Runnable() { public void run() { initializeOnMain(); } });
-        worker.scheduleWithFixedDelay(new Runnable() { public void run() { collectSafely(); } }, 0, 1, TimeUnit.SECONDS);
+        // A fixed 1s period walks the OEM bus even while another app is on screen.
+        // Reschedule instead so the cadence can follow our visibility.
+        worker.schedule(poll, 0, TimeUnit.MILLISECONDS);
     }
+
+    private final Runnable poll = new Runnable() { public void run() {
+        if (closed) return;
+        try { collectSafely(); } catch (RuntimeException ignored) {}
+        if (closed) return;
+        try {
+            worker.schedule(this, xyz.i4o.uni.launcher.LauncherVisibility.visible() ? 1 : 3, TimeUnit.SECONDS);
+        } catch (java.util.concurrent.RejectedExecutionException ignored) {}
+    }};
 
     public JSONObject read() { start(); return snapshot(); }
 

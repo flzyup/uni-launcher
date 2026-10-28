@@ -30,24 +30,92 @@ public final class AppRepository {
         allowed.clear(); JSONArray result=new JSONArray();
         Set<String> players=musicPackages();
         Intent query=new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
-        List<ResolveInfo> apps=context.getPackageManager().queryIntentActivities(query,0);
-        Collections.sort(apps,new Comparator<ResolveInfo>() {
-            public int compare(ResolveInfo a,ResolveInfo b){return a.loadLabel(context.getPackageManager()).toString().compareTo(b.loadLabel(context.getPackageManager()).toString());}
+        PackageManager pm=context.getPackageManager();
+        List<ResolveInfo> apps=pm.queryIntentActivities(query,0);
+        // loadLabel is a resource lookup per call; the old comparator called it
+        // twice for every comparison (~n log n IPCs). Read each label once.
+        int count=apps.size();
+        final String[] labels=new String[count];
+        for(int i=0;i<count;i++){
+            try{labels[i]=apps.get(i).loadLabel(pm).toString();}catch(RuntimeException e){labels[i]="";}
+        }
+        Integer[] order=new Integer[count];
+        for(int i=0;i<count;i++)order[i]=i;
+        java.util.Arrays.sort(order,new Comparator<Integer>() {
+            public int compare(Integer a,Integer b){return labels[a].compareTo(labels[b]);}
         });
-        for(ResolveInfo app:apps) try {
-            if (!usable(app.activityInfo)) continue;
-            if(context.getPackageName().equals(app.activityInfo.packageName)
-                && !"xyz.i4o.uni.launcher.DesktopSettings".equals(app.activityInfo.name))continue;
-            ComponentName c=new ComponentName(app.activityInfo.packageName,app.activityInfo.name);
-            String key=c.flattenToString(); if(allowed.containsKey(key))continue;
-            allowed.put(key,c);
-            Drawable drawable=app.loadIcon(context.getPackageManager());
-            Bitmap bitmap=Bitmap.createBitmap(72,72,Bitmap.Config.ARGB_8888);Canvas canvas=new Canvas(bitmap);
+        // Device-policy answers are identical for every app in one refresh.
+        boolean uninstallAllowed=uninstallAllowed();
+        Set<String> admins=activeAdminPackages();
+        String self=context.getPackageName();
+        for(Integer index:order){
+            ResolveInfo app=apps.get(index);
+            try{
+                if(!usable(app.activityInfo))continue;
+                String pkg=app.activityInfo.packageName;
+                if(self.equals(pkg)&&!"xyz.i4o.uni.launcher.DesktopSettings".equals(app.activityInfo.name))continue;
+                ComponentName c=new ComponentName(pkg,app.activityInfo.name);
+                String key=c.flattenToString();
+                if(allowed.containsKey(key))continue;
+                allowed.put(key,c);
+                // flags come with the resolve result, so this needs no extra IPC.
+                ApplicationInfo info=app.activityInfo.applicationInfo;
+                boolean uninstallable=uninstallAllowed&&!self.equals(pkg)&&!admins.contains(pkg)
+                    &&(info==null||(info.flags&(ApplicationInfo.FLAG_SYSTEM|ApplicationInfo.FLAG_UPDATED_SYSTEM_APP))==0);
+                result.put(new JSONObject().put("id",key).put("package",pkg).put("label",labels[index])
+                    .put("canUninstall",uninstallable).put("isMusic",players.contains(pkg))
+                    .put("icon","data:image/webp;base64,"+iconBase64(app,info,pkg,pm)));
+            }catch(Exception e){android.util.Log.w("UniApps","Unable to read app icon",e);}
+        }
+        return result;
+    }
+
+    /** Icons dominate start-up: each app costs an inflate, a 72x72 draw and an
+     * encode. Encode once per installed build and keep the bytes on disk, so a
+     * later start only reads a few KB instead of touching package resources. */
+    private String iconBase64(ResolveInfo app,ApplicationInfo info,String pkg,PackageManager pm)throws Exception{
+        long stamp=info==null||info.sourceDir==null?0:new java.io.File(info.sourceDir).lastModified();
+        String name=pkg.replaceAll("[^A-Za-z0-9._]","_")+"-"+stamp+".img";
+        java.io.File cached=new java.io.File(iconCacheDir(),name);
+        byte[] bytes=null;
+        try{if(cached.isFile()&&cached.length()>0)bytes=java.nio.file.Files.readAllBytes(cached.toPath());}catch(Exception ignored){}
+        if(bytes==null||bytes.length==0){
+            Drawable drawable=app.loadIcon(pm);
+            Bitmap bitmap=Bitmap.createBitmap(72,72,Bitmap.Config.ARGB_8888);
+            Canvas canvas=new Canvas(bitmap);
             drawable.setBounds(0,0,72,72);drawable.draw(canvas);
-            ByteArrayOutputStream out=new ByteArrayOutputStream();bitmap.compress(Bitmap.CompressFormat.PNG,100,out);bitmap.recycle();
-            result.put(new JSONObject().put("id",key).put("package",app.activityInfo.packageName).put("label",app.loadLabel(context.getPackageManager()).toString()).put("canUninstall",canUninstall(app.activityInfo.packageName)).put("isMusic",players.contains(app.activityInfo.packageName))
-                .put("icon","data:image/png;base64,"+Base64.encodeToString(out.toByteArray(),Base64.NO_WRAP)));
-        } catch(Exception e){android.util.Log.w("UniApps","Unable to read app icon",e);}
+            ByteArrayOutputStream out=new ByteArrayOutputStream();
+            // WebP keeps alpha and is roughly a third of the PNG size at this size.
+            bitmap.compress(Bitmap.CompressFormat.WEBP,80,out);
+            bitmap.recycle();
+            bytes=out.toByteArray();
+            try{cached.getParentFile().mkdirs();java.nio.file.Files.write(cached.toPath(),bytes);}catch(Exception ignored){}
+        }
+        return Base64.encodeToString(bytes,Base64.NO_WRAP);
+    }
+
+    private java.io.File iconCacheDir(){
+        java.io.File dir=new java.io.File(context.getCacheDir(),"app-icons");
+        java.io.File[] existing=dir.listFiles();
+        if(existing!=null&&existing.length>400)for(java.io.File file:existing)file.delete();
+        return dir;
+    }
+
+    private boolean uninstallAllowed(){
+        try{
+            android.os.UserManager users=(android.os.UserManager)context.getSystemService(Context.USER_SERVICE);
+            return users==null||!users.hasUserRestriction(android.os.UserManager.DISALLOW_UNINSTALL_APPS);
+        }catch(Exception e){return false;}
+    }
+
+    private Set<String> activeAdminPackages(){
+        Set<String> result=new HashSet<>();
+        try{
+            android.app.admin.DevicePolicyManager policy=
+                (android.app.admin.DevicePolicyManager)context.getSystemService(Context.DEVICE_POLICY_SERVICE);
+            List<ComponentName> admins=policy==null?null:policy.getActiveAdmins();
+            if(admins!=null)for(ComponentName admin:admins)result.add(admin.getPackageName());
+        }catch(Exception ignored){}
         return result;
     }
     private Set<String> musicPackages(){

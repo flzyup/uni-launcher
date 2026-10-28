@@ -88,7 +88,7 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> _saveTail = Future.value();
   // Budgets include both the UTF-16 source key and compressed image bytes.
   final _icons = _SnapshotImages(256, 4 * 1024 * 1024);
-  final _recentImages = _SnapshotImages(48, 12 * 1024 * 1024);
+  final _recentImages = _SnapshotImages(48, 6 * 1024 * 1024);
   bool _observingMemory = false;
   bool _disposed = false;
 
@@ -117,8 +117,8 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
     if (_disposed) return;
     if (!_observingMemory) {
       final imageCache = PaintingBinding.instance.imageCache;
-      imageCache.maximumSize = 128;
-      imageCache.maximumSizeBytes = 24 * 1024 * 1024;
+      imageCache.maximumSize = 64;
+      imageCache.maximumSizeBytes = 10 * 1024 * 1024;
       WidgetsBinding.instance.addObserver(this);
       _observingMemory = true;
     }

@@ -235,11 +235,13 @@ public final class MainActivity extends FlutterActivity {
     }
 
     @Override protected void onResume(){
+        LauncherVisibility.set(true);
         super.onResume();if(chrome!=null)chrome.apply();
         GlobalDockService.ensureStarted(this);publish();
     }
 
     @Override protected void onStop(){
+        LauncherVisibility.set(false);
         if(rt!=null){
             // A superseded HOME activity must not hide its replacement's dock.
             if(active.get()==this)rt.setHomeVisible(false);

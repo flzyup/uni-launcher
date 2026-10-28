@@ -259,4 +259,69 @@ pwsh tools/car_perf_probe.ps1 -Label after
 
 注意：这只省掉了"内容没变还往 Dart 送"的那部分；`updateSnapshot()` 本身仍会在每次 `publish()` 时重建 JSON（`pool-3-thread-1` 的 5% 里有一部分是这个）。要彻底解决需要让适配器维护 dirty 标记，而不是每次重建。
 
+## 9. P0/P1 全部实施后的车上复测
+
+### 9.1 改了什么
+
+| 项 | 改动 | 位置 |
+| --- | --- | --- |
+| 冷启动 | 标签一次读完再排序（原来每次比较调两次 `loadLabel`，约 850 次 IPC） | `AppRepository.refresh()` |
+| 冷启动 | 图标 PNG(100) → WebP(80)，并在 `cacheDir/app-icons` 按「包名+sourceDir mtime」落盘缓存 | `AppRepository.iconBase64()` |
+| 冷启动 | 卸载能力判定里的 `getApplicationInfo`/`UserManager`/`ActiveAdmins` 从每应用一次提到每轮一次，系统应用标志改从 `ResolveInfo.activityInfo.applicationInfo.flags` 直接读（零 IPC） | `uninstallAllowed()` / `activeAdminPackages()` |
+| 翻页 | 卡片阴影 44→20（技术风格 18→12），偏移 16→10 | `glass_surface.dart:76-84` |
+| 交互 | 按钮保留按下高亮、去掉扩散水波 | `glass_surface.dart:163` |
+| 常态 | 车辆字段轮询改为自调度：前台 1s、后台 3s | `OfficialCarReader.start()/poll` |
+| 常态 | 系统状态轮询 2s → 隐藏时 5s | `SystemStatusAdapter:49` |
+| 常态 | 新增非阻塞可见性信号 | `LauncherVisibility.java`，`MainActivity.onResume/onStop` |
+| 内存 | `imageCache` 128 项/24MB → 64 项/10MB；最近任务快照 12MB → 6MB | `launcher_controller.dart:91,120,121` |
+
+### 9.2 复测数据（同一台车，屏幕常亮、launcher 在前台）
+
+| 指标 | 改动前 | 改动后 |
+| --- | --- | --- |
+| 冷启动中位 | 3710 ms（3540–3761，5 轮） | **3449 ms**（3004–4213，6 轮） |
+| 冷启动最小 | 3282 ms | **3004 ms** |
+| 装完首启（图标缓存冷） | — | 4825 ms（要写 70 个图标文件） |
+| 第 1 页空闲（实时地图在） | 11.4 fps / 28.0% CPU | 11.9 fps / **29.2%** CPU |
+| 第 2 页空闲 | 1.0 fps / 13.1% CPU | 1.1–1.4 fps / **12.9–14.8%** CPU |
+| 翻页逐帧间隔最大值 | 750 ms（含 250 ms） | **116.7 ms** |
+| PSS（地图已挂载时） | 178,760 / 194,023 KB | 198,832 KB（Graphics 127,516） |
+| PSS（地图未挂载时） | — | 112,602 KB（Graphics 45,900） |
+
+### 9.3 结论（三条都要看清楚）
+
+1. **冷启动这次拿回了约 260 ms（中位 −7%）**，方向对但远不到目标。这台机器上冷启动的主体是 Flutter engine 初始化 + 首帧，不是应用数据准备；要继续压必须在应用内打点，把 3.3s 拆成「进程起→onCreate→首帧」三段再对症。
+2. **空闲 CPU 与内存基本没动**，因为在地图挂载状态下，两者都被实时地图支配：CPU 那 ~15% 是地图合成，Graphics 那 45–127MB 主要是地图虚拟显示的缓冲和纹理拷贝，不是我们的图片缓存。我们自己的开销已经降到小头。**这解释了为什么 P1 的收益看不见——不是没生效，是分母被地图拿走了。**
+3. **翻页的尾部长帧消失了**（750ms/250ms → 最大 116.7ms），但 50–100ms 的帧仍在，说明剩下的成本不是阴影，而是入场页首帧的整体光栅（卡片内容 + 图标纹理 + 中文排版）。下一步要么做真正的图层级预光栅，要么减少单页卡片数量/内容。
+
+### 9.4 顺手发现的一个功能性问题
+
+**内嵌地图会被高德自己抢回前台。** 复测过程中 `mCurrentFocus` 反复从
+`xyz.i4o.uni.launcher/.MainActivity` 跳到 `com.autonavi.amapautp.yh/com.autonavi.amapauto.MainMapActivity`，
+同时 `mapViews` 的 `taskMoves` 增加、`consumedFrames` 停止增长——也就是桌面上的导航卡变成 0fps 的死图，
+直到再次进入桌面才恢复。这个比毫秒级调优更值得先修：它直接表现为"导航卡有时候不动"。
+
+
+## 9. 与车机原厂桌面的对照基线
+
+对照组：`com.ecarx.cardesk`「CarDesk 车控桌面」`1.0.1027-system`（原厂，同为 HOME 应用，桌面上没有实时地图）。同一台车、同一套非 root 手法、同一组滑动（1600↔320，4 次，间隔 500ms）。
+
+| 指标 | CarDesk（原厂） | uni 0.6.18 | 结论 |
+| --- | --- | --- | --- |
+| 冷启动中位 | **4090 ms**（3796/4086/4094/4345） | **3710 ms**（3540/3575/3722/3761） | uni 快约 9% |
+| 静止出帧 | 0 fps（完全静态） | 0.8 fps（无地图页）/ 11.4 fps（含实时地图页） | 功能差异 |
+| 静止 CPU | 14.5 – 23.3%（三次取样，波动大） | 16.6%（无地图页）/ 28.0%（含地图页） | 无地图页基本持平 |
+| 交互表现 | gfxinfo：99 帧，63.6% 掉帧，帧耗时 p50 **21 ms** / p90 36 ms | Flinger 呈现间隔 p50 **66.6 ms** / p90 183 ms，67/75 帧 >33 ms | uni 明显更涩 |
+| PSS | 60 MB（刚起）/ 71 MB（稳定）/ 102 MB（用过之后） | **190 MB**（Graphics 102 MB：EGL 41 + GL 37） | uni 高 2–2.7 倍 |
+| 线程数 | 22 | 32 | — |
+
+两条必须记住的口径差异：
+
+1. **交互指标不是同一个量**。原厂是 HWUI 应用，`gfxinfo` 直接给帧耗时；我们在自己的 `1.raster` 线程绘制，`gfxinfo` 永远 0 帧，只能用呈现间隔反推。方向明确（它约 48fps 节奏、我们约 15fps），但不能当成同精度数字对比。
+2. **原厂桌面不是翻页式**。它更像整页滚动/短动画，没有"入场页整屏首次光栅化"这一步，所以"更丝滑"里有一部分来自功能更简单，而不是实现更好。
+
+结论排序：**内存是最大差距（唯一差一个量级的项）→ 交互流畅度是第二差距 → 冷启动我们已经领先 → 静止 CPU 基本持平。** 内存这条是结构性的：Flutter 引擎基线（EGL/GL 各 37–41 MB，全屏 1920×944 缓冲）+ 图像缓存 24 MB/12 MB，不是某段代码写错。
+
+装 CarDesk 会触发系统 HOME 选择器（第二个 HOME 应用），已用 `cmd package set-home-activity xyz.i4o.uni.launcher/.MainActivity` 把默认桌面钉回 uni，`cmd shortcut get-default-launcher` 已确认。
+
 

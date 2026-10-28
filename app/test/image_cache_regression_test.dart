@@ -50,9 +50,11 @@ void main() {
               pixel.length * 2 +
               base64Decode(pixel).length);
     }
+    // Budgets are sized for the 2GB head units: icons ship as WebP now, so the
+    // decoded-picture cache needs far less room to stay warm.
     expect(
-        PaintingBinding.instance.imageCache.maximumSizeBytes, 24 * 1024 * 1024);
-    expect(PaintingBinding.instance.imageCache.maximumSize, 128);
+        PaintingBinding.instance.imageCache.maximumSizeBytes, 10 * 1024 * 1024);
+    expect(PaintingBinding.instance.imageCache.maximumSize, 64);
   });
 
   test(
