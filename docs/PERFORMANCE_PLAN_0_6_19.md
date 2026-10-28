@@ -448,3 +448,41 @@ host total=870 onCreate=129 runtime=408 window=753 firstDraw=870
 装 CarDesk 会触发系统 HOME 选择器（第二个 HOME 应用），已用 `cmd package set-home-activity xyz.i4o.uni.launcher/.MainActivity` 把默认桌面钉回 uni，`cmd shortcut get-default-launcher` 已确认。
 
 
+## 15. 极限帧率与"为什么这么低"（设备侧测量）
+
+### 15.1 天花板：面板只有 60Hz
+
+    DisplayDeviceInfo{"内置屏幕", 1920 x 1080, modeId 1, supportedModes [{id=1, fps=60.000004}]}
+    DispSync: present offset 0 ns (refresh 16666666 ns)
+
+只有单一模式，没有 90/120Hz 可选；vsync 周期 16.67ms。所以"极限"就是 60fps。
+轻量帧确实能打满：翻页采样里 31–47% 的帧间隔 ≤20ms（大量连续 16.6/16.7），说明引擎与合成链路能跑 60。
+
+### 15.2 持续拖动时每帧的真实工作量（2.5s 不松手，同一页）
+
+    UI 线程 31–46 ms/帧 + raster 线程 24–33 ms/帧 = 55–75 ms/帧  → 12–15 fps
+
+对比：16.67ms 的预算，我们每帧要花 4 倍。这不是 vsync 抖动，也不是被限频——CPU 大核上限 2.05GHz、温度约 55℃、governor interactive，都没有被压。
+
+### 15.3 分项归因
+
+| 项目 | 数据 | 说明 |
+| --- | --- | --- |
+| 面板 | 60.000004 Hz | 天花板 |
+| 空闲（第 2 页，无地图） | 13.9% CPU / ~1fps | 只有秒级刷新，正常 |
+| 空闲（第 1 页，地图在出帧 11.5–13fps） | 34.8% CPU | 地图每帧都要我们重新合成 |
+| 拖动（地图活） | 14.3 fps，UI 33.5ms + raster 31.4ms | 超预算 4 倍 |
+| 拖动（关掉卡片阴影） | **12.3 fps**，UI 33–46ms + raster 24–33ms | **更慢**，阴影不是主因 |
+| 翻页冻结地图（已撤回） | 平均值 50.8ms（现状 52.9ms） | 停帧无用，说明不是"地图送帧"的问题 |
+
+### 15.4 结论：钱花在"每帧重绘范围"，不是"画的东西贵"
+
+- 阴影 44→20 有效（p90 99.9→66.6ms），但继续降到 0 反而更慢（12 vs 14fps）——说明瓶颈不在笔刷成本，而在每帧要重新光栅的**面积**与图层失效次数。
+- `_PageTransform` 每帧会换一个 `_UncoveredPageClipper`（`shouldReclip` 恒 true），出页每帧重新裁剪重绘；再加上 `FractionalTranslation` + `Transform.translate` + `Transform.scale` + `ClipRect` 四层包装，缓存图层每帧都有机会失效。
+- 地图纹理每来一帧都会让卡片所在的图层失效；而拖动时手指横穿地图卡，每个 move 事件还要一次 MethodChannel `touch` 转发（2.5s 拖动约 150 次 IPC）。
+
+### 15.5 下一步（按性价比）
+
+1. 把 `_UncoveredPageClipper` 换成**静态裁剪 + 只移动缓存图层**（或直接用整页快照位移），目标是把 raster 从 30ms 压到 10ms 以内。
+2. 拖动期间对地图卡关掉 `Listener` 的 touch 转发（改成只在抬手时判定），消除每 move 一次 IPC。
+3. 以上两项做完再谈 60fps；当前的 12–15fps 不是"设备不行"，是每帧工作量超标。
