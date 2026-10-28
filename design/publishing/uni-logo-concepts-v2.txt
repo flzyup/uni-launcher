@@ -1,0 +1,11 @@
+UNI 桌面 Logo 概念探索
+生成方式：内置 image_gen；三方案对比设计稿，尚未替换应用资源。
+
+Use case: logo-brand.
+Asset type: professional logo exploration board for UNI桌面, an Android automotive infotainment launcher.
+Create one refined wide landscape presentation board showing THREE DISTINCT logo concepts in three equal columns on a uniform very dark navy background. Typography must spell exactly "UNI" (U N I), clearly recognizable in each primary mark. Each column has a large square application icon, a small flat monochrome version below, and a tiny 32px-equivalent icon preview to demonstrate legibility. No Chinese text required. Only labels "01", "02", "03" and "UNI" may appear; no slogans.
+Brand direction: precise understated automotive instrument design, contemporary minimal technology, calm premium quality. Palette deep ink navy #101D2D, silver white #F2F6FC, ice blue #83B6FF; small mint accent permissible but coherent across concepts. Flat vector-like geometry, clean intentional negative space, no gratuitous glow, no sci-fi decorative circuitry, no chrome emboss, no mockup perspective, no generic steering wheel or car silhouette.
+Concept 01: bespoke connected UNI wordmark made of strong uniform strokes; U smoothly curves into an angular N, separate I as a subtle lane marker; especially balanced, wide readable letters inside square with generous padding.
+Concept 02: geometric modular UNI lettering inspired by dashboard tiles and a disciplined technical corner-frame, use very restrained short corner details instead of a complete enclosing border. Strong readability, simple flat planes.
+Concept 03: UNI monogram with negative space inspired by twin road lanes merging towards a vanishing point, but retain all three recognizable letters U N I; sophisticated restrained graphic, avoid arrow-only symbol.
+Make the three solutions visibly different in letter construction, not recolors of the same mark. Square app tiles with modest corner radius, backgrounds with only very subtle static color depth. Center marks with consistent optical weight. Large clear geometry suitable for later faithful reconstruction as SVG/Android vector drawable and for 48px icons. Harmonious spacing and a lot of breathing room. High quality polished identity design presentation.

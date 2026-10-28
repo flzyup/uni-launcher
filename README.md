@@ -1,6 +1,6 @@
 # UNI桌面
 
-面向领克 05 PHEV 原车 IP753 车机的 Android 桌面（理论上其他车型也可能适用）。界面使用 Flutter 构建，通过 Android 原生适配层接入导航、媒体和车辆信息；应用包名为 `xyz.i4o.uni.launcher`。
+面向领克 05 系列原车 IP753 车机的 Android 桌面（理论上其他车型也可能适用）。界面使用 Flutter 构建，通过 Android 原生适配层接入导航、媒体和车辆信息；应用包名为 `xyz.i4o.uni.launcher`。
 
 ## 功能
 
@@ -16,6 +16,7 @@
 | 车型 | 年份 | 车机系统版本 | 支持情况 | 备注 |
 | --- | --- | --- | --- | --- |
 | 领克 05 PHEV | 2021 年 | 753（IP753） | ✅ | 主功能均可用 |
+| 领克 05 劲 Halo | 2020 年 | 753（IP753） | ✅ | 除胎压显示异常外，主功能均可用 |
 | 领克 06 燃油版 | 2023 年 | E02 | ✅ | 主功能均可用 |
 
 欢迎在 Issue 中反馈其他车型的支持情况，请注明车型、年份、车机系统版本和测试结果，以便同步更新本清单。
@@ -39,6 +40,17 @@ flutter build apk --release --target-platform android-arm64,android-x64 --split-
 ```
 
 构建产物位于 `app/build/app/outputs/flutter-apk/`：arm64 包用于 ARM 设备，x86_64 包用于模拟器。普通构建使用本地开发签名；IP753 测试包使用单独签名，同签名的版本才能覆盖安装。签名文件不包含在仓库中。构建和签名细节见 [Flutter 工程说明](app/README.md) 与对应[版本记录](CHANGELOG.md)。
+
+### 发布安装包
+
+安装 [GitHub CLI](https://cli.github.com/) 并执行 `gh auth login`。将对应源码提交推送到 GitHub，确认本地 IP753 APK 由该提交构建并已正确签名，然后在仓库根目录执行：
+
+```sh
+python3 tools/upload_release.py --dry-run  # 检查版本、文件和 SHA-256
+python3 tools/upload_release.py            # 上传 APK 并创建 Release 草稿
+```
+
+脚本从 `pubspec.yaml` 读取版本，从更新日志提取相应内容，上传 APK 和 SHA-256 校验文件；不会自动推送代码或上传签名文件。可用 `--apk 路径` 指定其他 APK，`--prerelease` 标记预发布。草稿请在 GitHub 上检查后发布；脚本无法验证 APK 与源码提交的对应关系。
 
 ## 使用
 
@@ -64,6 +76,12 @@ flutter build apk --release --target-platform android-arm64,android-x64 --split-
 - [导航与红绿灯](docs/AMAP_TRAFFIC_LIGHT_CARD.md)、[媒体歌词与动效](docs/MEDIA_LYRICS_AND_MOTION.md)
 - [产品与界面设计](docs/PRODUCT_DESIGN.md)、[车辆卡片设计](docs/VEHICLE_CARD_DESIGN.md)
 - [项目目录与原生代码](docs/PROJECT_STRUCTURE.md)、[完整参考资料与历史设计](docs/PROJECT_REFERENCE.md)
+
+## 交流与反馈
+
+欢迎加入 UNI桌面 QQ 交流群，交流使用体验与车型适配：**105191114**。可使用 QQ 扫描下方二维码加入；问题和功能建议也欢迎通过仓库 Issue 反馈。
+
+<img src="qq_group.jpeg" alt="UNI桌面 QQ 交流群二维码" width="300" />
 
 ## 贡献与 Pull Request
 

@@ -129,6 +129,27 @@ void main() {
         greaterThan(t.getBottomRight(ink).dy));
     expect(t.takeException(), isNull);
   });
+  testWidgets('all-app grid ignores unrelated telemetry updates', (t) async {
+    final (c, _) = await setup(t);
+    await t.pumpWidget(MaterialApp(
+        theme: launcherTheme(SurfaceStyle.from(const Appearance(), true)),
+        home: Scaffold(body: AppPanel(controller: c))));
+    await t.pumpAndSettle();
+    final gridBefore = t.widget<GridView>(find.byType(GridView));
+    c.native.value = {...c.native.value, 'vehicle': {'speed': 42}};
+    await t.pump();
+    expect(t.widget<GridView>(find.byType(GridView)), same(gridBefore));
+    c.native.value = {
+      ...c.native.value,
+      'apps': [
+        ...c.native.value['apps'] as List,
+        {'id': 'new/.Main', 'package': 'new', 'label': '新应用'}
+      ]
+    };
+    await t.pump();
+    expect(find.text('新应用'), findsOneWidget);
+    expect(t.takeException(), isNull);
+  });
   testWidgets('app rename updates the launcher label and persisted design',
       (t) async {
     final (c, g) = await setup(t);

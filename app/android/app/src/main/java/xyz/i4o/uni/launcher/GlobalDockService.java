@@ -450,7 +450,7 @@ public final class GlobalDockService extends Service {
         PendingIntent stop=PendingIntent.getService(this,1,new Intent(this,GlobalDockService.class).setAction(STOP),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
         PendingIntent restore=PendingIntent.getService(this,2,new Intent(this,GlobalDockService.class).setAction(RESTORE),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
         Notification.Builder b=Build.VERSION.SDK_INT>=26?new Notification.Builder(this,"uni_global_dock"):new Notification.Builder(this);
-        return b.setSmallIcon(xyz.i4o.uni.launcher.R.drawable.uni_icon).setContentTitle("UNI 全局底栏")
+        return b.setSmallIcon(xyz.i4o.uni.launcher.R.drawable.uni_notification).setContentTitle("UNI 全局底栏")
             .setContentText("跨应用使用首页、空调与音乐控制").setOngoing(true).setContentIntent(home)
             .addAction(0,"关闭全局底栏",stop).addAction(0,"显示系统导航栏",restore).build();
     }

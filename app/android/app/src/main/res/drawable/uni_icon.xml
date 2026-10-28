@@ -1,5 +1,21 @@
-<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="96dp" android:height="96dp" android:viewportWidth="96" android:viewportHeight="96">
-  <path android:fillColor="#142830" android:pathData="M0,0h96v96h-96z"/>
-  <path android:fillColor="#71E4CE" android:pathData="M24,22h10v35c0,10 5,15 14,15s14,-5 14,-15v-35h10v35c0,17 -9,25 -24,25s-24,-8 -24,-25z"/>
-  <path android:fillColor="#FFFFFF" android:pathData="M44,14h8v8h-8z"/>
+<?xml version='1.0' encoding='utf-8'?>
+<vector xmlns:aapt="http://schemas.android.com/aapt" xmlns:android="http://schemas.android.com/apk/res/android" android:width="96dp" android:height="96dp" android:viewportWidth="512" android:viewportHeight="512">
+  <path android:pathData="M 0 0 L 512 0 L 512 512 L 0 512 Z" android:fillColor="#0D203B" />
+  <path android:pathData="M 46 177 L 88 177 L 88 263 C 88 286 100 298 123 298 L 146 298 C 168 298 180 286 180 263 L 180 217 C 180 192 196 176 218 176 C 231 176 240 181 250 190 L 359 294 L 359 177 L 401 177 L 401 302 C 401 326 386 341 364 341 C 351 341 341 336 332 327 L 233 234 C 227 228 222 229 222 237 L 222 263 C 222 313 194 341 146 341 L 123 341 C 73 341 46 313 46 263 Z">
+    <aapt:attr name="android:fillColor">
+      <gradient android:type="linear" android:startX="150" android:startY="177" android:endX="360" android:endY="341">
+        <item android:offset="0" android:color="#F7FAFF" />
+        <item android:offset="0.5" android:color="#DEEEFC" />
+        <item android:offset="1" android:color="#83B6FF" />
+      </gradient>
+    </aapt:attr>
+  </path>
+  <path android:pathData="M 424 177 L 460 177 C 462 177 464 179 464 181 L 464 337 C 464 339 462 341 460 341 L 424 341 C 422 341 420 339 420 337 L 420 181 C 420 179 422 177 424 177 Z">
+    <aapt:attr name="android:fillColor">
+      <gradient android:type="linear" android:startX="420" android:startY="177" android:endX="464" android:endY="341">
+        <item android:offset="0" android:color="#A1E4F5" />
+        <item android:offset="1" android:color="#61AEF5" />
+      </gradient>
+    </aapt:attr>
+  </path>
 </vector>

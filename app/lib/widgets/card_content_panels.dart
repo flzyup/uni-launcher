@@ -26,9 +26,12 @@ class AppPanel extends StatelessWidget {
   const AppPanel({super.key, required this.controller});
   @override
   Widget build(BuildContext context) =>
-      ValueListenableBuilder<Map<String, dynamic>>(
+      NativeSliceBuilder(
           valueListenable: controller.native,
-          builder: (context, state, _) {
+          // Vehicle, media and clock updates must not rebuild every visible
+          // application tile; names and the catalog still update immediately.
+          select: (state) => [state['apps'], state['appNames']],
+          builder: (context, state) {
             final s = SurfaceStyle.of(context);
             final apps =
                 state['apps'] is List ? state['apps'] as List : const [];
