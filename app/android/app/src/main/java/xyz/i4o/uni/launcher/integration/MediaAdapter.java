@@ -35,6 +35,7 @@ public final class MediaAdapter {
     private MediaController controller;
     private boolean authorized;
     private String preferred="auto";
+    private String lastSource="";
     private Bitmap lastCover;
     private String coverData="";
     private boolean artworkDirty=true;
@@ -99,8 +100,9 @@ public final class MediaAdapter {
                 packages[i]=c.getPackageName();playing[i]=p!=null&&p.getState()==PlaybackState.STATE_PLAYING;
                 try{activeSources.put(new JSONObject().put("package",packages[i]).put("playing",playing[i]));}catch(Exception ignored){}
             }
-            int selected=MediaSourcePolicy.select(preferred,packages,playing);
+            int selected=MediaSourcePolicy.select(preferred,lastSource,packages,playing);
             MediaController next=selected>=0?observed.get(selected):null;
+            if(next!=null)lastSource=next.getPackageName();
             if(next!=controller){controller=next;lastCover=null;coverData="";artworkDirty=true;}
             netease.setController(controller);
             syncSteeringSession();
