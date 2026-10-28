@@ -202,6 +202,7 @@ void main() {
     final scale = t.view.physicalSize.width / Design.canvasWidth;
     expect(h.creates.single, {
       'width': (localSize.width * scale).round(),
+      'scale': 1.0,
       'height': (localSize.height * scale).round(),
     });
     for (final ready in [false, true, false, true]) {
@@ -231,6 +232,26 @@ void main() {
     expect(h.platformCalls, isEmpty);
     await t.pumpWidget(const SizedBox.shrink());
     await h.flush();
+    expect(h.disposed, [17]);
+    expect(t.takeException(), isNull);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.android));
+
+  testWidgets(
+      'map scale toggle sends reduced texture scale only when enabled',
+      (t) async {
+    final h = LiveMapHarness(t);
+    // 开关默认关闭：按 1:1 下发，不缩放。
+    await h.show();
+    expect(h.creates.single['scale'], 1.0);
+    // 开启「嵌入地图缩放」：按 mapTextureScale 降分辨率。
+    h.controller.native.value = {
+      ...h.controller.native.value,
+      'integrationPreferences': {'mapTextureScale': true},
+    };
+    h.creates.clear();
+    h.disposed.clear();
+    await h.show();
+    expect(h.creates.single['scale'], mapTextureScale);
     expect(h.disposed, [17]);
     expect(t.takeException(), isNull);
   }, variant: TargetPlatformVariant.only(TargetPlatform.android));

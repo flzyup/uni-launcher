@@ -17,15 +17,19 @@ import org.json.JSONObject;
 public final class NavigationAudioAdapter {
     private static final String API="com.ecarx.xui.adaptapi.audio.audiofx.";
     private final Context context;
-    private Object audio;
-    private Method setter;
-    private int mode=-1;
-    private boolean available;
-    private String reason="尚未读取";
+    private volatile Object audio;
+    private volatile Method setter;
+    private volatile int mode=-1;
+    private volatile boolean available;
+    private volatile String reason="尚未读取";
 
-    public NavigationAudioAdapter(Context context){this.context=context;refresh();}
+    public NavigationAudioAdapter(Context context){this.context=context;}
 
-    public void refresh(){
+    /** Reflection plus an OEM service round trip; never on the cold-start path. */
+    private volatile boolean warmed;
+    public void prewarm(){if(warmed)return;try{refresh();}catch(RuntimeException ignored){}}
+    public synchronized void refresh(){
+        warmed=true;
         available=false;mode=-1;audio=null;setter=null;
         try{
             Class<?> api=loadAudioClass();
@@ -78,6 +82,7 @@ public final class NavigationAudioAdapter {
         }
     }
 
+    /** 非阻塞：反射与 OEM 服务往返只在 prewarm/refresh/setMode 里做，快照绝不触发。 */
     public JSONObject snapshot(){
         JSONObject result=new JSONObject();
         try{
@@ -86,7 +91,8 @@ public final class NavigationAudioAdapter {
                 modes.put(new JSONObject().put("value",1).put("label","自动混音"));
                 modes.put(new JSONObject().put("value",2).put("label","直接混音"));
             }
-            result.put("available",available).put("mode",mode).put("modes",modes).put("reason",reason).put("busy",false);
+            result.put("available",available).put("mode",mode).put("modes",modes)
+                .put("reason",warmed?reason:"正在读取原车混音模式").put("busy",false);
         }catch(org.json.JSONException ignored){}
         return result;
     }

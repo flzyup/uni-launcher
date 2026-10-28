@@ -20,6 +20,8 @@ String mediaSourceLabel(Map<String, dynamic> state) {
     if (app['package'] == source && source != null)
       return '${app['label'] ?? source}';
   }
+  final label = media['sourceLabel'];
+  if (label is String && label.isNotEmpty) return label;
   return source?.toString() ?? '音乐播放器';
 }
 
@@ -302,16 +304,18 @@ class MediaPanel extends StatelessWidget {
                               solid: action == 'toggle-play',
                               size: Design.px(58),
                               iconSize: Design.px(28),
-                              onTap: available &&
-                                      (demo ||
-                                          m[action == 'next'
-                                                  ? 'canNext'
-                                                  : action == 'previous'
-                                                      ? 'canPrevious'
-                                                      : 'canToggle'] ==
-                                              true)
+                              onTap: (action == 'toggle-play' && !available)
                                   ? () => controller.command(action)
-                                  : null),
+                                  : available &&
+                                          (demo ||
+                                              m[action == 'next'
+                                                      ? 'canNext'
+                                                      : action == 'previous'
+                                                          ? 'canPrevious'
+                                                          : 'canToggle'] ==
+                                                  true)
+                                      ? () => controller.command(action)
+                                      : null),
                         ],
                       ]),
                 ])));

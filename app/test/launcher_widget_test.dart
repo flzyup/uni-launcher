@@ -111,7 +111,7 @@ void main() {
     expect(find.text('24°'), findsNothing);
     expect(find.text('—°').evaluate().length, greaterThanOrEqualTo(2));
     final play = t.widget<IconAction>(find.byKey(const ValueKey('play-pause')));
-    expect(play.onTap, null);
+    expect(play.onTap, isNotNull);
     expect(c.native.value['demo'], false);
     expect(t.takeException(), null);
   });

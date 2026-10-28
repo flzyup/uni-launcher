@@ -43,18 +43,24 @@ class AppPanel extends StatelessWidget {
                 Text('等待应用列表',
                     style: TextStyle(fontSize: Design.px(25), color: s.muted)),
               ]));
-            return GridView.builder(
-                padding: EdgeInsets.symmetric(vertical: Design.px(32)),
-                itemCount: apps.length,
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 7,
-                    mainAxisSpacing: Design.px(40),
-                    crossAxisSpacing: Design.px(12),
-                    mainAxisExtent: Design.px(156)),
-                itemBuilder: (context, i) {
-                  return _AppTile(
-                      app: mapOf(apps[i]), controller: controller, index: i);
-                });
+            // 卡片在页面切换瞬态可能拿到零宽约束，crossAxisExtent 会算成 0，
+            // GridView 里 0/0 直接抛 "Infinity or NaN toInt"。零宽时先缩成占位，
+            // 等下一帧拿到真实宽度再铺格。
+            return LayoutBuilder(builder: (context, c) {
+              if (c.maxWidth <= 1) return const SizedBox.shrink();
+              return GridView.builder(
+                  padding: EdgeInsets.symmetric(vertical: Design.px(32)),
+                  itemCount: apps.length,
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 7,
+                      mainAxisSpacing: Design.px(40),
+                      crossAxisSpacing: Design.px(12),
+                      mainAxisExtent: Design.px(156)),
+                  itemBuilder: (context, i) {
+                    return _AppTile(
+                        app: mapOf(apps[i]), controller: controller, index: i);
+                  });
+            });
           });
 }
 

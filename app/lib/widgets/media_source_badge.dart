@@ -35,9 +35,17 @@ class MediaSourceBadge extends StatelessWidget {
             final icon = app?['iconBytes'] is Uint8List
                 ? app!['iconBytes'] as Uint8List
                 : null;
-            final name = app == null
-                ? '${package ?? '音乐播放器'}'
-                : controller.appName(Map<String, dynamic>.from(app));
+            // Order: a user rename, then the label Android resolved for the media
+            // session itself, then the package. A car player can publish a session
+            // with no launcher entry, and during start-up the app grid may still be
+            // empty, so neither case may degrade to a raw package name.
+            final sourceLabel = media['sourceLabel'];
+            final name = app != null
+                ? controller.appName(Map<String, dynamic>.from(app))
+                : controller.appNames[package] ??
+                    (sourceLabel is String && sourceLabel.isNotEmpty
+                        ? sourceLabel
+                        : '${package ?? '音乐播放器'}');
             return Align(
                 alignment: Alignment.centerLeft,
                 child: TextButton(

@@ -73,12 +73,15 @@ class GlassSurface extends StatelessWidget {
     return DecoratedBox(
         decoration: BoxDecoration(
             borderRadius: shape,
+            // A wide Gaussian is the single most expensive thing a card puts on
+            // the raster pass here (Adreno 530 measured ~5-7ms per page). The
+            // softer look is preserved at a third of the blur area.
             boxShadow: shadow
                 ? [
                     BoxShadow(
                         color: s.shadow,
-                        offset: Offset(0, Design.px(s.technicalFrame ? 6 : 16)),
-                        blurRadius: Design.px(s.technicalFrame ? 18 : 44))
+                        offset: Offset(0, Design.px(s.technicalFrame ? 5 : 10)),
+                        blurRadius: Design.px(s.technicalFrame ? 12 : 20))
                   ]
                 : null),
         child: ClipRRect(
@@ -157,6 +160,7 @@ class IconAction extends StatelessWidget {
                         onLongPress: onLongPress,
                         highlightColor: s.accent.withValues(alpha: .20),
                         splashColor: s.accent.withValues(alpha: .12),
+                        splashFactory: NoSplash.splashFactory,
                         child: Center(
                             child: child ??
                                 DesignIcon(icon,
