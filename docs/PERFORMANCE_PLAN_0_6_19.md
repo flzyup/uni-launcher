@@ -215,3 +215,48 @@ pwsh tools/car_perf_probe.ps1 -Label after
 
 调用前需要人工确认的只有一件：**车机当前用的是哪种外观（classic / blueGlass）**。这个值存在应用私有 prefs 里，无 root 读不到，截图我也看不了（当前会话的模型没有图像输入），所以要么你瞄一眼告诉我，要么我用一个临时变体包把外观打印进 logcat。
 
+## 8. 车机实测（首次上车，2026-10-28）
+
+设备：`MSM8996 for arm64` / `dcy11_a1` / Android 9（sdk 28）/ 1920×1080 density 160 / **Adreno 530, GLES 3.2**。无线 adb 直连。
+
+### 8.1 先说仪表：这台车上 `dumpsys gfxinfo` 对 Flutter 无效
+
+探针第一版用 `gfxinfo` 统计，在车机上读到 **0 帧**，而同一时刻滑动明明切换了页面。原因是 Flutter 在自己的 `1.raster` 线程绘制到 SurfaceView，绕开 HWUI，Android 9 的 gfxinfo 计数器不记账。**改用 `dumpsys SurfaceFlinger --latency '<SurfaceView 图层>'`，并用 `/proc/uptime`（同一单调时钟）截取动画窗口内的呈现时间戳。** 探针已按此改写。
+
+### 8.2 冷启动：0.6.18 比车机上原有的 0.6.17 慢 0.5–0.65s
+
+| 版本 | 冷启动（force-stop → `am start -W`） |
+| --- | --- |
+| 0.6.17（车机原装，vc2028） | 3096 / 2809 / 3054 ms，中位 **3054** |
+| 0.6.18（性能分支，vc2031） | 3761 / 3575 / 3722 / 3710 / 3540，中位 **3710**；再测一轮 3530 / 3282 / 3531 |
+
+覆盖安装成功（同证书 `c8a2e9bc…`，prefs 与卡片布局全部保留），所以这是同一台设备、同一份用户数据下的可比数字。**这是回退，需要定位**：0.6.18 包含 upstream 的翻页动画/`pagePosition` 改动，需要再做一个「仅 upstream、不含性能改动」的构建来二分。
+
+### 8.3 空闲功耗：一个页面 28% CPU，另一个只有 13%
+
+| 场景 | 出帧 | CPU（单核） | 地图消耗帧 |
+| --- | --- | --- | --- |
+| 第 1 页（含导航卡，`renderMode: realtime`） | 11.4 fps | **28.0%** | +89 / 8s ≈ 11/s |
+| 第 2 页（无导航卡） | **1.0 fps** | **13.1%** | +0 |
+
+结论：**桌面上那 11fps 的持续重绘，来源是导航卡里的实时地图合成，不是遥测包。** 第 2 页只有 1fps（每秒一次的时钟刷新），说明遥测链路本身并不触发重绘。
+
+但第 2 页仍有 13% CPU，8 秒内线程分布：UI 线程 46 ticks、`pool-3-thread-1` 42、`1.raster` 30、`HeapTaskDaemon` 16、`uni-system-stat` 13。原生侧最密的轮询是 `OfficialCarReader.worker.scheduleWithFixedDelay(..., 1, SECONDS)`（`OfficialCarReader.java:84`），即**每秒一次走原车 binder 读全部车辆字段**，这是那 ~5% 的主要来源。
+
+### 8.4 翻页动画：UI 线程构建受限，不是 GPU
+
+单次滑动，该图层的逐帧呈现间隔（ms）：
+
+```
+100  83.3  150  50  33.3  33.3  50  66.6  50  16.7  16.6  50  66.7  33.3  33.3  250
+```
+
+中间出现了两个 **16.6ms** 帧，说明 Adreno 530 完全有能力跑满 60fps，动画期间的 33–150ms 是**UI 线程构建新页面的成本**（卡片树 + 中文排版 + 图标解码），与冷启动慢是同一个病根。这一条同时说明：继续优化 GPU 光栅（阴影、模糊）在车机上收益有限，重心应转到「减少每帧构建量」。
+
+### 8.5 本次已落到车上的改动
+
+`MainActivity` / `GlobalDockService` 的发射口加了包签名去重：把 `*AtMs` / `*AtElapsedMs` 这类每次读取都会重打的时间戳从比较签名里抹掉，签名不变就不发包。实测依据：前后两次状态转储有 **46 处差异，全部是时间戳**（`vehicle.fields.*.updatedAtMs/updatedAtElapsedMs/observedAtMs`）。
+
+注意：这只省掉了"内容没变还往 Dart 送"的那部分；`updateSnapshot()` 本身仍会在每次 `publish()` 时重建 JSON（`pool-3-thread-1` 的 5% 里有一部分是这个）。要彻底解决需要让适配器维护 dirty 标记，而不是每次重建。
+
+

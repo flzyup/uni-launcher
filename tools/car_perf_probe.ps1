@@ -206,17 +206,88 @@ $report.identity['backendLog'] = @($backendLog)
 
 Start-Sleep -Seconds 3
 
+# A Flutter app draws on its own raster thread into a SurfaceView, so HWUI's
+# dumpsys gfxinfo counters stay at zero on Android 9 (verified on the car:
+# 0 frames recorded while a swipe visibly switched pages). SurfaceFlinger's
+# per-layer present timestamps are the ground truth here; correlate them with
+# /proc/uptime, which shares the monotonic clock.
+function Get-UptimeNs {
+    $raw = (Invoke-Adb 'shell cat /proc/uptime')
+    $first = ($raw -split '\s+')[0]
+    if (-not $first) { return $null }
+    return [long]([double]$first * 1e9)
+}
+
+function Get-LayerName([string]$Needle) {
+    $lines = Invoke-AdbLines 'shell dumpsys SurfaceFlinger --list' |
+        Where-Object { $_ -match $Needle }
+    $surface = $lines | Where-Object { $_ -match '^SurfaceView - ' } | Select-Object -First 1
+    if ($surface) { return $surface.Trim() }
+    $any = $lines | Select-Object -First 1
+    if ($any) { return $any.Trim() }
+    return $null
+}
+
+function Get-PresentTimes([string]$Layer) {
+    $rows = Invoke-AdbLines "shell dumpsys SurfaceFlinger --latency '$Layer'"
+    $times = New-Object System.Collections.Generic.List[long]
+    for ($i = 0; $i -lt $rows.Count; $i++) {
+        $fields = $rows[$i].Trim() -split '\s+'
+        if ($fields.Count -lt 3) { continue }
+        $present = 0L
+        if (-not [long]::TryParse($fields[1], [ref]$present)) { continue }
+        if ($present -le 0 -or $present -eq 9223372036854775807) { continue }
+        $times.Add($present)
+    }
+    return $times
+}
+
+function Get-FrameStats([double[]]$Deltas) {
+    if (-not $Deltas -or $Deltas.Count -eq 0) { return $null }
+    $sorted = $Deltas | Sort-Object
+    $pick = { param($q) [math]::Round($sorted[[math]::Min($sorted.Count - 1, [int]($sorted.Count * $q))], 2) }
+    return [ordered]@{
+        samples     = $sorted.Count
+        p50Ms       = & $pick 0.5
+        p90Ms       = & $pick 0.9
+        maxMs       = [math]::Round($sorted[$sorted.Count - 1], 2)
+        over16ms    = ($Deltas | Where-Object { $_ -gt 16.67 }).Count
+        over33ms    = ($Deltas | Where-Object { $_ -gt 33 }).Count
+        avgFps      = [math]::Round(1000 / (($Deltas | Measure-Object -Average).Average), 1)
+    }
+}
+
+function Get-Deltas([long[]]$Times) {
+    $out = New-Object System.Collections.Generic.List[double]
+    for ($i = 1; $i -lt $Times.Count; $i++) {
+        $delta = ($Times[$i] - $Times[$i - 1]) / 1e6
+        if ($delta -gt 0) { $out.Add($delta) }
+    }
+    return $out.ToArray()
+}
+
+$layer = Get-LayerName ([regex]::Escape($Package))
+$report.identity['surfaceLayer'] = $layer
+
 # --- idle --------------------------------------------------------------------
 Write-Step "idle ${IdleSeconds}s"
-Invoke-Adb "shell dumpsys gfxinfo $Package reset" | Out-Null
-Start-Sleep -Seconds $IdleSeconds
-$idleSummary = Parse-GfxSummary (Invoke-Adb "shell dumpsys gfxinfo $Package")
-$report.idle = @{
-    seconds = $IdleSeconds
-    frames  = $idleSummary.frames
-    fps     = if ($idleSummary.frames -ne $null) { [math]::Round($idleSummary.frames / $IdleSeconds, 2) } else { $null }
-    percentile = $idleSummary
-    hint    = 'fps near 60 means something animates forever; a handful of frames is normal'
+$idleFrames = 0
+$idleDeltas = @()
+if ($layer) {
+    $idleFrom = Get-UptimeNs
+    Start-Sleep -Seconds $IdleSeconds
+    $idleTo = Get-UptimeNs
+    $present = Get-PresentTimes $layer
+    $inWindow = @($present | Where-Object { $_ -ge $idleFrom -and $_ -le $idleTo })
+    $idleFrames = $inWindow.Count
+    $idleDeltas = Get-Deltas $inWindow
+}
+$report.idle = [ordered]@{
+    seconds    = $IdleSeconds
+    frames     = $idleFrames
+    fps        = if ($IdleSeconds -gt 0) { [math]::Round($idleFrames / $IdleSeconds, 2) } else { $null }
+    timing      = Get-FrameStats $idleDeltas
+    hint       = 'a handful of frames in 10s is healthy; ~60fps means something animates forever'
 }
 
 # --- interaction -------------------------------------------------------------
@@ -225,20 +296,34 @@ $size = Get-DeviceSize
 $y = [int]($size.Height * 0.42)
 $xStart = [int]($size.Width * 0.72)
 $xEnd = [int]($size.Width * 0.28)
-Invoke-Adb "shell dumpsys gfxinfo $Package reset" | Out-Null
+$burst = New-Object System.Collections.Generic.List[double]
+$burstFrames = 0
+$windowLog = @()
 for ($i = 1; $i -le $Swipes; $i++) {
+    if (-not $layer) { break }
+    $t0 = Get-UptimeNs
     if ($i % 2 -eq 1) { Invoke-Adb "shell input swipe $xStart $y $xEnd $y 260" | Out-Null }
     else { Invoke-Adb "shell input swipe $xEnd $y $xStart $y 260" | Out-Null }
-    Start-Sleep -Milliseconds 450
+    Start-Sleep -Milliseconds 900
+    $t1 = Get-UptimeNs
+    $present = Get-PresentTimes $layer
+    # 100ms of slack absorbs the gap between our timestamp read and the swipe.
+    $inWindow = @($present | Where-Object { $_ -ge ($t0 - 100000000) -and $_ -le ($t1 + 100000000) })
+    $burstFrames += $inWindow.Count
+    foreach ($d in (Get-Deltas $inWindow)) { $burst.Add($d) }
+    $windowLog += [ordered]@{ swipe = $i; frames = $inWindow.Count; windowMs = [math]::Round(($t1 - $t0) / 1e6, 0) }
+    Start-Sleep -Milliseconds 250
 }
-Start-Sleep -Milliseconds 600
 $framestatsPath = Join-Path $script:OutPath 'framestats.csv'
 Invoke-Adb "shell dumpsys gfxinfo $Package framestats" | Set-Content -Path $framestatsPath -Encoding utf8
-$interactionSummary = Parse-GfxSummary (Invoke-Adb "shell dumpsys gfxinfo $Package")
-$report.interaction = @{
-    swipes     = $Swipes
-    summary    = $interactionSummary
-    framestats = $framestatsPath
+$report.interaction = [ordered]@{
+    swipes      = $Swipes
+    layer       = $layer
+    framesTotal = $burstFrames
+    timing      = Get-FrameStats $burst.ToArray()
+    windows     = $windowLog
+    gfxinfoSummary = Parse-GfxSummary (Invoke-Adb "shell dumpsys gfxinfo $Package")
+    framestats  = $framestatsPath
 }
 
 # --- memory ------------------------------------------------------------------

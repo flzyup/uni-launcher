@@ -205,6 +205,8 @@ public final class GlobalDockService extends Service {
         int relayouts;
         int sentStaticRevision=-1;
         JSONArray sentRecentItems;
+        /** Last packet signature handed to the sink; see publish(). */
+        String sentSignature;
         boolean attached;
         OverlayWindow(boolean isPanel){
             this.isPanel=isPanel;
@@ -227,8 +229,8 @@ public final class GlobalDockService extends Service {
             });
             events=new EventChannel(engine.getDartExecutor().getBinaryMessenger(),"xyz.i4o.uni.launcher/events");
             events.setStreamHandler(new EventChannel.StreamHandler(){
-                public void onListen(Object args,EventChannel.EventSink s){sink=s;publish();}
-                public void onCancel(Object args){sink=null;}
+                public void onListen(Object args,EventChannel.EventSink s){sink=s;sentSignature=null;publish();}
+                public void onCancel(Object args){sink=null;sentSignature=null;}
             });
             installPlatformChannel(engine,isPanel);
             FlutterTextureView texture=new FlutterTextureView(GlobalDockService.this);texture.setOpaque(false);
@@ -275,7 +277,13 @@ public final class GlobalDockService extends Service {
         }
         void publish(){
             if(sink==null)return;
-            sink.success(packet(runtime.staticRevision()!=sentStaticRevision).toString());
+            String text=packet(runtime.staticRevision()!=sentStaticRevision).toString();
+            // Same reasoning as MainActivity.emit(): timestamp-only differences must
+            // not wake the dock/panel engine while nothing it renders has changed.
+            String sig=text.replaceAll("\"([A-Za-z]*AtMs|[A-Za-z]*AtElapsedMs)\":-?\\d+","\"t\":0");
+            if(sig.equals(sentSignature))return;
+            sentSignature=sig;
+            sink.success(text);
         }
         JSONObject packet(boolean includeStatic){
             // Thumbnails are the heaviest payload of the panel; send them when the

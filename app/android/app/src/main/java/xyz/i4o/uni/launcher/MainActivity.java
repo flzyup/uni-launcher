@@ -37,6 +37,8 @@ public final class MainActivity extends FlutterActivity {
     private JSONObject flutterViewport=new JSONObject();
     private int reservedBottomPx;
     private int sentStaticRevision=-1;
+    /** Last signature handed to the sink; see emit(). */
+    private String sentSignature;
     private boolean initialSettings;
     private EventChannel.EventSink sink;
     private EventChannel events;
@@ -99,8 +101,8 @@ public final class MainActivity extends FlutterActivity {
         });
         events=new EventChannel(engine.getDartExecutor().getBinaryMessenger(),"xyz.i4o.uni.launcher/events");
         events.setStreamHandler(new EventChannel.StreamHandler(){
-            public void onListen(Object args,EventChannel.EventSink events){sink=events;publish();}
-            public void onCancel(Object args){sink=null;}
+            public void onListen(Object args,EventChannel.EventSink events){sink=events;sentSignature=null;publish();}
+            public void onCancel(Object args){sink=null;sentSignature=null;}
         });
     }
 
@@ -183,11 +185,27 @@ public final class MainActivity extends FlutterActivity {
         }
         rt.handle(request);
         if("refresh-system-settings".equals(action)||"navigation-audio-mode".equals(action)){
-            updateSnapshot(true);if(sink!=null)sink.success(cached);
+            updateSnapshot(true);emit();
         }
     }
 
-    private void publish(){if(rt==null)return;updateSnapshot();if(sink!=null)sink.success(cached);}
+    private void publish(){if(rt==null)return;updateSnapshot();emit();}
+
+    /** Snapshot timestamps are restamped on every read, so a packet would look new
+     *  even when nothing moved. Ignoring them keeps the launcher at 0fps while it
+     *  is idle instead of rebuilding the whole tree at the publish rate. */
+    private static String signature(String packet){
+        if(packet==null)return null;
+        return packet.replaceAll("\"([A-Za-z]*AtMs|[A-Za-z]*AtElapsedMs)\":-?\\d+","\"t\":0");
+    }
+
+    private void emit(){
+        if(sink==null||cached==null)return;
+        String sig=signature(cached);
+        if(sig.equals(sentSignature))return;
+        sentSignature=sig;
+        sink.success(cached);
+    }
 
     @Override public void dump(String prefix,java.io.FileDescriptor fd,java.io.PrintWriter writer,String[] args){
         if(args!=null)for(String arg:args)if("--uni-state".equals(arg)){
