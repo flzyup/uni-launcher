@@ -201,8 +201,9 @@ void main() {
     final localSize = t.getSize(input);
     final scale = t.view.physicalSize.width / Design.canvasWidth;
     expect(h.creates.single, {
-      'width': (localSize.width * scale * mapTextureScale).round(),
-      'height': (localSize.height * scale * mapTextureScale).round(),
+      'width': (localSize.width * scale).round(),
+      'scale': mapTextureScale,
+      'height': (localSize.height * scale).round(),
     });
     for (final ready in [false, true, false, true]) {
       await h.status(ready);
@@ -221,8 +222,8 @@ void main() {
     await h.show(width: 550);
     expect(h.resizes, hasLength(1));
     final resized = t.getSize(input);
-    expect(h.resizes.single['width'], (resized.width * scale * mapTextureScale).round());
-    expect(h.resizes.single['height'], (resized.height * scale * mapTextureScale).round());
+    expect(h.resizes.single['width'], (resized.width * scale).round());
+    expect(h.resizes.single['height'], (resized.height * scale).round());
     await h.show(width: 550);
     expect(h.resizes, hasLength(1));
     expect(t.element(texture), same(element));

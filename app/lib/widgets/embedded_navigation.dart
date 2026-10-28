@@ -98,9 +98,12 @@ class _EmbeddedNavigationCardState extends State<EmbeddedNavigationCard> {
     });
   }
 
-  Map<String, int> dimensions(Size size) => {
+  /// 逻辑尺寸原样下发，纹理缩放交给原生同时缩像素与密度——导航 App 看到的 dp
+  /// 尺寸不变，所以它自己的界面不会重排，只是我们把位图轻微放大。
+  Map<String, dynamic> dimensions(Size size) => {
         'width': size.width.toInt(),
         'height': size.height.toInt(),
+        'scale': mapTextureScale,
       };
 
   Future<void> syncNative() async {
@@ -252,8 +255,8 @@ class _EmbeddedNavigationCardState extends State<EmbeddedNavigationCard> {
     final scale = View.of(context).physicalSize.width / Design.canvasWidth;
     if (size.isFinite && !size.isEmpty && scale > 0) {
       desiredSize = Size(
-          (size.width * scale * mapTextureScale).round().clamp(1, 1920).toDouble(),
-          (size.height * scale * mapTextureScale).round().clamp(1, 1080).toDouble());
+          (size.width * scale).round().clamp(1, 1920).toDouble(),
+          (size.height * scale).round().clamp(1, 1080).toDouble());
       scheduleSync();
     }
     return RawGestureDetector(
