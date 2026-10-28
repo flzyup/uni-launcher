@@ -8,6 +8,12 @@ android {
     compileSdk = flutter.compileSdkVersion
     buildFeatures { buildConfig = true }
 
+    // Compress native libraries in APKs. Android extracts them at install
+    // time; this reduces transfer size at the expense of installed disk usage.
+    packaging {
+        jniLibs { useLegacyPackaging = true }
+    }
+
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
