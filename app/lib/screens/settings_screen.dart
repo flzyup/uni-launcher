@@ -14,6 +14,7 @@ import '../widgets/launcher_dialog.dart';
 import '../widgets/embedded_navigation.dart';
 import '../widgets/system_settings.dart';
 import '../widgets/spectrum_painter.dart';
+import '../widgets/file_transfer_settings.dart';
 
 class SettingsScreen extends StatelessWidget {
   final LauncherController controller;
@@ -68,7 +69,8 @@ class SettingsScreen extends StatelessWidget {
                         for (final tab in [
                           ('appearance', '外观主题'),
                           ('motion', '切换动效'),
-                          ('system', '系统设置')
+                          ('system', '系统设置'),
+                          ('transfer', '传文件')
                         ])
                           _SettingsTab(controller: c, id: tab.$1, label: tab.$2)
                       ])),
@@ -84,6 +86,7 @@ class SettingsScreen extends StatelessWidget {
                                 child: AppearanceSettings(controller: c)))),
                     'motion' => PageMotionSettings(controller: c),
                     'system' => SystemSettingsPanel(controller: c),
+                    'transfer' => FileTransferSettings(controller: c),
                     _ => SystemSettingsPanel(controller: c)
                   }),
                 ])));
