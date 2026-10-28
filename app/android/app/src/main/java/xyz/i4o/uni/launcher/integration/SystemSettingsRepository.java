@@ -243,8 +243,10 @@ public final class SystemSettingsRepository {
         }catch(org.json.JSONException ignored){}
     }
 
+    public boolean isWarmed(){return warmed;}
+
+    /** 非阻塞：只返回已缓存的目录，绝不触发扫描。预热完成前由调用方决定是否等待。 */
     public JSONArray snapshot(){
-        ensureWarmed();
         try{return new JSONArray(entries.toString());}catch(org.json.JSONException e){return new JSONArray();}
     }
 

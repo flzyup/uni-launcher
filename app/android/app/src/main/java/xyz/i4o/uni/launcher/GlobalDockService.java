@@ -92,7 +92,7 @@ public final class GlobalDockService extends Service {
         if("global-dock".equals(a)){
             boolean on=r.optBoolean("enabled"),was=p.getBoolean("globalDockEnabled",false);
             SharedPreferences.Editor edit=p.edit().putBoolean("globalDockEnabled",on);
-            if(on&&!was)edit.putBoolean("systemNavigationHidden",true);edit.commit();
+            if(on&&!was)edit.putBoolean("systemNavigationHidden",true);edit.apply();
             if(on){
                 if(!Settings.canDrawOverlays(c)){try{c.startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,Uri.parse("package:"+c.getPackageName())).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));}catch(RuntimeException e){toast(c,"请在系统设置允许 UNI 显示在其他应用上层");}}
                 else ensureStarted(c);
@@ -145,6 +145,13 @@ public final class GlobalDockService extends Service {
                 .putExtra("uniSettings","show-desktop-settings".equals(a)));return true;
         }
         if("open-official".equals(a)&&"camera".equals(r.optString("value"))&&active!=null){active.dismissPanel();active.cameraSuspended=true;active.update();}
+        // Launching an external app must always collapse the glass panel first.
+        // Otherwise the panel keeps input focus over the launched app and its
+        // touch never reaches it (e.g. the map stays frozen when opened from the
+        // navigation picker while it was already the front task).
+        if("launch-app".equals(a)||"launch-navigation".equals(a)||"launch-player".equals(a)||"open-system-setting".equals(a)||"open-official".equals(a)){
+            if(active!=null)active.dismissPanel();
+        }
         return false;
     }
     /** Hide the OEM bar; task bounds reserve the workspace without synthetic insets. */
@@ -163,7 +170,7 @@ public final class GlobalDockService extends Service {
     }
     private static void stopAndRestore(Context c){
         SharedPreferences p=c.getSharedPreferences("launcher",0);
-        p.edit().putBoolean("globalDockEnabled",false).commit();
+        p.edit().putBoolean("globalDockEnabled",false).apply();
         c.stopService(new Intent(c,GlobalDockService.class));
         disableBarModifications(c,p);
     }
@@ -174,7 +181,7 @@ public final class GlobalDockService extends Service {
     }
     private static void toast(Context c,String text){android.widget.Toast.makeText(c,text,android.widget.Toast.LENGTH_SHORT).show();}
     @Override public void onCreate(){
-        super.onCreate();active=this;runtime=LauncherRuntime.get(this);recentTasks=new RecentTasksRepository(this);
+        super.onCreate();active=this;runtime=LauncherRuntime.get(this);runtime.scheduleBootAutoPlay();recentTasks=new RecentTasksRepository(this);
         if(!Settings.canDrawOverlays(this)||!runtime.prefs().getBoolean("globalDockEnabled",false)){stopSelf();return;}
         startForeground(753,notification());
         windows=(WindowManager)getSystemService(WINDOW_SERVICE);
@@ -203,7 +210,7 @@ public final class GlobalDockService extends Service {
         final EventChannel events;
         EventChannel.EventSink sink;
         int relayouts;
-        int sentStaticRevision=-1;
+        final LauncherRuntime.StaticCursor cursor=new LauncherRuntime.StaticCursor();
         JSONArray sentRecentItems;
         /** Last packet signature handed to the sink; see publish(). */
         String sentSignature;
@@ -215,7 +222,7 @@ public final class GlobalDockService extends Service {
             methods=new MethodChannel(engine.getDartExecutor().getBinaryMessenger(),"xyz.i4o.uni.launcher/platform");
             methods.setMethodCallHandler((call,result)->{
                 try{
-                    if("snapshot".equals(call.method))result.success(packet(true).toString());
+                    if("snapshot".equals(call.method))result.success(packet().toString());
                     else if("panel-backdrop".equals(call.method))result.success(isPanel?panelBackdrop:null);
                     else if("saveDesign".equals(call.method))result.success(runtime.saveDesign((String)call.arguments));
                     else if("action".equals(call.method)){
@@ -277,7 +284,7 @@ public final class GlobalDockService extends Service {
         }
         void publish(){
             if(sink==null)return;
-            String text=packet(runtime.staticRevision()!=sentStaticRevision).toString();
+            String text=packet().toString();
             // Same reasoning as MainActivity.emit(): timestamp-only differences must
             // not wake the dock/panel engine while nothing it renders has changed.
             String sig=text.replaceAll("\"([A-Za-z]*AtMs|[A-Za-z]*AtElapsedMs)\":-?\\d+","\"t\":0");
@@ -285,14 +292,13 @@ public final class GlobalDockService extends Service {
             sentSignature=sig;
             sink.success(text);
         }
-        JSONObject packet(boolean includeStatic){
+        JSONObject packet(){
             // Thumbnails are the heaviest payload of the panel; send them when the
             // set changes, and an empty list to retire them when recents closes.
             JSONArray items=isPanel?("recents".equals(panel)?recentTaskItems:NO_RECENTS):null;
             boolean sendRecent=items!=null&&items!=sentRecentItems;
-            JSONObject snapshot=state(isPanel,includeStatic,sendRecent);
+            JSONObject snapshot=state(cursor,isPanel,sendRecent);
             if(sendRecent)sentRecentItems=items;
-            if(includeStatic)sentStaticRevision=runtime.staticRevision();
             return snapshot;
         }
         void suspend(){
@@ -308,8 +314,8 @@ public final class GlobalDockService extends Service {
             engine.destroy();
         }
     }
-    private JSONObject state(boolean isPanel,boolean includeStatic,boolean includeRecent){
-        JSONObject j=runtime.snapshot(includeStatic);try{
+    private JSONObject state(LauncherRuntime.StaticCursor cursor,boolean isPanel,boolean includeRecent){
+        JSONObject j=runtime.snapshot(cursor);try{
             j.put("hostMode",isPanel?"global-panel":"global-dock").put("globalDock",snapshot(this))
              .put("systemNavigationHidden",runtime.prefs().getBoolean("systemNavigationHidden",false))
              .put("systemNavigationGranted",SystemNavigationPolicy.granted(this));
@@ -475,7 +481,7 @@ public final class GlobalDockService extends Service {
         if(runtime!=null)runtime.publish();super.onDestroy();
     }
     @Override public IBinder onBind(Intent intent){return null;}
-    @Override protected void dump(java.io.FileDescriptor fd,java.io.PrintWriter writer,String[] args){try{JSONObject report=snapshot(this),all=runtime.snapshot(),m=all.optJSONObject("media"),safe=new JSONObject();
+    @Override protected void dump(java.io.FileDescriptor fd,java.io.PrintWriter writer,String[] args){try{JSONObject report=snapshot(this),all=runtime.snapshot(new LauncherRuntime.StaticCursor()),m=all.optJSONObject("media"),safe=new JSONObject();
         if(m!=null)for(String key:new String[]{"source","playing","canToggle","canNext","canPrevious","positionMs","durationMs"})safe.put(key,m.opt(key));
         report.put("media",safe).put("runtimeOwnerCount",all.optInt("runtimeOwnerCount"));writer.println("UNI_GLOBAL_DOCK="+report);
         }catch(Exception e){writer.println("UNI_GLOBAL_DOCK_UNAVAILABLE");}}

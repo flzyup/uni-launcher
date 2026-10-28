@@ -24,11 +24,21 @@ import java.util.Set;
 
 public final class AppRepository {
     private final Context context;
-    private final Map<String, ComponentName> allowed = new LinkedHashMap<String, ComponentName>();
+    /** 仅在主线程整体替换，后台刷新只产出新映射，不与前台启动/卸载并发读写。 */
+    private volatile Map<String, ComponentName> allowed = new LinkedHashMap<String, ComponentName>();
     public AppRepository(Context context) {this.context=context;}
-    public JSONArray refresh() {
+
+    /** 后台可调用的纯构建产物：应用列表 + 新的 allowed 映射，不修改任何共享状态。 */
+    public static final class Refresh {
+        public final JSONArray apps;
+        public final Map<String, ComponentName> allowed;
+        public Refresh(JSONArray apps, Map<String, ComponentName> allowed){this.apps=apps;this.allowed=allowed;}
+    }
+
+    public Refresh refresh() {
         long traceStart=android.os.SystemClock.uptimeMillis();
-        allowed.clear(); JSONArray result=new JSONArray();
+        Map<String, ComponentName> nextAllowed = new LinkedHashMap<String, ComponentName>();
+        JSONArray result=new JSONArray();
         Set<String> players=musicPackages();
         Intent query=new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
         PackageManager pm=context.getPackageManager();
@@ -59,8 +69,8 @@ public final class AppRepository {
                 if(self.equals(pkg)&&!"xyz.i4o.uni.launcher.DesktopSettings".equals(app.activityInfo.name))continue;
                 ComponentName c=new ComponentName(pkg,app.activityInfo.name);
                 String key=c.flattenToString();
-                if(allowed.containsKey(key))continue;
-                allowed.put(key,c);
+                if(nextAllowed.containsKey(key))continue;
+                nextAllowed.put(key,c);
                 // flags come with the resolve result, so this needs no extra IPC.
                 ApplicationInfo info=app.activityInfo.applicationInfo;
                 boolean uninstallable=uninstallAllowed&&!self.equals(pkg)&&!admins.contains(pkg)
@@ -74,8 +84,11 @@ public final class AppRepository {
         android.util.Log.i("UNI-Startup","apps="+result.length()
             +" query="+(afterQuery-traceStart)+" labels="+(afterLabels-afterQuery)
             +" icons="+(end-afterLabels)+" refresh="+(end-traceStart));
-        return result;
+        return new Refresh(result, nextAllowed);
     }
+
+    /** 主线程一次性替换 allowed 映射。 */
+    public void applyAllowed(Map<String, ComponentName> next){allowed=next;}
 
     /** Icons dominate start-up: each app costs an inflate, a 72x72 draw and an
      * encode. Encode once per installed build and keep the bytes on disk, so a
