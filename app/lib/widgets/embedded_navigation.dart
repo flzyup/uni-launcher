@@ -29,6 +29,10 @@ class EmbeddedContentPolicy extends InheritedWidget {
       old.enabled != enabled || old.visible != visible;
 }
 
+/// 地图纹理尺寸相对卡片像素的缩放。导航 App 的 CPU 基本正比于它要填充的像素数：
+/// 0.75x 让它的填充量降到 56%，省下的 CPU 直接变成桌面翻页的余量；代价是导航画面略软。
+const double mapTextureScale = 0.75;
+
 class EmbeddedNavigationCard extends StatefulWidget {
   final LauncherController controller;
   final Map<String, dynamic> navigation;
@@ -247,8 +251,9 @@ class _EmbeddedNavigationCardState extends State<EmbeddedNavigationCard> {
     final size = constraints.biggest;
     final scale = View.of(context).physicalSize.width / Design.canvasWidth;
     if (size.isFinite && !size.isEmpty && scale > 0) {
-      desiredSize = Size((size.width * scale).round().clamp(1, 1920).toDouble(),
-          (size.height * scale).round().clamp(1, 1080).toDouble());
+      desiredSize = Size(
+          (size.width * scale * mapTextureScale).round().clamp(1, 1920).toDouble(),
+          (size.height * scale * mapTextureScale).round().clamp(1, 1080).toDouble());
       scheduleSync();
     }
     return RawGestureDetector(
