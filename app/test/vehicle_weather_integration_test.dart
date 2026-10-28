@@ -111,6 +111,23 @@ void main() {
     n['integrationPreferences'] = {'mediaPackage': 'com.tencent.qqmusic'};
     expect(mediaSourceLabel(n), 'QQ 音乐');
   });
+  test('Music source label never degrades to a package name', () {
+    // A car player can publish a session without a launcher entry, and the app
+    // grid is still empty while the deferred scan runs: the session label that
+    // Android resolved has to survive both cases.
+    final n = <String, dynamic>{
+      'media': {
+        'source': 'com.lxnetease.music.mobile',
+        'sourceLabel': 'LX-N Music'
+      },
+      'apps': <dynamic>[]
+    };
+    expect(mediaSourceLabel(n), 'LX-N Music');
+    (n['media'] as Map).remove('sourceLabel');
+    expect(mediaSourceLabel(n), 'com.lxnetease.music.mobile');
+    n['media'] = {'sourceLabel': 'LX-N Music'};
+    expect(mediaSourceLabel(n), 'LX-N Music');
+  });
   test(
       'All weather labels and stable IDs map, provider numeric codes stay unknown',
       () {
