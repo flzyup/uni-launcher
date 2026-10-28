@@ -41,6 +41,21 @@ public final class MediaAdapter {
     private boolean artworkDirty=true;
     private JSONArray activeSources=new JSONArray();
     private final List<MediaController> observed=new ArrayList<>();
+    /** Resolved once per source package: an OEM player can publish a session
+     *  without a launcher entry, and then the UI has no app row to read a label
+     *  from. Cached so a position tick never costs an IPC. */
+    private String labelPackage,labelValue="";
+    private String sourceLabel(String pkg){
+        if(pkg==null)return "";
+        if(pkg.equals(labelPackage))return labelValue;
+        labelPackage=pkg;labelValue="";
+        try{
+            android.content.pm.PackageManager pm=context.getPackageManager();
+            CharSequence label=pm.getApplicationLabel(pm.getApplicationInfo(pkg,0));
+            if(label!=null)labelValue=label.toString();
+        }catch(Exception ignored){}
+        return labelValue;
+    }
     public void setPreferredPackage(String value){preferred=value==null||value.isEmpty()?"auto":value;start();}
     private final MediaController.Callback callback=new MediaController.Callback(){
         public void onMetadataChanged(MediaMetadata m){artworkDirty=true;syncSteeringSession();changed.run();}
@@ -159,7 +174,7 @@ public final class MediaAdapter {
                 String title=m==null?"":m.getString(MediaMetadata.METADATA_KEY_TITLE);
                 String artist=m==null?"":m.getString(MediaMetadata.METADATA_KEY_ARTIST);
                 long duration=m==null?0:Math.max(0,m.getLong(MediaMetadata.METADATA_KEY_DURATION));
-                j.put("source",controller.getPackageName()).put("title",title).put("artist",artist)
+                j.put("source",controller.getPackageName()).put("sourceLabel",sourceLabel(controller.getPackageName())).put("title",title).put("artist",artist)
                     .put("collection",m==null?"":m.getString(MediaMetadata.METADATA_KEY_ALBUM))
                     .put("playing",p!=null&&p.getState()==PlaybackState.STATE_PLAYING);
                 long actions=p==null?0:p.getActions();

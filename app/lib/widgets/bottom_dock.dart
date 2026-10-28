@@ -8,6 +8,7 @@ import 'launcher_dialog.dart';
 import 'dock_music_visual.dart';
 import 'dock_music_progress_background.dart';
 import 'uni_app_icon.dart';
+import 'file_transfer_popup.dart';
 import 'uni_icon.dart';
 import 'dock_climate_button.dart';
 import 'media_artwork.dart';
@@ -31,6 +32,7 @@ class BottomDock extends StatelessWidget {
             climate = mapOf(native['climate']),
             media = mapOf(native['media']),
             canPlay = demo || media['available'] == true,
+            canToggle = demo || media['canToggle'] == true,
             playing = media['playing'] == true;
         Widget gap() => SizedBox(width: Design.px(20));
         Widget separator() => SizedBox(
@@ -243,13 +245,14 @@ class BottomDock extends StatelessWidget {
                                                   iconSize: Design.px(29),
                                                   framed: false,
                                                   foregroundColor: s.accent,
-                                                  onTap: canPlay &&
-                                                          (demo ||
-                                                              media['canToggle'] ==
-                                                                  true)
-                                                      ? () => c.command(
-                                                          'toggle-play')
-                                                      : null),
+                                                  onTap:
+                                                      media['available'] == true
+                                                          ? (canToggle
+                                                              ? () => c.command(
+                                                                  'toggle-play')
+                                                              : null)
+                                                          : () => c.command(
+                                                              'toggle-play')),
                                               action(
                                                   'next',
                                                   Icons.skip_next_outlined,
@@ -350,6 +353,8 @@ Future<void> showUniDockMenu(BuildContext context, LauncherController c) async {
   if (!context.mounted) return;
   if (selection == 'vehicle') {
     await showVehiclePanel(context, c);
+  } else if (selection == 'transfer') {
+    await showFileTransferPopup(context, c);
   } else if (selection == 'settings') {
     if (c.isGlobalDock) {
       await c.command('show-desktop-settings');
@@ -400,6 +405,13 @@ class _UniDockPopupRoute extends PopupRoute<String> {
                       title: '车辆信息',
                       subtitle: '车辆数据 · 只读',
                       onTap: () => Navigator.pop(context, 'vehicle')),
+                  SizedBox(height: Design.px(8)),
+                  _UniPopupItem(
+                      key: const ValueKey('uni-menu-transfer'),
+                      icon: Icon(Icons.upload_file, size: Design.px(30)),
+                      title: '传文件',
+                      subtitle: '扫码向车机传送文件',
+                      onTap: () => Navigator.pop(context, 'transfer')),
                   SizedBox(height: Design.px(8)),
                   _UniPopupItem(
                       key: const ValueKey('uni-menu-settings'),

@@ -29,6 +29,12 @@ class EmbeddedContentPolicy extends InheritedWidget {
       old.enabled != enabled || old.visible != visible;
 }
 
+/// 地图纹理尺寸相对卡片像素的缩放（「嵌入地图缩放」开关开启时生效）。
+/// 导航 App 的 CPU 基本正比于它要填充的像素数，降分辨率省下的 CPU 直接变成桌面翻页的余量。
+/// 0.875x 是「保持 dp 尺寸不变 + 不落入 ldpi 资源桶」的最大值：高德界面既不重排，
+/// 固定像素的按钮也几乎不会被放大，仅画面轻微变软（填充量降到 77%）。
+const double mapTextureScale = 0.875;
+
 class EmbeddedNavigationCard extends StatefulWidget {
   final LauncherController controller;
   final Map<String, dynamic> navigation;
@@ -47,11 +53,20 @@ class _EmbeddedNavigationCardState extends State<EmbeddedNavigationCard> {
   bool? sentVisible;
   bool scheduled = false, syncing = false;
   Size? desiredSize, sentSize;
+  double? sentScale;
   Map<String, dynamic> status = {};
   final Map<int, Offset> pointers = {};
   final Map<int, int> pointerIds = {};
   Future<void> cleanup = Future<void>.value();
   String get package => '${widget.navigation['package'] ?? ''}';
+
+  /// 设置「嵌入地图缩放」关闭时按 1:1 渲染，开启时用 [mapTextureScale] 降分辨率。
+  double get textureScale {
+    final prefs = widget.controller.native.value['integrationPreferences'];
+    return (prefs is Map && prefs['mapTextureScale'] == true)
+        ? mapTextureScale
+        : 1.0;
+  }
 
   void releaseNative() {
     generation++;
@@ -62,6 +77,7 @@ class _EmbeddedNavigationCardState extends State<EmbeddedNavigationCard> {
     nativeId = textureId = null;
     sentVisible = null;
     sentSize = null;
+    sentScale = null;
     status = {};
     if (id != null) {
       cleanup = cleanup
@@ -94,14 +110,21 @@ class _EmbeddedNavigationCardState extends State<EmbeddedNavigationCard> {
     });
   }
 
-  Map<String, int> dimensions(Size size) => {
+  /// 逻辑尺寸原样下发，纹理缩放交给原生同时缩像素与密度——导航 App 看到的 dp
+  /// 尺寸不变，所以它自己的界面不会重排，只是我们把位图轻微放大。
+  Map<String, dynamic> dimensions(Size size) => {
         'width': size.width.toInt(),
         'height': size.height.toInt(),
+        'scale': textureScale,
       };
 
   Future<void> syncNative() async {
     if (syncing) return;
     syncing = true;
+    // 缩放开关变了：原生端在 create 时才读取 scale，必须整体重建实时地图。
+    if (channel != null && sentScale != null && sentScale != textureScale) {
+      releaseNative();
+    }
     final epoch = generation;
     try {
       await cleanup;
@@ -123,6 +146,7 @@ class _EmbeddedNavigationCardState extends State<EmbeddedNavigationCard> {
         }
         nativeId = id;
         sentSize = size;
+        sentScale = textureScale;
         final current = MethodChannel('xyz.i4o.uni.launcher/map/$id');
         channel = current;
         updateStatus(result);
@@ -247,7 +271,8 @@ class _EmbeddedNavigationCardState extends State<EmbeddedNavigationCard> {
     final size = constraints.biggest;
     final scale = View.of(context).physicalSize.width / Design.canvasWidth;
     if (size.isFinite && !size.isEmpty && scale > 0) {
-      desiredSize = Size((size.width * scale).round().clamp(1, 1920).toDouble(),
+      desiredSize = Size(
+          (size.width * scale).round().clamp(1, 1920).toDouble(),
           (size.height * scale).round().clamp(1, 1080).toDouble());
       scheduleSync();
     }

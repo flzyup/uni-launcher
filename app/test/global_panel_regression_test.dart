@@ -258,6 +258,26 @@ void main() {
     expect(t.takeException(), isNull);
   });
 
+  testWidgets('UNI menu opens transfer panel with live address and controls', (t) async {
+    final (c, g) = await setup(t);
+    g.state['transfer'] = {'running': true, 'url': 'http://192.168.1.1:8080/', 'files': []};
+    g.stream.add(Map.of(g.state));
+    await t.pumpWidget(MaterialApp(
+        theme: launcherTheme(SurfaceStyle.from(const Appearance(), true)),
+        home: Scaffold(body: Align(alignment: Alignment.bottomCenter, child: BottomDock(controller: c)))));
+    await t.pumpAndSettle();
+    await t.tap(find.byKey(const ValueKey('uni-menu')));
+    await t.pumpAndSettle();
+    await t.tap(find.byKey(const ValueKey('uni-menu-transfer')));
+    await t.pumpAndSettle();
+    expect(find.byKey(const ValueKey('transfer-popup')), findsOneWidget);
+    expect(find.text('http://192.168.1.1:8080/'), findsOneWidget);
+    await t.tap(find.byKey(const ValueKey('transfer-switch')));
+    await t.pumpAndSettle();
+    expect(g.commands.last['action'], 'transfer-stop');
+    expect(t.takeException(), isNull);
+  });
+
   testWidgets('global panel engine presents the UNI menu and settings action',
       (t) async {
     final (c, g) = await setup(t, host: 'global-panel', global: true);

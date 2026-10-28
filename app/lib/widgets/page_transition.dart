@@ -286,8 +286,12 @@ class _PageTransform extends AnimatedWidget {
     // All wrappers stay mounted when an effect changes or motion ends. Native
     // map textures and card State must never be detached by an animation.
     return ClipRect(
-        // Avoid a full-screen alpha buffer and overdraw in layered motion.
-        clipper: effect == 'depth' && index == from && from != to
+        // Avoid a full-screen alpha buffer and overdraw in layered motion. Slide
+        // and depth only differ in how far the outgoing page travels, so the same
+        // uncovered-region clip removes the invisible half of its raster work.
+        clipper: from != to &&
+                index == from &&
+                (effect == 'depth' || effect == 'slide')
             ? _UncoveredPageClipper(
                 (to - position) / (to - from).abs(), to > from)
             : null,

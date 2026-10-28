@@ -126,10 +126,12 @@ class WallpaperImage extends StatelessWidget {
   Widget build(BuildContext context) {
     final preset = appearance.wallpaperPreset;
     if (preset?.asset != null) {
+      // cacheWidth already matches the panel width, so this is a 1:1 blit: mipmaps
+      // cost VRAM and upload time without changing a single pixel.
       return Image.asset(preset!.asset!,
           fit: fit,
           cacheWidth: cacheWidth,
-          filterQuality: FilterQuality.medium);
+          filterQuality: FilterQuality.low);
     }
     if (appearance.wallpaper == 'custom' &&
         appearance.wallpaperPath.isNotEmpty) {
@@ -137,7 +139,7 @@ class WallpaperImage extends StatelessWidget {
           key: ValueKey(appearance.wallpaperPath),
           fit: fit,
           cacheWidth: cacheWidth,
-          filterQuality: FilterQuality.medium,
+          filterQuality: FilterQuality.low,
           gaplessPlayback: true,
           errorBuilder: (_, __, ___) => const SizedBox.expand());
     }
