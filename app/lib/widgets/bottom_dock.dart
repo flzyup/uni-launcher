@@ -28,6 +28,7 @@ class BottomDock extends StatelessWidget {
             climate = mapOf(native['climate']),
             media = mapOf(native['media']),
             canPlay = demo || media['available'] == true,
+            canToggle = demo || media['canToggle'] == true,
             playing = media['playing'] == true;
         Widget gap() => SizedBox(width: Design.px(20));
         Widget separator() => SizedBox(
@@ -212,9 +213,11 @@ class BottomDock extends StatelessWidget {
                                 'play-pause',
                                 playing ? Icons.pause : Icons.play_arrow,
                                 playing ? '暂停' : '播放',
-                                canPlay && (demo || media['canToggle'] == true)
-                                    ? () => c.command('toggle-play')
-                                    : null,
+                                media['available'] == true
+                                    ? (canToggle
+                                        ? () => c.command('toggle-play')
+                                        : null)
+                                    : () => c.command('toggle-play'),
                                 solid: true,
                                 width: 58),
                             action(

@@ -87,7 +87,7 @@ class CardContent extends StatelessWidget {
         select: (native) => [
           native['demo'],
           for (final key in switch (card.type) {
-            'nav' => ['navigation', 'apps', 'appNames'],
+            'nav' => ['navigation', 'apps', 'appNames', 'integrationPreferences'],
             'trafficLight' => [
                 'trafficLights',
                 'navigation',
