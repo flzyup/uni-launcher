@@ -84,6 +84,8 @@ class _GlobalPanelAppState extends State<GlobalPanelApp> {
           await showNavigationPicker(context, widget.controller);
         case 'music-picker':
           await showMusicPicker(context, widget.controller);
+        case 'uni-menu':
+          await showUniDockMenu(context, widget.controller);
         case 'apps':
           await showAppsPanel(context, widget.controller);
         default:

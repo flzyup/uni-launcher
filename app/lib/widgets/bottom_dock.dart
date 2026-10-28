@@ -6,6 +6,9 @@ import 'card_content.dart';
 import 'glass_surface.dart';
 import 'launcher_dialog.dart';
 import 'dock_music_visual.dart';
+import 'dock_music_progress_background.dart';
+import 'uni_app_icon.dart';
+import 'uni_icon.dart';
 import 'dock_climate_button.dart';
 import 'media_artwork.dart';
 import '../model/vehicle_data.dart';
@@ -53,12 +56,15 @@ class BottomDock extends StatelessWidget {
                 solid: solid,
                 soft: soft);
         Widget climateGroup(Widget child) => s.technicalFrame
-            ? GlassSurface(
-                radius: s.controlRadius,
-                shadow: false,
-                tone: SurfaceTone.soft,
-                padding: EdgeInsets.symmetric(horizontal: Design.px(12)),
-                child: child)
+            ? SizedBox(
+                height: Design.px(72),
+                child: GlassSurface(
+                    key: const ValueKey('dock-climate-frame'),
+                    radius: s.controlRadius,
+                    shadow: false,
+                    tone: SurfaceTone.soft,
+                    padding: EdgeInsets.symmetric(horizontal: Design.px(12)),
+                    child: child))
             : child;
         bool? climateFlag(String id) {
           if (demo) return climate[id] is bool ? climate[id] as bool : null;
@@ -70,7 +76,7 @@ class BottomDock extends StatelessWidget {
 
         Widget zone(String id, String label) => SizedBox(
             width: Design.px(82),
-            height: Design.px(64),
+            height: Design.px(60),
             child: InkWell(
                 key: ValueKey('dock-temperature-$id'),
                 onTap: () => showClimatePanel(context, c),
@@ -103,19 +109,19 @@ class BottomDock extends StatelessWidget {
                 shadow: false,
                 tone: SurfaceTone.strong,
                 padding: EdgeInsets.symmetric(
-                    horizontal: Design.px(28), vertical: Design.px(12)),
+                    horizontal: Design.px(14), vertical: Design.px(12)),
                 child: Row(children: [
                   SizedBox(
                       width: Design.px(376),
                       child: Row(children: [
                         action('system-back', Icons.arrow_back, '返回',
                             () => c.command('system-back')),
-                        SizedBox(width: Design.px(14)),
+                        SizedBox(width: Design.px(12)),
                         IconAction(
                             key: const ValueKey('home'),
                             icon: Icons.home_outlined,
                             label: '首页，长按进入桌面设置',
-                            size: Design.px(64),
+                            size: Design.px(72),
                             iconSize: Design.px(29),
                             active: c.isGlobalDock
                                 ? native['desktopSelected'] == true &&
@@ -133,13 +139,13 @@ class BottomDock extends StatelessWidget {
                                     (ModalRoute.of(context)?.isCurrent ?? true),
                             onTap: c.home,
                             onLongPress: c.openSettings),
-                        SizedBox(width: Design.px(14)),
+                        SizedBox(width: Design.px(12)),
                         action('all-apps', Icons.apps, '全部应用',
                             () => showAppsPanel(context, c)),
-                        SizedBox(width: Design.px(14)),
+                        SizedBox(width: Design.px(12)),
                         action('recents', Icons.check_box_outline_blank_rounded,
                             '最近任务', () => c.command('show-recents')),
-                        SizedBox(width: Design.px(14)),
+                        SizedBox(width: Design.px(12)),
                         action(
                             'camera',
                             Icons.surround_sound_outlined,
@@ -194,90 +200,276 @@ class BottomDock extends StatelessWidget {
                   gap(),
                   separator(),
                   gap(),
-                  SizedBox(
-                      width: Design.px(194),
-                      child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            action(
-                                'previous',
-                                Icons.skip_previous_outlined,
-                                '上一首',
-                                canPlay &&
-                                        (demo || media['canPrevious'] == true)
-                                    ? () => c.command('previous')
-                                    : null,
-                                width: 60),
-                            action(
-                                'play-pause',
-                                playing ? Icons.pause : Icons.play_arrow,
-                                playing ? '暂停' : '播放',
-                                canPlay && (demo || media['canToggle'] == true)
-                                    ? () => c.command('toggle-play')
-                                    : null,
-                                solid: true,
-                                width: 58),
-                            action(
-                                'next',
-                                Icons.skip_next_outlined,
-                                '下一首',
-                                canPlay && (demo || media['canNext'] == true)
-                                    ? () => c.command('next')
-                                    : null,
-                                width: 60)
-                          ])),
-                  gap(),
                   Expanded(
-                      child: InkWell(
-                          key: const ValueKey('music-info'),
-                          onTap: () => showMediaPanel(context, c),
-                          child: Row(children: [
-                            ClipRRect(
-                                borderRadius:
-                                    BorderRadius.circular(s.radius * .5),
-                                child: SizedBox(
-                                    width: Design.px(60),
-                                    height: Design.px(60),
-                                    child: MediaArtwork(
-                                        media: media,
-                                        demo: demo,
-                                        fallbackSize: Design.px(30)))),
-                            SizedBox(width: Design.px(16)),
-                            Expanded(
-                                flex: 5,
-                                child: Column(
-                                    key: const ValueKey('dock-track-title'),
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text('${media['title'] ?? '暂无播放'}',
-                                          style: TextStyle(
-                                              fontSize: Design.px(23),
-                                              fontWeight: FontWeight.w500),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis),
-                                      SizedBox(height: Design.px(4)),
-                                      Text('${media['artist'] ?? '等待媒体会话'}',
-                                          style: TextStyle(
-                                              fontSize: Design.px(16),
-                                              color: s.muted),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis)
-                                    ])),
-                            SizedBox(width: Design.px(16)),
-                            Expanded(
-                                flex: 6,
-                                child:
-                                    DockMusicVisual(media: media, demo: demo))
-                          ]))),
+                      child: GlassSurface(
+                          key: const ValueKey('dock-music-frame'),
+                          radius: s.controlRadius,
+                          shadow: false,
+                          tone: SurfaceTone.soft,
+                          padding: EdgeInsets.zero,
+                          child: DockMusicProgressBackground(
+                              enabled: c.appearance.dockMusicProgressBackground,
+                              media: media,
+                              child: Padding(
+                                  padding: EdgeInsets.symmetric(
+                                      horizontal: Design.px(12)),
+                                  child: Row(children: [
+                                    SizedBox(
+                                        width: Design.px(194),
+                                        child: Row(
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.spaceBetween,
+                                            children: [
+                                              action(
+                                                  'previous',
+                                                  Icons.skip_previous_outlined,
+                                                  '上一首',
+                                                  canPlay &&
+                                                          (demo ||
+                                                              media['canPrevious'] ==
+                                                                  true)
+                                                      ? () =>
+                                                          c.command('previous')
+                                                      : null,
+                                                  width: 60),
+                                              IconAction(
+                                                  key: const ValueKey(
+                                                      'play-pause'),
+                                                  icon: playing
+                                                      ? Icons.pause
+                                                      : Icons.play_arrow,
+                                                  label: playing ? '暂停' : '播放',
+                                                  size: Design.px(58),
+                                                  iconSize: Design.px(29),
+                                                  framed: false,
+                                                  foregroundColor: s.accent,
+                                                  onTap: canPlay &&
+                                                          (demo ||
+                                                              media['canToggle'] ==
+                                                                  true)
+                                                      ? () => c.command(
+                                                          'toggle-play')
+                                                      : null),
+                                              action(
+                                                  'next',
+                                                  Icons.skip_next_outlined,
+                                                  '下一首',
+                                                  canPlay &&
+                                                          (demo ||
+                                                              media['canNext'] ==
+                                                                  true)
+                                                      ? () => c.command('next')
+                                                      : null,
+                                                  width: 60)
+                                            ])),
+                                    SizedBox(width: Design.px(20)),
+                                    Expanded(
+                                        child: InkWell(
+                                            key: const ValueKey('music-info'),
+                                            onTap: () =>
+                                                showMediaPanel(context, c),
+                                            child: Row(children: [
+                                              ClipRRect(
+                                                  borderRadius:
+                                                      BorderRadius.circular(
+                                                          s.radius * .5),
+                                                  child: SizedBox(
+                                                      width: Design.px(60),
+                                                      height: Design.px(60),
+                                                      child: MediaArtwork(
+                                                          media: media,
+                                                          demo: demo,
+                                                          fallbackSize:
+                                                              Design.px(30)))),
+                                              SizedBox(width: Design.px(16)),
+                                              Expanded(
+                                                  flex: 5,
+                                                  child: Column(
+                                                      key: const ValueKey(
+                                                          'dock-track-title'),
+                                                      mainAxisAlignment:
+                                                          MainAxisAlignment
+                                                              .center,
+                                                      crossAxisAlignment:
+                                                          CrossAxisAlignment
+                                                              .start,
+                                                      children: [
+                                                        Text(
+                                                            '${media['title'] ?? '暂无播放'}',
+                                                            style: TextStyle(
+                                                                fontSize:
+                                                                    Design.px(
+                                                                        23),
+                                                                fontWeight:
+                                                                    FontWeight
+                                                                        .w500),
+                                                            maxLines: 1,
+                                                            overflow:
+                                                                TextOverflow
+                                                                    .ellipsis),
+                                                        SizedBox(
+                                                            height:
+                                                                Design.px(4)),
+                                                        Text(
+                                                            '${media['artist'] ?? '等待媒体会话'}',
+                                                            style: TextStyle(
+                                                                fontSize:
+                                                                    Design.px(
+                                                                        16),
+                                                                color: s.muted),
+                                                            maxLines: 1,
+                                                            overflow:
+                                                                TextOverflow
+                                                                    .ellipsis)
+                                                      ])),
+                                              SizedBox(width: Design.px(16)),
+                                              Expanded(
+                                                  flex: 6,
+                                                  child: DockMusicVisual(
+                                                      media: media, demo: demo))
+                                            ])))
+                                  ]))))),
                   gap(),
                   separator(),
                   gap(),
-                  action('vehicle', Icons.directions_car_outlined, '车辆信息',
-                      () => showVehiclePanel(context, c))
+                  IconAction(
+                      key: const ValueKey('uni-menu'),
+                      icon: Icons.apps,
+                      label: 'UNI菜单，包含车辆信息和UNI桌面设置',
+                      size: Design.px(64),
+                      framed: false,
+                      onTap: () => showUniDockMenu(context, c),
+                      child: UniAppIcon(size: Design.px(42)))
                 ])));
       });
+}
+
+Future<void> showUniDockMenu(BuildContext context, LauncherController c) async {
+  if (await c.presentGlobalPanel('uni-menu') || !context.mounted) return;
+  final selection = await _showUniDockPopup(context, c);
+  if (!context.mounted) return;
+  if (selection == 'vehicle') {
+    await showVehiclePanel(context, c);
+  } else if (selection == 'settings') {
+    if (c.isGlobalDock) {
+      await c.command('show-desktop-settings');
+    } else {
+      c.openSettings();
+    }
+  }
+}
+
+/// Anchored popup that expands above the UNI dock button.
+Future<String?> _showUniDockPopup(BuildContext context, LauncherController c) {
+  return Navigator.of(context).push(_UniDockPopupRoute(
+      panelWindow: c.native.value['hostMode'] == 'global-panel'));
+}
+
+class _UniDockPopupRoute extends PopupRoute<String> {
+  final bool panelWindow;
+  _UniDockPopupRoute({required this.panelWindow});
+  @override
+  Color? get barrierColor => null;
+  @override
+  bool get barrierDismissible => true;
+  @override
+  String? get barrierLabel => '关闭UNI菜单';
+  @override
+  Duration get transitionDuration => const Duration(milliseconds: 180);
+  @override
+  Duration get reverseTransitionDuration => const Duration(milliseconds: 140);
+  @override
+  Widget buildPage(BuildContext context, Animation<double> animation,
+      Animation<double> secondaryAnimation) {
+    final s = SurfaceStyle.of(context);
+    return Stack(children: [
+      Positioned(
+        right: Design.px(14),
+        bottom: Design.px(panelWindow ? 14 : 110),
+        child: SizedBox(
+            width: Design.px(340),
+            child: GlassSurface(
+                key: const ValueKey('uni-popup-panel'),
+                radius: s.controlRadius,
+                shadow: true,
+                padding: EdgeInsets.all(Design.px(10)),
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  _UniPopupItem(
+                      key: const ValueKey('uni-menu-vehicle'),
+                      icon: const UniIcon('car'),
+                      title: '车辆信息',
+                      subtitle: '车辆数据 · 只读',
+                      onTap: () => Navigator.pop(context, 'vehicle')),
+                  SizedBox(height: Design.px(8)),
+                  _UniPopupItem(
+                      key: const ValueKey('uni-menu-settings'),
+                      icon: UniAppIcon(size: Design.px(34)),
+                      title: 'UNI桌面设置',
+                      subtitle: '外观、应用与底栏',
+                      onTap: () => Navigator.pop(context, 'settings')),
+                ]))),
+      ),
+    ]);
+  }
+
+  @override
+  Widget buildTransitions(BuildContext context, Animation<double> animation,
+      Animation<double> secondaryAnimation, Widget child) {
+    final t = Curves.easeOutCubic.transform(animation.value);
+    return FadeTransition(
+        opacity: animation,
+        child: Transform.translate(
+            offset: Offset(0, (1 - t) * Design.px(14)),
+            child: Transform.scale(
+                alignment: Alignment.bottomRight,
+                scale: .94 + .06 * t,
+                child: child)));
+  }
+}
+
+class _UniPopupItem extends StatelessWidget {
+  final Widget icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+  const _UniPopupItem(
+      {super.key,
+      required this.icon,
+      required this.title,
+      required this.subtitle,
+      required this.onTap});
+  @override
+  Widget build(BuildContext context) {
+    final s = SurfaceStyle.of(context);
+    return Material(
+        color: Colors.transparent,
+        child: InkWell(
+            borderRadius: BorderRadius.circular(s.controlRadius),
+            onTap: onTap,
+            child: Padding(
+                padding: EdgeInsets.symmetric(
+                    horizontal: Design.px(14), vertical: Design.px(10)),
+                child: Row(children: [
+                  SizedBox(
+                      width: Design.px(42),
+                      height: Design.px(42),
+                      child: Center(child: icon)),
+                  SizedBox(width: Design.px(12)),
+                  Expanded(
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                        Text(title,
+                            style: TextStyle(
+                                fontSize: Design.px(21),
+                                fontWeight: FontWeight.w500)),
+                        SizedBox(height: Design.px(2)),
+                        Text(subtitle,
+                            style: TextStyle(
+                                fontSize: Design.px(14), color: s.muted)),
+                      ]))
+                ]))));
+  }
 }
 
 Future<void> showVehiclePanel(

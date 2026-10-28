@@ -92,6 +92,10 @@ void main() {
     expect(
         find.byKey(const ValueKey('account-profile-detail')), findsOneWidget);
     expect(
+        t.widget<GlassSurface>(
+            find.byKey(const ValueKey('account-profile-detail'))),
+        isA<GlassSurface>());
+    expect(
         find.descendant(
             of: find.byKey(const ValueKey('account-profile-detail')),
             matching: find.text('车主账号')),
@@ -137,6 +141,14 @@ void main() {
     expect(
         find.byKey(const ValueKey('weather-current-detail')), findsOneWidget);
     expect(find.byKey(const ValueKey('weather-forecast-0')), findsOneWidget);
+    expect(
+        t.widget<GlassSurface>(
+            find.byKey(const ValueKey('weather-current-detail'))),
+        isA<GlassSurface>());
+    expect(
+        t.widget<GlassSurface>(
+            find.byKey(const ValueKey('weather-forecast-0'))),
+        isA<GlassSurface>());
     expect(find.text('未来天气'), findsOneWidget);
     expect(g.commands.last['action'], 'weather-forecast-refresh');
     expect(t.takeException(), isNull);

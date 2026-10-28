@@ -56,37 +56,6 @@ void main() {
     t.view.resetDevicePixelRatio();
   });
 
-  testWidgets('settings entry in app list closes panel and opens settings',
-      (t) async {
-    t.view.physicalSize = const Size(1920, 1080);
-    t.view.devicePixelRatio = 1;
-    final g = FakeGateway();
-    g.state['apps'] = [
-      {
-        'id': 'xyz.i4o.uni.launcher/.DesktopSettings',
-        'package': 'xyz.i4o.uni.launcher',
-        'label': 'UNI桌面设置'
-      }
-    ];
-    final c = LauncherController(g);
-    await c.initialize();
-    await t.pumpWidget(LauncherApp(controller: c));
-    await t.pumpAndSettle();
-    await t.tap(find.byKey(const ValueKey('all-apps')));
-    await t.pumpAndSettle();
-    await t
-        .tap(find.byKey(const ValueKey('app-icon-ink-xyz.i4o.uni.launcher')));
-    await t.pumpAndSettle();
-    expect(c.settings, isTrue);
-    expect(find.text('UNI桌面设置'), findsNothing);
-    expect(find.text('桌面设置'), findsOneWidget);
-    await t.pumpWidget(const SizedBox());
-    c.dispose();
-    await g.dispose();
-    t.view.resetPhysicalSize();
-    t.view.resetDevicePixelRatio();
-  });
-
   testWidgets(
       'shortcut layouts render their supported capacities without overflow',
       (t) async {

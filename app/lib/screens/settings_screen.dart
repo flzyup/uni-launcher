@@ -67,7 +67,7 @@ class SettingsScreen extends StatelessWidget {
                       child: Row(children: [
                         for (final tab in [
                           ('appearance', '外观主题'),
-                          ('motion', '切换动效'),
+                          ('motion', '动画效果'),
                           ('system', '系统设置')
                         ])
                           _SettingsTab(controller: c, id: tab.$1, label: tab.$2)
@@ -179,15 +179,8 @@ class SpectrumSettings extends StatelessWidget {
                               width: (box.maxWidth - Design.px(14)) / 2,
                               child: OutlinedButton(
                                   key: ValueKey('spectrum-style-${entry.key}'),
-                                  style: s
-                                      .selectionStyle(
-                                          c.appearance.spectrumStyle ==
-                                              entry.key)
-                                      .copyWith(
-                                          backgroundColor:
-                                              WidgetStatePropertyAll(s.soft),
-                                          foregroundColor:
-                                              WidgetStatePropertyAll(s.text)),
+                                  style: s.selectionStyle(
+                                      c.appearance.spectrumStyle == entry.key),
                                   onPressed: () => c.setAppearance(c.appearance
                                       .copyWith(spectrumStyle: entry.key)),
                                   child: Padding(
@@ -206,8 +199,17 @@ class SpectrumSettings extends StatelessWidget {
                                       ]))))
                       ])),
           SizedBox(height: Design.px(16)),
-          Text('底栏右侧左右滑动可切换频谱和歌词；预览为静态示意。',
+          Text('底栏右侧左右滑动可切换歌词和频谱；预览为静态示意。',
               style: TextStyle(fontSize: Design.px(18), color: s.muted)),
+          SizedBox(height: Design.px(14)),
+          DesignSwitchTile(
+              key: const ValueKey('dock-music-progress-switch'),
+              contentPadding: EdgeInsets.zero,
+              title: const Text('音乐进度动态背景'),
+              subtitle: const Text('背景长度同步播放进度，光晕向进度线左侧展开'),
+              value: c.appearance.dockMusicProgressBackground,
+              onChanged: (value) => c.setAppearance(
+                  c.appearance.copyWith(dockMusicProgressBackground: value))),
         ]));
   }
 }
@@ -282,107 +284,106 @@ class AppearanceSettings extends StatelessWidget {
                                             key: ValueKey('mode-${mode.$1}'),
                                             onPressed: () => c.setAppearance(
                                                 a.copyWith(mode: mode.$1)),
-                                            style: OutlinedButton.styleFrom(
-                                                shape: s.controlShape(
-                                                    selected:
-                                                        a.mode == mode.$1),
-                                                foregroundColor:
-                                                    a.mode == mode.$1
-                                                        ? s.accent
-                                                        : s.text,
-                                                side: s.controlSide(
-                                                    a.mode == mode.$1)),
-                                            child:
-                                                Stack(alignment: Alignment.center, children: [
-                                              Row(
-                                                  mainAxisAlignment:
-                                                      MainAxisAlignment.center,
-                                                  children: [
-                                                    DesignIcon(mode.$2,
-                                                        size: Design.px(26)),
-                                                    SizedBox(
-                                                        width: Design.px(14)),
-                                                    Text(mode.$3,
-                                                        style: TextStyle(
-                                                            fontSize:
-                                                                Design.px(22)))
-                                                  ]),
-                                              if (a.mode == mode.$1)
-                                                Align(
-                                                    alignment:
-                                                        Alignment.centerRight,
-                                                    child: UniIcon('check',
-                                                        size: Design.px(20)))
-                                            ])))))
+                                            style: s.selectionStyle(
+                                                a.mode == mode.$1),
+                                            child: Stack(
+                                                alignment: Alignment.center,
+                                                children: [
+                                                  Row(
+                                                      mainAxisAlignment:
+                                                          MainAxisAlignment
+                                                              .center,
+                                                      children: [
+                                                        DesignIcon(mode.$2,
+                                                            size:
+                                                                Design.px(26)),
+                                                        SizedBox(
+                                                            width:
+                                                                Design.px(14)),
+                                                        Text(mode.$3,
+                                                            style: TextStyle(
+                                                                fontSize:
+                                                                    Design.px(
+                                                                        22)))
+                                                      ]),
+                                                  if (a.mode == mode.$1)
+                                                    Align(
+                                                        alignment: Alignment
+                                                            .centerRight,
+                                                        child: UniIcon('check',
+                                                            size:
+                                                                Design.px(20)))
+                                                ])))))
                         ])),
                     SizedBox(height: Design.px(16)),
                     SettingBlock(
                         compact: box.maxHeight < Design.px(650),
                         title: '主题配色',
                         note: '同步改变强调色与背景氛围',
-                        child: Column(children: [
-                          Row(children: [
-                            for (final preset in accentPresets)
-                              Expanded(
-                                  child: Padding(
-                                      padding: EdgeInsets.only(
-                                          right:
-                                              preset.id == accentPresets.last.id
-                                                  ? 0
-                                                  : Design.px(14)),
-                                      child: SizedBox(
-                                          height: Design.px(138),
-                                          child: OutlinedButton(
-                                              key: ValueKey(
-                                                  'palette-${preset.id}'),
-                                              onPressed: () => c.setAppearance(
-                                                  a.copyWith(
-                                                      palette: preset.id)),
-                                              style: OutlinedButton.styleFrom(
-                                                  padding: EdgeInsets.symmetric(
-                                                      vertical: Design.px(17),
-                                                      horizontal:
-                                                          Design.px(10)),
-                                                  shape: s.controlShape(
-                                                      selected: a.palette ==
-                                                          preset.id),
-                                                  foregroundColor: s.text,
-                                                  side: s.controlSide(
-                                                      a.palette == preset.id)),
-                                              child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                                                Container(
-                                                    width: Design.px(59),
-                                                    height: Design.px(59),
-                                                    decoration: BoxDecoration(
-                                                        shape: BoxShape.circle,
-                                                        color: preset.seed),
-                                                    child: a.palette ==
-                                                            preset.id
-                                                        ? const Center(
-                                                            child: UniIcon(
-                                                                'check',
-                                                                size: 22,
-                                                                color: Colors
-                                                                    .white))
-                                                        : null),
-                                                SizedBox(height: Design.px(14)),
-                                                Text(preset.name,
-                                                    style: TextStyle(
-                                                        fontSize:
-                                                            Design.px(21)))
-                                              ])))))
-                          ]),
-                          SizedBox(height: Design.px(28)),
-                          Divider(height: 1, color: s.edge),
-                          SizedBox(height: Design.px(22)),
-                          CustomColorRow(controller: c),
+                        child: Row(children: [
+                          for (final item in [
+                            ...accentPresets.map((p) => (p.id, p.name, p.seed)),
+                            (
+                              'custom',
+                              '自定义',
+                              Color(0xFF000000 |
+                                  int.parse(a.custom.substring(1), radix: 16))
+                            )
+                          ])
+                            Expanded(
+                                child: Padding(
+                                    padding: EdgeInsets.only(
+                                        right: item.$1 == 'custom'
+                                            ? 0
+                                            : Design.px(14)),
+                                    child: SizedBox(
+                                        height: Design.px(138),
+                                        child: OutlinedButton(
+                                            key: ValueKey(item.$1 == 'custom'
+                                                ? 'custom-color'
+                                                : 'palette-${item.$1}'),
+                                            onPressed: () => item.$1 == 'custom'
+                                                ? editCustomColor(context, c)
+                                                : c.setAppearance(a.copyWith(
+                                                    palette: item.$1)),
+                                            style: s
+                                                .selectionStyle(
+                                                    a.palette == item.$1)
+                                                .copyWith(
+                                                    padding: WidgetStatePropertyAll(
+                                                        EdgeInsets.symmetric(
+                                                            vertical:
+                                                                Design.px(12),
+                                                            horizontal:
+                                                                Design.px(5)))),
+                                            child:
+                                                Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                                              Container(
+                                                  width: Design.px(59),
+                                                  height: Design.px(59),
+                                                  decoration: BoxDecoration(
+                                                      shape: BoxShape.circle,
+                                                      color: item.$3),
+                                                  child: a.palette == item.$1
+                                                      ? const Center(
+                                                          child: UniIcon(
+                                                              'check',
+                                                              size: 22,
+                                                              color:
+                                                                  Colors.white))
+                                                      : null),
+                                              SizedBox(height: Design.px(14)),
+                                              Text(item.$2,
+                                                  maxLines: 1,
+                                                  style: TextStyle(
+                                                      fontSize: Design.px(21)))
+                                            ]))))),
                         ])),
                     SizedBox(height: Design.px(16)),
                     WallpaperSetting(controller: c),
                     SizedBox(height: Design.px(16)),
                     RadiusSetting(controller: c),
                     SizedBox(height: Design.px(16)),
-                    SpectrumSettings(controller: c),
                   ])))),
       SizedBox(width: Design.px(24)),
       SizedBox(
@@ -423,33 +424,15 @@ class AppearanceSettings extends StatelessWidget {
                                   color: s.muted)))
                     ]),
                     SizedBox(height: Design.px(16)),
-                    Container(
-                        padding: EdgeInsets.only(top: Design.px(16)),
-                        decoration: BoxDecoration(
-                            border: Border(top: BorderSide(color: s.edge))),
-                        child: Row(children: [
-                          Expanded(
-                              child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                Text(s.technicalFrame ? '玻璃质感' : '毛玻璃',
-                                    style: TextStyle(fontSize: Design.px(23))),
-                                SizedBox(height: Design.px(6)),
-                                Text(
-                                    s.technicalFrame
-                                        ? '静态反光，无实时模糊'
-                                        : '关闭后保留半透明材质',
-                                    style: TextStyle(
-                                        fontSize: Design.px(17),
-                                        color: s.muted))
-                              ])),
-                          DesignToggle(
-                              key: const ValueKey('glass-switch'),
-                              label: s.technicalFrame ? '玻璃质感' : '毛玻璃',
-                              value: a.glass,
-                              onChanged: (v) =>
-                                  c.setAppearance(a.copyWith(glass: v)))
-                        ])),
+                    DesignSwitchTile(
+                        key: const ValueKey('glass-switch'),
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(s.technicalFrame ? '玻璃质感' : '毛玻璃'),
+                        subtitle: Text(
+                            s.technicalFrame ? '静态反光，无实时模糊' : '关闭后保留半透明材质'),
+                        value: a.glass,
+                        onChanged: (v) =>
+                            c.setAppearance(a.copyWith(glass: v))),
                     SizedBox(height: Design.px(18)),
                     OutlinedButton.icon(
                         onPressed: c.home,
@@ -586,7 +569,9 @@ class _WallpaperTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = SurfaceStyle.of(context);
     return Material(
-        color: s.soft,
+        color: selected
+            ? Color.alphaBlend(s.accent.withValues(alpha: .11), s.soft)
+            : s.soft,
         clipBehavior: Clip.antiAlias,
         shape: s.controlShape(selected: selected).copyWith(
             side: s.technicalFrame
@@ -1060,70 +1045,62 @@ class PageMotionSettings extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = SurfaceStyle.of(context), c = controller;
     return SingleChildScrollView(
-        child: SettingBlock(
-            title: '桌面翻屏',
-            note: '页面与指示条跟随手势，底栏保持固定',
-            child: LayoutBuilder(
-                builder: (context, box) => Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Wrap(
-                              spacing: Design.px(18),
-                              runSpacing: Design.px(18),
-                              children: [
-                                for (final option in pageEffects)
-                                  SizedBox(
-                                      width: (box.maxWidth - Design.px(36)) / 3,
-                                      child: OutlinedButton(
-                                          key: ValueKey(
-                                              'transition-${option.id}'),
-                                          style: OutlinedButton.styleFrom(
-                                              shape: s.controlShape(
-                                                  selected: c.appearance.pageTransition ==
-                                                      option.id),
-                                              foregroundColor:
-                                                  c.appearance.pageTransition == option.id
-                                                      ? s.accent
-                                                      : s.text,
-                                              backgroundColor:
-                                                  c.appearance.pageTransition ==
+        child: Column(children: [
+      SettingBlock(
+          title: '桌面翻屏',
+          note: '页面与指示条跟随手势，底栏保持固定',
+          child: LayoutBuilder(
+              builder: (context, box) => Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Wrap(
+                            spacing: Design.px(18),
+                            runSpacing: Design.px(18),
+                            children: [
+                              for (final option in pageEffects)
+                                SizedBox(
+                                    width: (box.maxWidth - Design.px(36)) / 3,
+                                    child: OutlinedButton(
+                                        key:
+                                            ValueKey('transition-${option.id}'),
+                                        style: s.selectionStyle(
+                                            c.appearance.pageTransition ==
+                                                option.id),
+                                        onPressed: () => c.setAppearance(
+                                            c.appearance.copyWith(
+                                                pageTransition: option.id)),
+                                        child: Padding(
+                                            padding: EdgeInsets.symmetric(
+                                                vertical: Design.px(24)),
+                                            child: Column(children: [
+                                              Text(option.name,
+                                                  style: TextStyle(
+                                                      fontSize: Design.px(26))),
+                                              SizedBox(height: Design.px(10)),
+                                              Text(option.detail,
+                                                  style: TextStyle(
+                                                      fontSize: Design.px(18),
+                                                      color: s.muted)),
+                                              SizedBox(height: Design.px(12)),
+                                              UniIcon('check',
+                                                  size: Design.px(24),
+                                                  color: c.appearance
+                                                              .pageTransition ==
                                                           option.id
-                                                      ? s.soft
-                                                      : null,
-                                              side: s.controlSide(
-                                                  c.appearance.pageTransition ==
-                                                      option.id)),
-                                          onPressed: () =>
-                                              c.setAppearance(c.appearance.copyWith(pageTransition: option.id)),
-                                          child: Padding(
-                                              padding: EdgeInsets.symmetric(vertical: Design.px(24)),
-                                              child: Column(children: [
-                                                Text(option.name,
-                                                    style: TextStyle(
-                                                        fontSize:
-                                                            Design.px(26))),
-                                                SizedBox(height: Design.px(10)),
-                                                Text(option.detail,
-                                                    style: TextStyle(
-                                                        fontSize: Design.px(18),
-                                                        color: s.muted)),
-                                                SizedBox(height: Design.px(12)),
-                                                UniIcon('check',
-                                                    size: Design.px(24),
-                                                    color: c.appearance
-                                                                .pageTransition ==
-                                                            option.id
-                                                        ? s.accent
-                                                        : Colors.transparent)
-                                              ])))),
-                              ]),
-                          SizedBox(height: Design.px(26)),
-                          Text(
-                              '左右拖动桌面，松手后自动吸附；也可点击页码切换。平移只移动页面图层，适合车机使用。编辑桌面或系统要求减少动态效果时暂停动画。',
-                              style: TextStyle(
-                                  fontSize: Design.px(21),
-                                  color: s.muted,
-                                  height: 1.6)),
-                        ]))));
+                                                      ? s.accent
+                                                      : Colors.transparent)
+                                            ])))),
+                            ]),
+                        SizedBox(height: Design.px(26)),
+                        Text(
+                            '左右拖动桌面，松手后自动吸附；也可点击页码切换。平移只移动页面图层，适合车机使用。系统要求减少动态效果时暂停动画。',
+                            style: TextStyle(
+                                fontSize: Design.px(21),
+                                color: s.muted,
+                                height: 1.6)),
+                      ]))),
+      SizedBox(height: Design.px(16)),
+      SpectrumSettings(controller: c),
+    ]));
   }
 }

@@ -28,6 +28,12 @@ void main() {
         find.byKey(const ValueKey('dock-circulation-indicator'));
     final left = find.byKey(const ValueKey('dock-temperature-left'));
     final right = find.byKey(const ValueKey('dock-temperature-right'));
+    final home = t.getRect(find.byKey(const ValueKey('home')));
+    final music = t.getRect(find.byKey(const ValueKey('dock-music-frame')));
+    final climateFrame = t.getRect(find.byKey(const ValueKey('dock-climate-frame')));
+    expect(home.width, closeTo(music.height, .1));
+    expect(home.height, closeTo(music.height, .1));
+    expect(climateFrame.height, closeTo(music.height, .1));
     expect(t.getCenter(ac).dx, lessThan(t.getCenter(left).dx));
     expect(t.getCenter(left).dx, lessThan(t.getCenter(fan).dx));
     expect(t.getCenter(right).dx, greaterThan(t.getCenter(circulation).dx));
@@ -50,6 +56,8 @@ void main() {
     expect(g.commands.last['value'], 'recirc');
     await t.tap(fan);
     await t.pumpAndSettle();
+    expect(t.getCenter(find.byKey(const ValueKey('climate-card-left'))).dy,
+        closeTo(t.getCenter(find.byKey(const ValueKey('climate-card-fan'))).dy, 1));
     final autoLabels = t.widgetList<Text>(find.text('AUTO'));
     expect(
         autoLabels.any((text) => text.maxLines == 1 && text.softWrap == false),

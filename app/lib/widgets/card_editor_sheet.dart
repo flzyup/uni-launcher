@@ -91,9 +91,11 @@ class _LibraryTile extends StatelessWidget {
     final s = SurfaceStyle.of(context);
     return Material(
         color: s.soft,
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(s.radius * .8),
-            side: BorderSide(color: s.edge)),
+        shape: s.technicalFrame
+            ? s.controlShape().copyWith(side: s.controlSide(false))
+            : RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(s.radius * .8),
+                side: BorderSide(color: s.edge)),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
             key: ValueKey('add-${spec.type}'),

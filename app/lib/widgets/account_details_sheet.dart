@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../controller/launcher_controller.dart';
 import '../theme/design_tokens.dart';
 import '../theme/launcher_theme.dart';
+import 'glass_surface.dart';
 import 'launcher_dialog.dart';
 import 'uni_icon.dart';
 
@@ -69,13 +70,11 @@ class AccountDetailsContent extends StatelessWidget {
     final s = SurfaceStyle.of(context);
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Expanded(
-          child: Container(
+          child: GlassSurface(
               key: const ValueKey('account-profile-detail'),
+              tone: SurfaceTone.soft,
+              shadow: false,
               padding: EdgeInsets.all(Design.px(32)),
-              decoration: BoxDecoration(
-                  color: s.soft,
-                  border: Border.all(color: s.edge),
-                  borderRadius: BorderRadius.circular(s.radius)),
               child: Row(children: [
                 AccountAvatar(account: account, size: Design.px(176)),
                 SizedBox(width: Design.px(36)),

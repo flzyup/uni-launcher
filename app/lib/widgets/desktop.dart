@@ -375,8 +375,7 @@ class _DesktopStaticLayers extends StatelessWidget {
                           position: position,
                           onPageRequested: (page) =>
                               unawaited(c.switchPage(page)),
-                          effect:
-                              c.editing ? 'none' : c.appearance.pageTransition,
+                          effect: c.appearance.pageTransition,
                           children: grids)),
                 ]))));
   }

@@ -62,17 +62,17 @@ void main() {
   });
 
   testWidgets(
-      'spectrum defaults first; horizontal dock swipe preserves selection across media updates',
+      'lyrics default first; horizontal dock swipe preserves spectrum selection across media updates',
       (t) async {
     final (c, g) = await setup(t);
     await t.pumpWidget(GlobalDockApp(controller: c));
     await t.pumpAndSettle();
-    expect(find.byKey(const ValueKey('audio-spectrum-paint')).hitTestable(),
+    expect(find.byKey(const ValueKey('dock-lyrics')).hitTestable(),
         findsOneWidget);
     final pager = find.byKey(const ValueKey('dock-music-visual-pages'));
     await t.drag(pager, const Offset(-500, 0));
     await t.pumpAndSettle();
-    expect(find.byKey(const ValueKey('dock-lyrics')).hitTestable(),
+    expect(find.byKey(const ValueKey('audio-spectrum-paint')).hitTestable(),
         findsOneWidget);
     expect(find.byKey(const ValueKey('media-panel-content')), findsNothing);
     g.state['media'] = {
@@ -82,11 +82,11 @@ void main() {
     };
     g.stream.add(Map.of(g.state));
     await t.pumpAndSettle();
-    expect(find.text('新歌词').hitTestable(), findsOneWidget);
-    await t.drag(pager, const Offset(500, 0));
-    await t.pumpAndSettle();
     expect(find.byKey(const ValueKey('audio-spectrum-paint')).hitTestable(),
         findsOneWidget);
+    await t.drag(pager, const Offset(500, 0));
+    await t.pumpAndSettle();
+    expect(find.text('新歌词').hitTestable(), findsOneWidget);
   });
 
   testWidgets(
@@ -118,6 +118,37 @@ void main() {
   });
 
   testWidgets(
+      'dock music progress background stays inside its area and keeps climate width',
+      (t) async {
+    final (c, g) = await setup(t);
+    final now = DateTime.now().millisecondsSinceEpoch;
+    g.state['media'] = {
+      ...g.state['media'] as Map,
+      'playing': true,
+      'positionKnown': true,
+      'positionMs': 50000,
+      'durationMs': 200000,
+      'sampledAtMs': now
+    };
+    g.stream.add(Map.of(g.state));
+    await t.pumpWidget(GlobalDockApp(controller: c));
+    await t.pump(const Duration(milliseconds: 100));
+    expect(find.byKey(const ValueKey('dock-music-progress')), findsOneWidget);
+    expect(find.byType(BackdropFilter), findsNothing);
+    final climate = t.getRect(find.byKey(const ValueKey('dock-climate-frame')));
+    final music = t.getRect(find.byKey(const ValueKey('dock-music-frame')));
+    expect(climate.width, greaterThan(0));
+    expect(music.width, greaterThan(climate.width));
+
+    c.setAppearance(c.appearance.copyWith(dockMusicProgressBackground: false));
+    await t.pump(const Duration(milliseconds: 100));
+    expect(find.byKey(const ValueKey('dock-music-progress')), findsNothing);
+    expect(t.getRect(find.byKey(const ValueKey('dock-climate-frame'))).width,
+        climate.width);
+    expect(t.takeException(), isNull);
+  });
+
+  testWidgets(
       'style settings use static previews and persist by normal appearance repository',
       (t) async {
     final (c, g) = await setup(t);
@@ -143,6 +174,37 @@ void main() {
         Appearance.fromJson({'spectrumStyle': 'bars'}).spectrumStyle, 'bars');
     expect(Appearance.fromJson({'spectrumStyle': 'invalid'}).spectrumStyle,
         'bars');
+    expect(const Appearance().dockMusicProgressBackground, isTrue);
+    expect(
+        Appearance.fromJson({'dockMusicProgressBackground': false})
+            .dockMusicProgressBackground,
+        isFalse);
+    expect(
+        Appearance.fromJson({'dockMusicProgressBackground': 'invalid'})
+            .dockMusicProgressBackground,
+        isTrue);
+    expect(t.takeException(), isNull);
+  });
+
+  testWidgets('dock music progress setting toggles and persists', (t) async {
+    final (c, g) = await setup(t);
+    await t.pumpWidget(AnimatedBuilder(
+        animation: c,
+        builder: (context, _) =>
+            host(SpectrumSettings(controller: c), a: c.appearance)));
+    expect(find.text('音乐进度动态背景'), findsOneWidget);
+    await t.tap(find.byKey(const ValueKey('dock-music-progress-switch')));
+    await t.pumpAndSettle();
+    expect(c.appearance.dockMusicProgressBackground, isFalse);
+    await c.persist();
+    expect(jsonDecode(g.saved!)['preferences']['dockMusicProgressBackground'],
+        isFalse);
+    final restored = FakeGateway()..state['savedDesign'] = g.saved;
+    final loaded = LauncherController(restored);
+    await loaded.initialize();
+    expect(loaded.appearance.dockMusicProgressBackground, isFalse);
+    loaded.dispose();
+    await restored.dispose();
     expect(t.takeException(), isNull);
   });
 }

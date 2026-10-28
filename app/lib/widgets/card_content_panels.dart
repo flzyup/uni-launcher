@@ -25,37 +25,35 @@ class AppPanel extends StatelessWidget {
   final LauncherController controller;
   const AppPanel({super.key, required this.controller});
   @override
-  Widget build(BuildContext context) =>
-      NativeSliceBuilder(
-          valueListenable: controller.native,
-          // Vehicle, media and clock updates must not rebuild every visible
-          // application tile; names and the catalog still update immediately.
-          select: (state) => [state['apps'], state['appNames']],
-          builder: (context, state) {
-            final s = SurfaceStyle.of(context);
-            final apps =
-                state['apps'] is List ? state['apps'] as List : const [];
-            if (apps.isEmpty)
-              return Center(
-                  child: Column(mainAxisSize: MainAxisSize.min, children: [
-                UniIcon('apps', size: Design.px(60), color: s.accent),
-                SizedBox(height: Design.px(24)),
-                Text('等待应用列表',
-                    style: TextStyle(fontSize: Design.px(25), color: s.muted)),
-              ]));
-            return GridView.builder(
-                padding: EdgeInsets.symmetric(vertical: Design.px(32)),
-                itemCount: apps.length,
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 7,
-                    mainAxisSpacing: Design.px(40),
-                    crossAxisSpacing: Design.px(12),
-                    mainAxisExtent: Design.px(156)),
-                itemBuilder: (context, i) {
-                  return _AppTile(
-                      app: mapOf(apps[i]), controller: controller, index: i);
-                });
-          });
+  Widget build(BuildContext context) => NativeSliceBuilder(
+      valueListenable: controller.native,
+      // Vehicle, media and clock updates must not rebuild every visible
+      // application tile; names and the catalog still update immediately.
+      select: (state) => [state['apps'], state['appNames']],
+      builder: (context, state) {
+        final s = SurfaceStyle.of(context);
+        final apps = state['apps'] is List ? state['apps'] as List : const [];
+        if (apps.isEmpty)
+          return Center(
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+            UniIcon('apps', size: Design.px(60), color: s.accent),
+            SizedBox(height: Design.px(24)),
+            Text('等待应用列表',
+                style: TextStyle(fontSize: Design.px(25), color: s.muted)),
+          ]));
+        return GridView.builder(
+            padding: EdgeInsets.symmetric(vertical: Design.px(32)),
+            itemCount: apps.length,
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 7,
+                mainAxisSpacing: Design.px(40),
+                crossAxisSpacing: Design.px(12),
+                mainAxisExtent: Design.px(156)),
+            itemBuilder: (context, i) {
+              return _AppTile(
+                  app: mapOf(apps[i]), controller: controller, index: i);
+            });
+      });
 }
 
 /// Keeps the pressed material, clipping path and visible icon frame on the
@@ -76,6 +74,10 @@ class _AppTile extends StatelessWidget {
         id = app['id']?.toString(),
         keyId = app['package']?.toString() ?? id ?? 'index-$index',
         radius = BorderRadius.circular(s.controlRadius),
+        frameShape = s.technicalFrame
+            ? s.controlShape().copyWith(side: s.controlSide(false))
+            : RoundedRectangleBorder(
+                side: BorderSide(color: s.edge), borderRadius: radius),
         settingsEntry = id != null &&
             (id.endsWith('/.DesktopSettings') ||
                 id.endsWith('/xyz.i4o.uni.launcher.DesktopSettings')),
@@ -99,9 +101,7 @@ class _AppTile extends StatelessWidget {
                   child: Material(
                       key: ValueKey('app-icon-frame-$keyId'),
                       color: s.soft,
-                      shape: RoundedRectangleBorder(
-                          side: BorderSide(color: s.edge),
-                          borderRadius: radius),
+                      shape: frameShape,
                       clipBehavior: Clip.antiAlias,
                       child: InkWell(
                           key: ValueKey('app-icon-ink-$keyId'),

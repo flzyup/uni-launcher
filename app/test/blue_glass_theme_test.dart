@@ -234,12 +234,15 @@ void main() {
     final style = SurfaceStyle.of(t.element(home));
     expect((material(home).shape! as TechnicalFrameBorder).cornerColor,
         style.accent);
-    expect((material(play).shape! as TechnicalFrameBorder).cornerColor,
-        style.corner);
-    expect(material(play).color, style.soft);
+    expect(material(play).shape, isNull);
+    expect(material(play).color, Colors.transparent);
     final power = find.byKey(const ValueKey('climate-power'));
     expect(material(power).shape, isNull);
     expect(material(power).color, Colors.transparent);
+    final climateGroup = t
+        .widget<GlassSurface>(find.byKey(const ValueKey('dock-climate-frame')));
+    expect(climateGroup.tone, SurfaceTone.soft);
+    expect(climateGroup.shadow, false);
 
     final rect = t.getRect(play),
         dock = t.getRect(find.byKey(const ValueKey('bottom-dock')));

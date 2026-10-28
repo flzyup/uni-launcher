@@ -107,6 +107,19 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
       side: technicalFrame
           ? controlSide(selected)
           : BorderSide(color: selected ? Colors.transparent : edge));
+
+  /// Weak control-level border for dense rows such as climate mode and seat
+  /// steps: a simple rounded outline so secondary cards keep the hierarchy.
+  ButtonStyle weakSelectionStyle(bool selected) => OutlinedButton.styleFrom(
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(controlRadius)),
+      backgroundColor:
+          selected ? accent.withValues(alpha: .10) : Colors.transparent,
+      foregroundColor: selected ? accent : text,
+      side: BorderSide(
+          color: selected
+              ? accent.withValues(alpha: .55)
+              : edge.withValues(alpha: .55)));
   @override
   SurfaceStyle copyWith() => this;
   @override
