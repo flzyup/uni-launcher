@@ -258,13 +258,21 @@ void main() {
     expect(t.takeException(), isNull);
   });
 
-  testWidgets('UNI menu opens transfer panel with live address and controls', (t) async {
+  testWidgets('UNI menu opens transfer panel with live address and controls',
+      (t) async {
     final (c, g) = await setup(t);
-    g.state['transfer'] = {'running': true, 'url': 'http://192.168.1.1:8080/', 'files': []};
+    g.state['transfer'] = {
+      'running': true,
+      'url': 'http://192.168.1.1:8080/',
+      'files': []
+    };
     g.stream.add(Map.of(g.state));
     await t.pumpWidget(MaterialApp(
         theme: launcherTheme(SurfaceStyle.from(const Appearance(), true)),
-        home: Scaffold(body: Align(alignment: Alignment.bottomCenter, child: BottomDock(controller: c)))));
+        home: Scaffold(
+            body: Align(
+                alignment: Alignment.bottomCenter,
+                child: BottomDock(controller: c)))));
     await t.pumpAndSettle();
     await t.tap(find.byKey(const ValueKey('uni-menu')));
     await t.pumpAndSettle();
@@ -275,6 +283,28 @@ void main() {
     await t.tap(find.byKey(const ValueKey('transfer-switch')));
     await t.pumpAndSettle();
     expect(g.commands.last['action'], 'transfer-stop');
+    expect(t.takeException(), isNull);
+  });
+
+  testWidgets('global panel opens transfer and starts service', (t) async {
+    final (c, g) = await setup(t, host: 'global-panel', global: true);
+    await t.pumpWidget(GlobalPanelApp(controller: c));
+    await t.pumpAndSettle();
+    g.state['globalDock'] = {
+      'enabled': true,
+      'running': true,
+      'panel': 'uni-menu',
+      'panelRevision': 1
+    };
+    g.stream.add(Map.of(g.state));
+    await t.pumpAndSettle();
+    await t.tap(find.byKey(const ValueKey('uni-menu-transfer')));
+    await t.pumpAndSettle();
+    expect(find.byKey(const ValueKey('transfer-popup')), findsOneWidget);
+    await t.tap(find.byKey(const ValueKey('transfer-switch')));
+    await t.pumpAndSettle();
+    expect(
+        g.commands.any((entry) => entry['action'] == 'transfer-start'), isTrue);
     expect(t.takeException(), isNull);
   });
 
