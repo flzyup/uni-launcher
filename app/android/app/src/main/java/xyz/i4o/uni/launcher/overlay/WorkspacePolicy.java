@@ -29,13 +29,18 @@ public final class WorkspacePolicy {
     private Method stacks,resize;
     private JSONObject originals;
     private boolean running,available;
+    private final boolean compatibilityOnly;
     private int resized;
     private final Runnable check=new Runnable(){public void run(){
         if(!running)return;
         update();if(available)handler.postDelayed(this,POLL_MS);
     }};
     public WorkspacePolicy(Context context,SharedPreferences prefs){
+        this(context,prefs,false);
+    }
+    public WorkspacePolicy(Context context,SharedPreferences prefs,boolean compatibilityOnly){
         this.context=context;this.prefs=prefs;
+        this.compatibilityOnly=compatibilityOnly;
         try{originals=new JSONObject(prefs.getString(SAVED,"{}"));}catch(Exception e){originals=new JSONObject();}
         try{
             manager=Class.forName("android.app.ActivityManager").getMethod("getService").invoke(null);
@@ -56,10 +61,14 @@ public final class WorkspacePolicy {
             Rect target=new Rect(0,0,real.widthPixels,real.heightPixels-Math.round(real.widthPixels*96f/1920f));
             for(Object info:(List<?>)stacks.invoke(manager)){
                 Class<?> t=info.getClass();
-                if(t.getField("displayId").getInt(info)!=0||!t.getField("visible").getBoolean(info))continue;
+                if(t.getField("displayId").getInt(info)!=0)continue;
+                boolean visible=t.getField("visible").getBoolean(info);
                 String[] names=(String[])t.getField("taskNames").get(info);
-                if(names==null||names.length==0)continue;
                 int id=t.getField("stackId").getInt(info);if(id==0)continue;Rect bounds=(Rect)t.getField("bounds").get(info);
+                if(compatibilityOnly&&!WorkspaceCompatibilityPolicy.shouldResize(visible,names)){
+                    restoreOne(id,bounds);continue;
+                }
+                if(!visible||names==null||names.length==0)continue;
                 // OEM recents crashes in a delayed HomePresenter callback when
                 // stack resize recreates its Activity. Its task cards already
                 // fit above the bottom strip; retain its native fullscreen size.
