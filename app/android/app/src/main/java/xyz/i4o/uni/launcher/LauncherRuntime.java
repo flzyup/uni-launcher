@@ -247,6 +247,8 @@ public final class LauncherRuntime {
         }
     private boolean handleOnMain(JSONObject request)throws Exception{
         String action=request.optString("action"),value=request.optString("value"),zone=request.optString("zone");
+        // 车机上没有调试器，出问题时先看这一行有没有出现，就能分清「没点到」还是「动作失败」。
+        if(action.startsWith("transfer-"))android.util.Log.i("UniTransfer","action "+action+(value.isEmpty()?"":" "+value));
         if("rename-app".equals(action)){
             if(zone.length()==0||zone.length()>255||zone.indexOf('\n')>=0||zone.indexOf('\r')>=0||value.length()>96||value.indexOf('\n')>=0||value.indexOf('\r')>=0)return true;
             JSONObject names=storedAppNames();
@@ -290,6 +292,9 @@ public final class LauncherRuntime {
         if("transfer-stop".equals(action)){transfer.stop();publish();return true;}
         if("transfer-install".equals(action)){if(!transfer.install(value))toast("未找到可安装的文件，或系统未允许安装");publish();return true;}
         if("transfer-delete".equals(action)){transfer.delete(value);publish();return true;}
+        // 手机只负责把地址交上来；下载由车机上的点击触发，避免车机被外部驱动流量。
+        if("transfer-link-download".equals(action)){if(!transfer.downloadLink(value))toast("链接无效或任务已不存在");publish();return true;}
+        if("transfer-link-remove".equals(action)){transfer.removeLink(value);publish();return true;}
         if("official-widget".equals(action)){
             if(catalog.providers(value).isEmpty()){toast("没有对应的原厂卡片");return true;}
             context.startActivity(new Intent(context,OfficialWidgetActivity.class).putExtra("type",value).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));return true;
