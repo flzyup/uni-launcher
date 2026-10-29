@@ -5,9 +5,12 @@ import android.util.Log;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ExecutorService;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
@@ -28,6 +31,19 @@ import java.util.function.Supplier;
  * frame would keep the head unit busy for no visible gain, so two gates apply:
  * a minimum interval between writes and a minimum colour distance. The first
  * write after a change always goes through.
+ *
+ * <h3>Failures</h3>
+ * A failed write is retried, but not at the frame rate: the head unit does
+ * not accept a colour that never arrives, and a blind 10 Hz retry storm
+ * floods the vehicle IO. Failed writes therefore wait for
+ * {@link #FAIL_BACKOFF_MS} before the next attempt.
+ *
+ * <h3>The switch-on sequence is retried</h3>
+ * Switching the strip on needs a sequence: main colour source, experience
+ * mode, three zones, interactive effect. The SDK handle may not exist yet
+ * when the user flips the switch, for example because the vehicle service is
+ * still connecting. A single failed attempt would leave the strip unarmed
+ * forever, so the sequence is retried until it succeeds.
  */
 public final class AmbientLightWriter {
     private static final String TAG = "UniAmbient";
@@ -38,17 +54,38 @@ public final class AmbientLightWriter {
     /** Minimum colour distance that still counts as a change. */
     public static final int MIN_COLOR_DELTA = 8;
 
+    /**
+     * How long a failed write waits before the next attempt.
+     *
+     * <p>The spectrum arrives ten times a second. Retrying every frame would
+     * flood the vehicle IO with writes the head unit rejects.
+     */
+    public static final long FAIL_BACKOFF_MS = 1000L;
+
+    /** How long the switch-on sequence waits before it is retried. */
+    public static final long SWITCH_RETRY_MS = 800L;
+
+    /** How often the switch-on sequence is retried before it gives up. */
+    public static final int MAX_SWITCH_RETRIES = 90;
+
+    /** Notified when the capability state or the failure reason changes. */
+    public interface StateListener {
+        void onAmbientState(Map<String, Object> state);
+    }
+
     private final AmbientLightResolver resolver = new AmbientLightResolver();
     private final Supplier<Object> handle;
+    private final List<StateListener> listeners = new CopyOnWriteArrayList<>();
 
-    private final ExecutorService worker = Executors.newSingleThreadExecutor(
-            new ThreadFactory() {
-                @Override public Thread newThread(Runnable runnable) {
-                    Thread thread = new Thread(runnable, "uni-ambient-light");
-                    thread.setPriority(Thread.MIN_PRIORITY);
-                    return thread;
-                }
-            });
+    private final ScheduledExecutorService worker =
+            Executors.newSingleThreadScheduledExecutor(
+                    new ThreadFactory() {
+                        @Override public Thread newThread(Runnable runnable) {
+                            Thread thread = new Thread(runnable, "uni-ambient-light");
+                            thread.setPriority(Thread.MIN_PRIORITY);
+                            return thread;
+                        }
+                    });
 
     private volatile boolean enabled;
     private volatile boolean available;
@@ -57,6 +94,26 @@ public final class AmbientLightWriter {
     private volatile int lastBrightness = -1;
     private volatile long lastWriteAt;
     private volatile boolean experienceCustomWritten;
+
+    /** Whether the user wants the strip on, regardless of whether it worked. */
+    private volatile boolean switchRequested;
+
+    /** Whether the switch-on sequence has completed at least once. */
+    private volatile boolean switchApplied;
+
+    /** How often the switch-on sequence has been retried. */
+    private volatile int switchRetries;
+
+    /** The last write, for the diagnostics dump. */
+    private volatile String lastOp = "";
+    private volatile int lastFunction;
+    private volatile int lastZone = -1;
+    private volatile int lastValue;
+    private volatile boolean lastWriteOk;
+    private volatile String lastError = "";
+
+    /** Signature of the last state that was pushed to the listeners. */
+    private volatile String pushedSignature = "";
 
     /**
      * How many writes of each kind reached this writer.
@@ -80,6 +137,16 @@ public final class AmbientLightWriter {
     /** The resolver used for vendor ids, exposed for diagnostics. */
     public AmbientLightResolver resolver() {
         return resolver;
+    }
+
+    /** Registers a listener that is told about capability changes. */
+    public void addStateListener(StateListener listener) {
+        if (listener != null) listeners.add(listener);
+    }
+
+    /** Removes a previously registered listener. */
+    public void removeStateListener(StateListener listener) {
+        if (listener != null) listeners.remove(listener);
     }
 
     /**
@@ -111,6 +178,11 @@ public final class AmbientLightWriter {
      * so the next switch-on lights up immediately.
      */
     public void setEnabled(final boolean value) {
+        switchRequested = value;
+        if (!value) {
+            switchRetries = 0;
+            switchApplied = false;
+        }
         worker.execute(new Runnable() {
             @Override public void run() {
                 applyEnabled(value);
@@ -186,7 +258,21 @@ public final class AmbientLightWriter {
             result.put("enableWrites", enableWrites);
             result.put("resolved",
                     resolver.resolve(AmbientLightContract.FUNC_COLOR_SET) != null);
-            result.put("unresolved", new ArrayList<>(resolver.misses()));
+            result.put("unresolved", unresolvedNames());
+            // The detail that tells "no vehicle handle" and "the ids do not
+            // resolve" apart. Both look identical in the reason string alone.
+            result.put("handlePresent", ready);
+            result.put("switchApplied", switchApplied);
+            result.put("switchRetries", switchRetries);
+            result.put("resolvedIds", resolvedIds());
+            Map<String, Object> write = new LinkedHashMap<>();
+            write.put("op", lastOp);
+            write.put("function", lastFunction);
+            write.put("zone", lastZone);
+            write.put("value", lastValue);
+            write.put("ok", lastWriteOk);
+            write.put("error", lastError);
+            result.put("lastWrite", write);
         } catch (Exception ignored) {
             result.put("available", false);
             result.put("reason", "状态读取失败");
@@ -201,11 +287,13 @@ public final class AmbientLightWriter {
         Object functions = functions();
         if (functions == null) {
             unavailable("车机车辆服务尚未就绪");
+            scheduleSwitchRetry();
             return;
         }
         Integer effect = resolver.resolve(AmbientLightContract.FUNC_INTERACTIVE_EFFECT);
         if (effect == null) {
             unavailable("氛围灯互动效果功能号按名解析不到");
+            scheduleSwitchRetry();
             return;
         }
         boolean ok;
@@ -228,12 +316,39 @@ public final class AmbientLightWriter {
             enabled = value;
             available = true;
             reason = "";
+            switchApplied = value;
+            if (value) switchRetries = 0;
             // The colour written before is no longer meaningful.
             lastRgb = -1;
             Log.i(TAG, "氛围灯开关已下发 enabled=" + value);
         } else {
             reason = "氛围灯开关下发失败";
             Log.w(TAG, "氛围灯开关下发失败 enabled=" + value);
+            scheduleSwitchRetry();
+        }
+        pushStateIfChanged();
+    }
+
+    /**
+     * Retries the switch-on sequence.
+     *
+     * <p>The vehicle service may not be connected yet when the user flips
+     * the switch. Without the retry the strip would stay unarmed: the
+     * interactive effect is never switched on, so the colours that follow
+     * have nothing to show on.
+     */
+    private void scheduleSwitchRetry() {
+        if (!switchRequested) return;
+        if (switchRetries >= MAX_SWITCH_RETRIES) return;
+        switchRetries++;
+        try {
+            worker.schedule(new Runnable() {
+                @Override public void run() {
+                    if (switchRequested) applyEnabled(true);
+                }
+            }, SWITCH_RETRY_MS, TimeUnit.MILLISECONDS);
+        } catch (RejectedExecutionException stopped) {
+            // The writer is closing.
         }
     }
 
@@ -242,16 +357,22 @@ public final class AmbientLightWriter {
         Object functions = functions();
         if (functions == null) {
             unavailable("车机车辆服务尚未就绪");
+            pushStateIfChanged();
             return;
         }
         long now = System.currentTimeMillis();
         if (lastRgb >= 0) {
             if (now - lastWriteAt < MIN_INTERVAL_MS) return;
             if (distance(lastRgb, rgb) < MIN_COLOR_DELTA) return;
+        } else if (now - lastWriteAt < FAIL_BACKOFF_MS && lastError.length() > 0) {
+            // A previous write failed. Do not hammer the vehicle IO at the
+            // frame rate until the backoff has passed.
+            return;
         }
         Integer colorSet = resolver.resolve(AmbientLightContract.FUNC_COLOR_SET);
         if (colorSet == null) {
             unavailable("氛围灯颜色功能号按名解析不到");
+            pushStateIfChanged();
             return;
         }
         // The experience mode has to be custom before a custom colour is
@@ -264,9 +385,11 @@ public final class AmbientLightWriter {
             reason = "";
             Log.i(TAG, "氛围灯颜色已下发 rgb=" + rgb);
         } else {
+            lastWriteAt = now;
             reason = "氛围灯颜色下发失败";
             Log.w(TAG, "氛围灯颜色下发失败 rgb=" + rgb);
         }
+        pushStateIfChanged();
     }
 
     private void applyBrightness(int brightness) {
@@ -274,11 +397,13 @@ public final class AmbientLightWriter {
         Object functions = functions();
         if (functions == null) {
             unavailable("车机车辆服务尚未就绪");
+            pushStateIfChanged();
             return;
         }
         Integer driving = resolver.resolve(AmbientLightContract.FUNC_BRIGHTNESS_DRIVING);
         if (driving == null) {
             unavailable("氛围灯亮度功能号按名解析不到");
+            pushStateIfChanged();
             return;
         }
         int value;
@@ -313,6 +438,7 @@ public final class AmbientLightWriter {
         } else {
             reason = "氛围灯亮度下发失败";
         }
+        pushStateIfChanged();
     }
 
     /**
@@ -356,22 +482,34 @@ public final class AmbientLightWriter {
      * correct for the ambience light: it does not use zones.
      */
     private boolean write(Object functions, int function, int zone, int value) {
+        lastOp = "write";
+        lastFunction = function;
+        lastZone = zone;
+        lastValue = value;
         try {
             Method method = functions.getClass().getMethod(
                     "setFunctionValue", int.class, int.class, int.class);
             Object result = method.invoke(functions, function, zone, value);
-            return Boolean.TRUE.equals(result);
+            lastWriteOk = Boolean.TRUE.equals(result);
+            lastError = lastWriteOk ? "" : "车机拒绝了这次写入";
+            return lastWriteOk;
         } catch (NoSuchMethodException missingZoneForm) {
             try {
                 Method method = functions.getClass().getMethod(
                         "setFunctionValue", int.class, int.class);
                 Object result = method.invoke(functions, function, value);
-                return Boolean.TRUE.equals(result);
+                lastWriteOk = Boolean.TRUE.equals(result);
+                lastError = lastWriteOk ? "" : "车机拒绝了这次写入";
+                return lastWriteOk;
             } catch (Throwable failure) {
+                lastWriteOk = false;
+                lastError = describe(failure);
                 Log.w(TAG, "氛围灯写入失败 function=" + function, failure);
                 return false;
             }
         } catch (Throwable failure) {
+            lastWriteOk = false;
+            lastError = describe(failure);
             Log.w(TAG, "氛围灯写入失败 function=" + function, failure);
             return false;
         }
@@ -388,5 +526,56 @@ public final class AmbientLightWriter {
         int dg = ((a >> 8) & 0xFF) - ((b >> 8) & 0xFF);
         int db = (a & 0xFF) - (b & 0xFF);
         return (int) Math.sqrt(dr * dr + dg * dg + db * db);
+    }
+
+    /** The resolved vendor ids, by name, for the diagnostics dump. */
+    private Map<String, Object> resolvedIds() {
+        Map<String, Object> out = new LinkedHashMap<>();
+        for (String name : AmbientLightContract.ALL_NAMES) {
+            Integer value = resolver.resolve(name);
+            if (value != null) out.put(name, value);
+        }
+        return out;
+    }
+
+    /** Every ambience constant that does not resolve on this head unit. */
+    private List<String> unresolvedNames() {
+        List<String> out = new ArrayList<>();
+        for (String name : AmbientLightContract.ALL_NAMES) {
+            if (resolver.resolve(name) == null) out.add(name);
+        }
+        return out;
+    }
+
+    /** A short, readable description of a write failure. */
+    private static String describe(Throwable failure) {
+        Throwable cause = failure.getCause() != null ? failure.getCause() : failure;
+        String message = cause.getMessage();
+        String text = cause.getClass().getSimpleName()
+                + (message == null ? "" : ": " + message);
+        return text.length() > 160 ? text.substring(0, 160) : text;
+    }
+
+    /**
+     * Pushes the state to the listeners when the capability or the failure
+     * reason changed.
+     *
+     * <p>Only changes are pushed: a spectrum frame arrives ten times a
+     * second, and the UI only cares about "is it usable and why not".
+     */
+    private void pushStateIfChanged() {
+        if (listeners.isEmpty()) return;
+        String signature = available + "|" + reason + "|" + switchApplied
+                + "|" + lastWriteOk + "|" + lastError;
+        if (signature.equals(pushedSignature)) return;
+        pushedSignature = signature;
+        Map<String, Object> state = status();
+        for (StateListener listener : listeners) {
+            try {
+                listener.onAmbientState(state);
+            } catch (Throwable ignored) {
+                // A listener must never break the writer.
+            }
+        }
     }
 }

@@ -28,6 +28,12 @@ class AmbientLightService extends ChangeNotifier {
   static const MethodChannel defaultChannel =
       MethodChannel('xyz.i4o.uni.launcher/ambient-light');
 
+  /// How often the capability is re-read while the ambience is switched on.
+  ///
+  /// The native side pushes a change as soon as something happens, so this is
+  /// only a safety net for a push that never arrives.
+  static const Duration statusPoll = Duration(seconds: 5);
+
   final MethodChannel methods;
   final AudioSpectrumService spectrum;
 
@@ -37,6 +43,7 @@ class AmbientLightService extends ChangeNotifier {
   })  : methods = methods ?? defaultChannel,
         spectrum = spectrum ?? AudioSpectrumService.shared {
     this.spectrum.addListener(onSpectrumFrame);
+    this.methods.setMethodCallHandler(handleNativeCall);
   }
 
   AmbientLightSettings _settings = const AmbientLightSettings();
@@ -44,6 +51,10 @@ class AmbientLightService extends ChangeNotifier {
   String _reason = '';
   bool _spectrumReady = false;
   bool _spectrumGranted = false;
+  bool _switchApplied = false;
+  bool _lastWriteOk = true;
+  List<String> _unresolved = const [];
+  Timer? _poll;
 
   /// The colour of the most recent frame. Listeners get the live value.
   final ValueNotifier<AmbientColor?> color = ValueNotifier<AmbientColor?>(null);
@@ -62,11 +73,24 @@ class AmbientLightService extends ChangeNotifier {
   /// Whether the music ambience is switched on.
   bool get enabled => _settings.enabled;
 
+  /// Whether the spectrum needs the microphone permission first.
+  bool get needsPermission => !_spectrumGranted;
+
   /// Whether a spectrum frame can currently be read.
   bool get spectrumReady => _spectrumReady;
 
-  /// Whether the spectrum needs the microphone permission first.
-  bool get needsPermission => !_spectrumGranted;
+  /// Whether the head unit accepted the most recent write.
+  bool get writeOk => _lastWriteOk;
+
+  /// Whether the head unit accepted the switch-on sequence.
+  ///
+  /// The strip needs a sequence of writes to light up: the main colour
+  /// source, the experience mode, the three zones and the interactive effect.
+  /// Until that sequence succeeded the colours have nothing to show on.
+  bool get switchApplied => _switchApplied;
+
+  /// Vendor constants that do not resolve on this head unit.
+  List<String> get unresolved => _unresolved;
 
   /// Reads the capability state of the head unit channel.
   Future<void> refreshStatus() async {
@@ -76,11 +100,7 @@ class AmbientLightService extends ChangeNotifier {
         _channelAvailable = false;
         _reason = '此设备没有原车氛围灯接口';
       } else {
-        _channelAvailable = raw['available'] == true;
-        _reason = raw['reason'] is String ? raw['reason'] as String : '';
-        if (!_channelAvailable && _reason.isEmpty) {
-          _reason = '此设备没有原车氛围灯接口';
-        }
+        applyNativeState(raw);
       }
     } catch (_) {
       _channelAvailable = false;
@@ -89,6 +109,35 @@ class AmbientLightService extends ChangeNotifier {
     _spectrumReady = spectrum.available && spectrum.levels.isNotEmpty;
     _spectrumGranted = spectrum.granted;
     notifyListeners();
+  }
+
+  /// Takes over the capability state reported by the native side.
+  void applyNativeState(Map<String, dynamic> raw) {
+    final available = raw['available'] == true;
+    final nativeReason = raw['reason'] is String ? raw['reason'] as String : '';
+    _channelAvailable = available;
+    _reason = nativeReason;
+    if (!available && _reason.isEmpty) {
+      _reason = '此设备没有原车氛围灯接口';
+    }
+    _switchApplied = raw['switchApplied'] == true;
+    final lastWrite = raw['lastWrite'];
+    if (lastWrite is Map) {
+      _lastWriteOk = lastWrite['ok'] != false;
+    }
+    final missing = raw['unresolved'];
+    _unresolved = missing is List
+        ? missing.map((value) => '$value').toList(growable: false)
+        : const [];
+  }
+
+  /// Handles the native push that reports a capability change.
+  Future<Object?> handleNativeCall(MethodCall call) async {
+    if (call.method != 'state') return null;
+    final raw = call.arguments;
+    if (raw is Map) applyNativeState(Map<String, dynamic>.from(raw));
+    notifyListeners();
+    return null;
   }
 
   /// Applies new settings and syncs them to the head unit.
@@ -117,11 +166,24 @@ class AmbientLightService extends ChangeNotifier {
     if (_settings.enabled) {
       spectrum.setDemand(this, true);
       await _send('enable', true);
+      _startPolling();
     } else {
       spectrum.setDemand(this, false);
       await _send('enable', false);
+      _stopPolling();
       color.value = null;
     }
+  }
+
+  /// Keeps the capability line honest while the ambience is on.
+  void _startPolling() {
+    _poll?.cancel();
+    _poll = Timer.periodic(statusPoll, (_) => refreshStatus());
+  }
+
+  void _stopPolling() {
+    _poll?.cancel();
+    _poll = null;
   }
 
   /// Pushes the current brightness once, used after a settings change.
@@ -180,6 +242,7 @@ class AmbientLightService extends ChangeNotifier {
 
   @override
   void dispose() {
+    _stopPolling();
     spectrum.removeListener(onSpectrumFrame);
     color.dispose();
     super.dispose();

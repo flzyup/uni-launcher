@@ -1,6 +1,8 @@
 package xyz.i4o.uni.launcher.ambient;
 
 import android.content.Context;
+import android.os.Handler;
+import android.os.Looper;
 
 import java.util.List;
 import java.util.Map;
@@ -25,6 +27,11 @@ import xyz.i4o.uni.launcher.integration.OfficialCarReader;
  *   <li>{@code color} - writes one packed colour;</li>
  *   <li>{@code brightness} - sets the brightness, 0 to 100.</li>
  * </ul>
+ *
+ * <p>The native side also pushes a {@code state} call when the capability or
+ * the failure reason changes. Without it the settings page would keep showing
+ * whatever the channel said when the app started, which hides the real
+ * reason when a write fails.
  */
 public final class AmbientLightBridge {
     /**
@@ -36,6 +43,8 @@ public final class AmbientLightBridge {
 
     private final AmbientLightWriter writer;
     private final MethodChannel channel;
+    private final Handler main = new Handler(Looper.getMainLooper());
+    private final AmbientLightWriter.StateListener listener;
 
     private AmbientLightBridge(Context context, FlutterEngine engine) {
         synchronized (AmbientLightBridge.class) {
@@ -50,6 +59,21 @@ public final class AmbientLightBridge {
         }
         channel = new MethodChannel(engine.getDartExecutor().getBinaryMessenger(),
                 "xyz.i4o.uni.launcher/ambient-light");
+        listener = new AmbientLightWriter.StateListener() {
+            @Override public void onAmbientState(final Map<String, Object> state) {
+                // The channel call has to leave the platform thread.
+                main.post(new Runnable() {
+                    @Override public void run() {
+                        try {
+                            channel.invokeMethod("state", state);
+                        } catch (Throwable ignored) {
+                            // The engine may be gone already.
+                        }
+                    }
+                });
+            }
+        };
+        writer.addStateListener(listener);
         channel.setMethodCallHandler((call, result) -> {
             try {
                 switch (call.method) {
@@ -113,6 +137,7 @@ public final class AmbientLightBridge {
 
     /** Detaches the channel. The shared writer lives as long as the process. */
     public void close() {
+        writer.removeStateListener(listener);
         channel.setMethodCallHandler(null);
     }
 }

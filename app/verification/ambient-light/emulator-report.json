@@ -12,8 +12,34 @@
       "enableWrites": 0,
       "resolved": false,
       "unresolved": [
-        "SETTING_FUNC_AMBIENCE_LIGHT_COLOR_SET"
-      ]
+        "SETTING_FUNC_AMBIENCE_LIGHT_MAINCOLOR",
+        "SETTING_FUNC_AMBIENCE_LIGHT_INTERACTIVE_EFFECT",
+        "SETTING_FUNC_AMBIENCE_LIGHT_COLOR_SET",
+        "SETTING_FUNC_AMBIENCE_LIGHT_BRIGHTNESS_DRIVING",
+        "SETTING_FUNC_AMBIENCE_LIGHT_BRIGHTNESS_STATIONARY",
+        "SETTING_FUNC_AMBIENCE_LIGHT_MAINZONES",
+        "SETTING_FUNC_AMBIENCE_LIGHT_TOPZONES",
+        "SETTING_FUNC_AMBIENCE_LIGHT_BOTZONES",
+        "SETTING_FUNC_AMBIENCE_LIGHT_EXPERIENCE",
+        "AMBIENCE_LIGHT_MAINCOLOR_SETCOLOR",
+        "AMBIENCE_LIGHT_EXPERIENCE_CUSTOM",
+        "BRIGHTNESS_DRIVING_HIGH",
+        "BRIGHTNESS_DRIVING_LOW",
+        "BRIGHTNESS_STATIONARY_HIGH",
+        "BRIGHTNESS_STATIONARY_LOW"
+      ],
+      "handlePresent": false,
+      "switchApplied": false,
+      "switchRetries": 0,
+      "resolvedIds": {},
+      "lastWrite": {
+        "op": "",
+        "function": 0,
+        "zone": -1,
+        "value": 0,
+        "ok": false,
+        "error": ""
+      }
     },
     "after": {
       "available": false,
@@ -27,8 +53,34 @@
       "enableWrites": 1,
       "resolved": false,
       "unresolved": [
-        "SETTING_FUNC_AMBIENCE_LIGHT_COLOR_SET"
-      ]
+        "SETTING_FUNC_AMBIENCE_LIGHT_MAINCOLOR",
+        "SETTING_FUNC_AMBIENCE_LIGHT_INTERACTIVE_EFFECT",
+        "SETTING_FUNC_AMBIENCE_LIGHT_COLOR_SET",
+        "SETTING_FUNC_AMBIENCE_LIGHT_BRIGHTNESS_DRIVING",
+        "SETTING_FUNC_AMBIENCE_LIGHT_BRIGHTNESS_STATIONARY",
+        "SETTING_FUNC_AMBIENCE_LIGHT_MAINZONES",
+        "SETTING_FUNC_AMBIENCE_LIGHT_TOPZONES",
+        "SETTING_FUNC_AMBIENCE_LIGHT_BOTZONES",
+        "SETTING_FUNC_AMBIENCE_LIGHT_EXPERIENCE",
+        "AMBIENCE_LIGHT_MAINCOLOR_SETCOLOR",
+        "AMBIENCE_LIGHT_EXPERIENCE_CUSTOM",
+        "BRIGHTNESS_DRIVING_HIGH",
+        "BRIGHTNESS_DRIVING_LOW",
+        "BRIGHTNESS_STATIONARY_HIGH",
+        "BRIGHTNESS_STATIONARY_LOW"
+      ],
+      "handlePresent": false,
+      "switchApplied": false,
+      "switchRetries": 1,
+      "resolvedIds": {},
+      "lastWrite": {
+        "op": "",
+        "function": 0,
+        "zone": -1,
+        "value": 0,
+        "ok": false,
+        "error": ""
+      }
     },
     "colorWrites": 1
   },

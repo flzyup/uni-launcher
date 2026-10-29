@@ -244,5 +244,42 @@ void main() {
       expect(calls.where((c) => c.method == 'enable'), isEmpty);
       expect(calls.where((c) => c.method == 'color'), isEmpty);
     });
+
+    test('a native state push updates the capability and the reason',
+        () async {
+      var notified = 0;
+      service.addListener(() => notified++);
+      await service.handleNativeCall(MethodCall('state', {
+        'available': true,
+        'reason': '',
+        'switchApplied': true,
+        'unresolved': ['SETTING_FUNC_AMBIENCE_LIGHT_COLOR_SET'],
+        'lastWrite': {'ok': true},
+      }));
+      expect(service.channelAvailable, isTrue);
+      expect(service.reason, isEmpty);
+      expect(service.switchApplied, isTrue);
+      expect(service.unresolved, ['SETTING_FUNC_AMBIENCE_LIGHT_COLOR_SET']);
+      expect(notified, greaterThan(0));
+    });
+
+    test('the reason of a failed write reaches the settings page', () async {
+      messenger.setMockMethodCallHandler(methods, (call) async {
+        calls.add(call);
+        if (call.method == 'status') {
+          return {
+            'available': true,
+            'reason': '氛围灯颜色功能号按名解析不到',
+            'switchApplied': false,
+            'unresolved': ['SETTING_FUNC_AMBIENCE_LIGHT_COLOR_SET'],
+          };
+        }
+        return null;
+      });
+      await service.refreshStatus();
+      expect(service.channelAvailable, isTrue);
+      expect(service.reason, '氛围灯颜色功能号按名解析不到');
+      expect(service.switchApplied, isFalse);
+    });
   });
 }

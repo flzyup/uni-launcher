@@ -115,6 +115,30 @@ void main() {
     };
   });
 
+  testWidgets('the native state tells the three failure modes apart',
+      (t) async {
+    final spectrum = AudioSpectrumService(
+        methods: spectrumMethods, events: spectrumEvents);
+    final service = AmbientLightService(spectrum: spectrum);
+    addTearDown(() {
+      service.dispose();
+      spectrum.dispose();
+    });
+
+    final state = await _nativeStatus();
+    // A head unit without the vendor framework has no handle. A head unit
+    // with a handle but unknown ids reports the missing names. Both must be
+    // visible, otherwise the settings page cannot tell the user what is
+    // wrong.
+    expect(state.containsKey('handlePresent'), isTrue);
+    expect(state.containsKey('switchApplied'), isTrue);
+    expect(state.containsKey('resolvedIds'), isTrue);
+    expect(state.containsKey('unresolved'), isTrue);
+    final lastWrite = state['lastWrite'];
+    expect(lastWrite, isA<Map>());
+    expect((lastWrite as Map)['ok'], isA<bool>());
+  });
+
   testWidgets('a silent frame keeps the previous hue and the minimum brightness',
       (t) async {
     final spectrum = AudioSpectrumService(

@@ -178,14 +178,39 @@ class AmbientLightPreview extends StatelessWidget {
               SizedBox(height: Design.px(12)),
               Text(_statusText(service),
                   key: const ValueKey('ambient-status'),
-                  style: TextStyle(fontSize: Design.px(18), color: s.muted))
+                  style: TextStyle(fontSize: Design.px(18), color: s.muted)),
+              if (service.unresolved.isNotEmpty) ...[
+                SizedBox(height: Design.px(6)),
+                Text(
+                  '车机上按名解析不到的功能号：'
+                  '${service.unresolved.take(6).join('、')}'
+                  '${service.unresolved.length > 6 ? ' 等 ${service.unresolved.length} 个' : ''}',
+                  key: const ValueKey('ambient-unresolved'),
+                  style: TextStyle(fontSize: Design.px(16), color: s.muted),
+                )
+              ]
             ]));
   }
 
+  /// The capability line.
+  ///
+  /// It has to say *why* the strip is not lit. "This device has no ambient
+  /// light interface" and "the vehicle service is not connected yet" lead to
+  /// completely different actions, so the native reason is shown verbatim.
   static String _statusText(AmbientLightService service) {
-    final channel = service.channelAvailable ? '通道：原车氛围灯已接入' : '通道：${service.reason.isEmpty ? '此设备没有原车氛围灯接口' : service.reason}';
+    if (!service.channelAvailable) {
+      final reason = service.reason.isEmpty ? '此设备没有原车氛围灯接口' : service.reason;
+      return '通道：$reason';
+    }
+    final channel = '通道：原车氛围灯已接入';
     if (service.needsPermission) {
       return '$channel · 频谱需要录音权限';
+    }
+    if (!service.enabled) {
+      return '$channel · 尚未开启';
+    }
+    if (!service.switchApplied) {
+      return '$channel · 正在点亮车机氛围灯';
     }
     if (!service.spectrumReady) return '$channel · 等待音乐播放';
     return '$channel · 频谱采集中';

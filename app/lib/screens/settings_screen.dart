@@ -219,12 +219,26 @@ class SpectrumSettings extends StatelessWidget {
 /// The ambient light tab. It listens to the shared service so the capability
 /// line stays current, but the live colour is delivered through its own
 /// notifier and never rebuilds this page.
-class AmbientLightSettingsTab extends StatelessWidget {
+class AmbientLightSettingsTab extends StatefulWidget {
   final LauncherController controller;
   const AmbientLightSettingsTab({super.key, required this.controller});
   @override
+  State<AmbientLightSettingsTab> createState() =>
+      _AmbientLightSettingsTabState();
+}
+
+class _AmbientLightSettingsTabState extends State<AmbientLightSettingsTab> {
+  @override
+  void initState() {
+    super.initState();
+    // The capability is read when the tab opens: the vehicle service may
+    // have connected after the app started.
+    AmbientLightService.shared.refreshStatus();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final c = controller;
+    final c = widget.controller;
     return ListenableBuilder(
         listenable: AmbientLightService.shared,
         builder: (context, _) => ListView(

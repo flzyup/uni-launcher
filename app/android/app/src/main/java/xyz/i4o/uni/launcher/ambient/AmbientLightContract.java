@@ -103,6 +103,21 @@ public final class AmbientLightContract {
         FUNC_MAIN_ZONES, FUNC_TOP_ZONES, FUNC_BOT_ZONES
     };
 
+    /**
+     * Every name this feature resolves, for the diagnostics dump.
+     *
+     * <p>The dump lists which of them do not resolve on this head unit, so a
+     * missing id can be told apart from a missing vehicle handle.
+     */
+    public static final String[] ALL_NAMES = {
+        FUNC_MAIN_COLOR, FUNC_INTERACTIVE_EFFECT, FUNC_COLOR_SET,
+        FUNC_BRIGHTNESS_DRIVING, FUNC_BRIGHTNESS_STATIONARY,
+        FUNC_MAIN_ZONES, FUNC_TOP_ZONES, FUNC_BOT_ZONES, FUNC_EXPERIENCE,
+        VALUE_MAIN_COLOR_SET_COLOR, VALUE_EXPERIENCE_CUSTOM,
+        VALUE_BRIGHTNESS_HIGH, VALUE_BRIGHTNESS_LOW,
+        VALUE_STATIONARY_HIGH, VALUE_STATIONARY_LOW
+    };
+
     /** The ambience light functions do not use a zone. */
     public static final int ZONE = 0;
 
@@ -144,10 +159,40 @@ public final class AmbientLightContract {
      * {@code AMBIENCE_LIGHT_*} / {@code BRIGHTNESS_*} values in
      * {@code com.ecarx.xui.adaptapi.car.vehicle.IVehicle}. Both are plain
      * constant interfaces.
+     *
+     * <p>The remaining entries are the names the vendor jar is known to use
+     * elsewhere. They are a fallback only: a class that is not on the head
+     * unit is simply skipped and the lookup continues with the next one.
      */
     public static final String[] CONSTANT_CLASSES = {
+        // —— jar 实测确认的常量宿主 ——
         "com.ecarx.xui.adaptapi.car.vehicle.IAmbienceLight",
         "com.ecarx.xui.adaptapi.car.vehicle.IVehicle",
         "com.ecarx.xui.adaptapi.car.vehicle.IBcm",
+        "com.ecarx.xui.adaptapi.vehicle.VehicleDoor",
+        "com.ecarx.xui.adaptapi.vehicle.VehicleWindow",
+        // —— 早期按惯例猜的候选（保留作兜底）——
+        "com.ecarx.xui.adaptapi.car.Car",
+        "com.ecarx.xui.adaptapi.car.ICarFunction",
+        "com.ecarx.xui.adaptapi.car.CarFunction",
+        "com.ecarx.xui.adaptapi.car.CarFunctionId",
+        "com.ecarx.xui.adaptapi.car.CarFunctionIds",
+        "com.ecarx.xui.adaptapi.car.CarFunc",
+        "com.ecarx.xui.adaptapi.car.CarZone",
+        "com.ecarx.xui.adaptapi.car.CarZones",
+        "com.ecarx.xui.adaptapi.car.CarArea",
+        "com.ecarx.xui.adaptapi.car.CarAreas",
+        "com.ecarx.xui.adaptapi.car.CarConstant",
+        "com.ecarx.xui.adaptapi.car.CarConstants",
+        "com.ecarx.xui.adaptapi.car.BcmFunc",
+        "com.ecarx.xui.adaptapi.car.BcmFuncId",
+        "com.ecarx.xui.adaptapi.car.CarBcm",
+        "com.ecarx.xui.adaptapi.car.CarProperty",
+        "com.ecarx.xui.adaptapi.car.CarProperties",
+        "com.ecarx.xui.adaptapi.ICarFunction",
+        "com.ecarx.xui.adaptapi.Car",
+        "com.ecarx.xui.adaptapi.FunctionId",
+        "com.ecarx.xui.adaptapi.FunctionIds",
+        "com.ecarx.xui.adaptapi.Constants",
     };
 }
