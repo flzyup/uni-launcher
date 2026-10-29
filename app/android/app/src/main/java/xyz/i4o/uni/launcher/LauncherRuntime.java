@@ -344,7 +344,7 @@ public final class LauncherRuntime {
 
     public void removeListener(Object owner){
         onMain(()->{
-            if(listeners.remove(owner)!=null&&listeners.isEmpty()){media.stop();vehicle.stop();systemStatus.stop();calendar.stop();trafficLights.stop();}
+            if(listeners.remove(owner)!=null&&listeners.isEmpty()){media.stop();vehicle.stop();weather.stop();systemStatus.stop();calendar.stop();trafficLights.stop();}
             return null;
         });
     }
