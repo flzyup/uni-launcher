@@ -99,7 +99,7 @@ class MediaSourceBadge extends StatelessWidget {
                       if (!titleBar) SizedBox(width: Design.px(10)),
                       if (titleBar) ...[
                         SizedBox(width: Design.px(16)),
-                        Text('正在播放',
+                        Text(media['cached'] == true ? '上次播放' : '正在播放',
                             style: TextStyle(
                                 fontSize: Design.px(compact ? 18 : 26),
                                 color: s.muted)),

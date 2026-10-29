@@ -14,6 +14,7 @@ import android.os.SystemClock;
 import org.json.JSONObject;
 import org.json.JSONArray;
 import xyz.i4o.uni.launcher.core.MediaSourcePolicy;
+import xyz.i4o.uni.launcher.core.MediaTextRetention;
 import android.graphics.Bitmap;
 import android.util.Base64;
 import java.io.ByteArrayOutputStream;
@@ -36,6 +37,10 @@ public final class MediaAdapter {
     private boolean authorized;
     private String preferred="auto";
     private String lastSource="";
+    private final android.content.SharedPreferences lastTrackPrefs;
+    private String savedTrackKey="";
+    private long lastTrackWriteAt;
+    private final MediaTextRetention retainedTrack=new MediaTextRetention();
     private Bitmap lastCover;
     private String coverData="";
     private boolean artworkDirty=true;
@@ -58,7 +63,7 @@ public final class MediaAdapter {
     }
     public void setPreferredPackage(String value){preferred=value==null||value.isEmpty()?"auto":value;start();}
     private final MediaController.Callback callback=new MediaController.Callback(){
-        public void onMetadataChanged(MediaMetadata m){artworkDirty=true;syncSteeringSession();changed.run();}
+        public void onMetadataChanged(MediaMetadata m){artworkDirty=true;choose();changed.run();}
         // choose() already synchronizes the selected source, including switches.
         public void onPlaybackStateChanged(PlaybackState s){choose();changed.run();}
         public void onExtrasChanged(Bundle extras){syncSteeringSession();changed.run();}
@@ -72,6 +77,8 @@ public final class MediaAdapter {
     };
     public MediaAdapter(Context context,Runnable changed){
         this.context=context;this.changed=changed;netease=new NeteaseMediaAdapter(changed);manager=(MediaSessionManager)context.getSystemService(Context.MEDIA_SESSION_SERVICE);
+        lastTrackPrefs=context.getSharedPreferences("uni_last_track",Context.MODE_PRIVATE);
+        lastSource=lastTrackPrefs.getString("source", "");
         lyrics=new LyricsResolver(new File(context.getFilesDir(),"media-lyrics"),changed);
         listener=new ComponentName(context,MediaAccessService.class);
         officialBridge=new OfficialMediaBridge(context,(action,source)->{
@@ -99,8 +106,7 @@ public final class MediaAdapter {
     private void select(List<MediaController> list){
         for(MediaController c:observed)c.unregisterCallback(callback);
         observed.clear();
-        controller=null;
-        lastCover=null;coverData="";artworkDirty=true;activeSources=new JSONArray();
+        activeSources=new JSONArray();
         if(list!=null)for(MediaController c:list)if(!context.getPackageName().equals(c.getPackageName()))observed.add(c);
         choose();
         // Observe every session: a player's state can change without the
@@ -110,15 +116,20 @@ public final class MediaAdapter {
     private void choose(){
             activeSources=new JSONArray();
             String[] packages=new String[observed.size()];boolean[] playing=new boolean[observed.size()];
+            boolean[] metadata=new boolean[observed.size()],current=new boolean[observed.size()];
             for(int i=0;i<observed.size();i++){
                 MediaController c=observed.get(i);PlaybackState p=c.getPlaybackState();
                 packages[i]=c.getPackageName();playing[i]=p!=null&&p.getState()==PlaybackState.STATE_PLAYING;
+                MediaMetadata m=c.getMetadata();String title=m==null?null:m.getString(MediaMetadata.METADATA_KEY_TITLE);
+                metadata[i]=title!=null&&!title.trim().isEmpty();
+                current[i]=controller!=null&&controller.getSessionToken().equals(c.getSessionToken());
                 try{activeSources.put(new JSONObject().put("package",packages[i]).put("playing",playing[i]));}catch(Exception ignored){}
             }
-            int selected=MediaSourcePolicy.select(preferred,lastSource,packages,playing);
+            int selected=MediaSourcePolicy.selectSessions(preferred,lastSource,packages,playing,metadata,current);
             MediaController next=selected>=0?observed.get(selected):null;
             if(next!=null)lastSource=next.getPackageName();
-            if(next!=controller){controller=next;lastCover=null;coverData="";artworkDirty=true;}
+            if(next==null||controller==null||!next.getSessionToken().equals(controller.getSessionToken())){lastCover=null;coverData="";artworkDirty=true;}
+            controller=next;
             netease.setController(controller);
             syncSteeringSession();
     }
@@ -174,15 +185,29 @@ public final class MediaAdapter {
                 String title=m==null?"":m.getString(MediaMetadata.METADATA_KEY_TITLE);
                 String artist=m==null?"":m.getString(MediaMetadata.METADATA_KEY_ARTIST);
                 long duration=m==null?0:Math.max(0,m.getLong(MediaMetadata.METADATA_KEY_DURATION));
+                boolean missingTitle=title==null||title.trim().isEmpty();
+                MediaTextRetention.Track track=retainedTrack.update(controller.getSessionToken(),
+                    p!=null&&p.getState()==PlaybackState.STATE_PAUSED,
+                    new MediaTextRetention.Track(title,artist,m==null?"":m.getString(MediaMetadata.METADATA_KEY_ALBUM),duration));
+                boolean restored=false;
+                if(!track.known()&&missingTitle&&p!=null&&p.getState()==PlaybackState.STATE_PAUSED
+                        &&controller.getPackageName().equals(lastTrackPrefs.getString("source", ""))){
+                    MediaTextRetention.Track saved=new MediaTextRetention.Track(lastTrackPrefs.getString("title", ""),
+                        lastTrackPrefs.getString("artist", ""),lastTrackPrefs.getString("album", ""),lastTrackPrefs.getLong("duration",0));
+                    if(saved.known()){track=saved;restored=true;}
+                }
+                title=track.title;artist=track.artist;duration=track.durationMs;
+                if(track.known()&&!missingTitle)saveTrack(controller.getPackageName(),track,position(p));
                 j.put("source",controller.getPackageName()).put("sourceLabel",sourceLabel(controller.getPackageName())).put("title",title).put("artist",artist)
-                    .put("collection",m==null?"":m.getString(MediaMetadata.METADATA_KEY_ALBUM))
+                    .put("collection",track.album)
+                    .put("cached",restored)
                     .put("playing",p!=null&&p.getState()==PlaybackState.STATE_PLAYING);
                 long actions=p==null?0:p.getActions();
                 j.put("canNext",(actions&PlaybackState.ACTION_SKIP_TO_NEXT)!=0)
                     .put("canSeek",(actions&PlaybackState.ACTION_SEEK_TO)!=0)
                     .put("canPrevious",(actions&PlaybackState.ACTION_SKIP_TO_PREVIOUS)!=0)
                     .put("canToggle",p!=null&&(actions&(p.getState()==PlaybackState.STATE_PLAYING?(PlaybackState.ACTION_PAUSE|PlaybackState.ACTION_PLAY_PAUSE):(PlaybackState.ACTION_PLAY|PlaybackState.ACTION_PLAY_PAUSE)))!=0)
-                    .put("artwork",artwork(m));
+                    .put("artwork",missingTitle&&track.known()&&!coverData.isEmpty()?coverData:artwork(m));
                 // Android has no universal lyrics contract. Take an explicit text payload
                 // when the source publishes one; otherwise identify the recording from the
                 // session metadata. An unmatched track stays empty, it is never guessed.
@@ -200,8 +225,30 @@ public final class MediaAdapter {
                     .put("speed",p==null?0:p.getPlaybackSpeed());
                 netease.augmentSnapshot(j);
                 if(!text.isEmpty())j.put("lyricsReason","");
+            } else {
+                String savedSource=lastTrackPrefs.getString("source", "");
+                String savedTitle=lastTrackPrefs.getString("title", "");
+                boolean accepts="auto".equals(preferred)||preferred.equals(savedSource);
+                if(accepts&&!savedSource.isEmpty()&&!savedTitle.isEmpty()){
+                    j.put("source",savedSource).put("sourceLabel",sourceLabel(savedSource))
+                        .put("title",savedTitle).put("artist",lastTrackPrefs.getString("artist", ""))
+                        .put("collection",lastTrackPrefs.getString("album", ""))
+                        .put("durationMs",lastTrackPrefs.getLong("duration",0))
+                        .put("positionMs",lastTrackPrefs.getLong("position",0))
+                        .put("positionKnown",false).put("cached",true)
+                        .put("reason","播放器未连接，显示上次播放");
+                }
             }
         }catch(Exception ignored){}return j;
+    }
+    private void saveTrack(String source,MediaTextRetention.Track track,long position){
+        String key=source+"\u0000"+track.title+"\u0000"+track.artist;
+        long now=SystemClock.elapsedRealtime();
+        if(key.equals(savedTrackKey)&&now-lastTrackWriteAt<30_000)return;
+        savedTrackKey=key;lastTrackWriteAt=now;
+        lastTrackPrefs.edit().putString("source",source).putString("title",track.title)
+            .putString("artist",track.artist).putString("album",track.album)
+            .putLong("duration",track.durationMs).putLong("position",Math.max(0,position)).apply();
     }
     private String artwork(MediaMetadata m){
         if(!artworkDirty)return coverData;artworkDirty=false;

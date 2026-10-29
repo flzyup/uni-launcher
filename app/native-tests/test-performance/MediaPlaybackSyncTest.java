@@ -48,6 +48,22 @@ public final class MediaPlaybackSyncTest {
         check(bridge.updates==updates+1,"empty selection synchronized once");
         check(qq.callbacks.isEmpty()&&netease.callbacks.isEmpty(),"removed sources detach callbacks");
         adapter.stop();check(app.sessions.listener==null&&!mirror.active,"stop removes active-session listener");
+        Context retentionContext=new Context();MediaController saved=new MediaController("player.saved");
+        saved.state.state=PlaybackState.STATE_PLAYING;retentionContext.sessions.active=Arrays.asList(saved);
+        MediaAdapter retentionAdapter=new MediaAdapter(retentionContext,()->{});retentionAdapter.start();
+        check(retentionAdapter.snapshot().getString("title").equals("Track player.saved"),"live track stored");
+        saved.state.state=PlaybackState.STATE_PAUSED;saved.metadata=null;saved.emitMetadata();
+        check(retentionAdapter.snapshot().getString("title").equals("Track player.saved"),"paused same session retains metadata");
+        retentionContext.sessions.active=Collections.emptyList();retentionContext.sessions.listener.onActiveSessionsChanged(retentionContext.sessions.active);
+        check(retentionAdapter.snapshot().getBoolean("cached")&&retentionAdapter.snapshot().getString("source").equals("player.saved"),"removed session reports labelled cached track");
+        MediaController other=new MediaController("player.other");other.state.state=PlaybackState.STATE_PLAYING;
+        retentionContext.sessions.active=Arrays.asList(other);retentionContext.sessions.listener.onActiveSessionsChanged(retentionContext.sessions.active);
+        check(retentionAdapter.snapshot().getString("source").equals("player.other")&&!retentionAdapter.snapshot().getBoolean("cached"),"new live session replaces cached source");
+        for(int i=0;i<20;i++){
+            retentionAdapter.stop();check(other.callbacks.isEmpty()&&retentionContext.sessions.listener==null,"stop detaches session callbacks");
+            retentionAdapter.start();check(other.callbacks.size()==1,"restart registers one callback");
+        }
+        retentionAdapter.stop();check(other.callbacks.isEmpty(),"final stop releases session callback");
         Context denied=new Context();denied.sessions.denied=true;MediaAdapter unavailable=new MediaAdapter(denied,()->{});unavailable.start();
         check(!unavailable.snapshot().getBoolean("authorized")&&!MediaSession.last.active,"missing media permission fails closed");unavailable.stop();
         System.out.println("PASS MediaPlaybackSyncTest: "+checks+" checks; 100 playback callbacks = 100 synchronizations; QQ/NetEase steering regression passed");
