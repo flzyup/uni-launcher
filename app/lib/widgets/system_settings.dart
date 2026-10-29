@@ -5,6 +5,8 @@ import '../theme/launcher_theme.dart';
 import 'glass_surface.dart';
 import 'integration_settings.dart';
 import 'native_slice_builder.dart';
+import 'tire_diagnostics.dart';
+import 'body_diagnostics.dart';
 
 /// System-owned labels and available audio modes come from the native adapter.
 /// Never invent an enabled setting when this device cannot provide it.
@@ -144,6 +146,10 @@ class SystemSettingsPanel extends StatelessWidget {
                                     'navigation-audio-unavailable'),
                                 style: TextStyle(color: s.muted)),
                         ])),
+                    SizedBox(height: Design.px(22)),
+                    TireDiagnostics(controller: controller),
+                    SizedBox(height: Design.px(22)),
+                    BodyDiagnostics(controller: controller),
                     SizedBox(height: Design.px(22)),
                     Row(children: [
                       Text('系统设置入口', style: TextStyle(fontSize: Design.px(26))),

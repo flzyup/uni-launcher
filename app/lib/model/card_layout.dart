@@ -14,6 +14,7 @@ const cardSpecs = [
   CardSpec('member', '领克账号', '原车账号中心', 4, 6, 3, 3),
   CardSpec('cleanup', '系统清理', '原车安全中心', 4, 3, 3, 2),
   CardSpec('tpms', '胎压', '原车车辆信息', 4, 6, 4, 3),
+  CardSpec('body', '车况与胎压', '车辆状态', 4, 3, 4, 3),
   CardSpec('battery', '动力电池', '原车动力电池', 4, 3, 3, 2),
   CardSpec('air', '车内空气', '原车空气质量', 4, 3, 3, 2),
   CardSpec('ride', '出行服务', '其他车型的原厂出行服务', 4, 3, 3, 2),

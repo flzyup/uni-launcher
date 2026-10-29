@@ -268,7 +268,7 @@ void main() {
         lessThan(t.getTopLeft(find.text('导航与音乐')).dy));
     expect(find.byKey(const ValueKey('demo-switch')), findsNothing);
     expect(find.byKey(const ValueKey('media-source')), findsOneWidget);
-    expect(find.byType(ExpansionTile), findsNothing);
+    expect(find.descendant(of: find.byKey(const ValueKey('system-app-controls')), matching: find.byType(ExpansionTile)), findsNothing);
     await t.scrollUntilVisible(find.byKey(const ValueKey('media-source')), 260,
         scrollable: find.byType(Scrollable).first);
     expect(find.byKey(const ValueKey('navigation-source')), findsOneWidget);

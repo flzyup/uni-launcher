@@ -66,6 +66,10 @@ public final class OfficialCarReader implements VehicleAdapter {
     private volatile boolean writeSignaturesAvailable;
     private volatile String lastCommandJson = "{}";
     private volatile int cameraCapability = -1;
+    // Diagnostic only: IP753 door zone/value semantics require an open/close
+    // comparison before any readings may be published as vehicle state.
+    private long bodyProbeAt;
+    private String bodyProbeJson = "{}";
     private long commandSequence;
     private PendingCommand pending; // worker only; never replayed/retried
 
@@ -268,6 +272,12 @@ public final class OfficialCarReader implements VehicleAdapter {
             JSONObject extraSensors=new OfficialVehicleSensors(sdkCar,signals,
                     OfficialVehicleSensors.Units.confirmed(null, "km", "owner confirmed original UI range km 2026-10-25")).appendTo(fields);
             new OfficialHybridReader(propertyManager).appendTo(fields);
+            if (SystemClock.elapsedRealtime() - bodyProbeAt >= 5000 || bodyProbeAt == 0) {
+                bodyProbeAt = SystemClock.elapsedRealtime();
+                bodyProbeJson = readBodyProbe().toString();
+            }
+            state.put("bodyProbe", new JSONObject(bodyProbeJson));
+            OfficialBodySignals.append(fields, new JSONObject(bodyProbeJson), driverZone);
             int capability = -1;
             try {
                 Object value = call(functions, "getFunctionValue", new Class<?>[]{int.class}, OfficialCarContract.PAC_CAMERA_CAPABILITY);
@@ -306,6 +316,48 @@ public final class OfficialCarReader implements VehicleAdapter {
                     .put("reason", validCount > 0 ? "已读取官方车辆状态；按各项能力接受用户操作" : "服务已连接，字段尚无有效读数");
             publish(state);
         } catch (Exception | LinkageError e) { publishUnavailable("官方车辆读取失败：" + failure(e)); }
+    }
+
+    /** Candidate SDK values for supervised diagnostics only; never writes and
+     * deliberately does not convert them to door-open/closed UI states. */
+    private JSONObject readBodyProbe() {
+        JSONObject result = new JSONObject();
+        try {
+            final int function = 553779968;
+            JSONArray zones = new JSONArray();
+            for (int zone : new int[]{1, 4, 16, 64}) {
+                JSONObject entry = new JSONObject().put("zone", zone);
+                try {
+                    Object supported = call(functions, "isFunctionSupported", new Class<?>[]{int.class, int.class}, function, zone);
+                    entry.put("support", String.valueOf(supported));
+                    if ("active".equalsIgnoreCase(String.valueOf(supported))) {
+                        Object raw = call(functions, "getFunctionValue", new Class<?>[]{int.class, int.class}, function, zone);
+                        if (raw instanceof Number) entry.put("raw", ((Number) raw).intValue());
+                    }
+                } catch (Exception | LinkageError e) { entry.put("reason", failure(e)); }
+                zones.put(entry);
+            }
+            JSONArray properties = new JSONArray();
+            String[] names = {"driver", "driverRear", "passenger", "passengerRear", "trunk"};
+            for (int i = 0; i < names.length; i++) {
+                int property = 560993300 + i;
+                JSONObject entry = new JSONObject().put("name", names[i]).put("propertyId", property);
+                try {
+                    Object value = call(propertyManager, "getProperty", new Class<?>[]{Class.class, int.class, int.class}, byte[].class, property, 0);
+                    if (value == null) throw new IllegalStateException("PROPERTY_VALUE_ABSENT");
+                    int status = ((Number) call(value, "getStatus", NONE)).intValue();
+                    entry.put("halStatus", status).put("sourceTimestampNanos", call(value, "getTimestamp", NONE));
+                    if (status != 0) throw new IllegalStateException("HAL_STATUS_" + status);
+                    OfficialCarPayload payload = OfficialCarPayload.parse((byte[]) call(value, "getValue", NONE));
+                    entry.put("availabilityRaw", payload.availability).put("formatRaw", payload.format)
+                            .put("statusRaw", payload.status).put("raw", payload.data).put("active", payload.active());
+                } catch (Exception | LinkageError e) { entry.put("reason", failure(e)); }
+                properties.put(entry);
+            }
+            result.put("functionId", function).put("zones", zones).put("properties", properties)
+                    .put("verified", false).put("observedAtMs", System.currentTimeMillis());
+        } catch (Exception ignored) { }
+        return result;
     }
 
     private JSONObject readField(String key, int property, int function, int zone, String kind) throws Exception {
