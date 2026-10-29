@@ -14,6 +14,8 @@ import '../widgets/launcher_dialog.dart';
 import '../widgets/embedded_navigation.dart';
 import '../widgets/system_settings.dart';
 import '../widgets/spectrum_painter.dart';
+import '../widgets/ambient_light_settings.dart';
+import '../platform/ambient_light.dart';
 
 class SettingsScreen extends StatelessWidget {
   final LauncherController controller;
@@ -68,6 +70,7 @@ class SettingsScreen extends StatelessWidget {
                         for (final tab in [
                           ('appearance', '外观主题'),
                           ('motion', '切换动效'),
+                          ('ambient', '氛围灯'),
                           ('system', '系统设置')
                         ])
                           _SettingsTab(controller: c, id: tab.$1, label: tab.$2)
@@ -83,6 +86,7 @@ class SettingsScreen extends StatelessWidget {
                                     : box.maxHeight,
                                 child: AppearanceSettings(controller: c)))),
                     'motion' => PageMotionSettings(controller: c),
+                    'ambient' => AmbientLightSettingsTab(controller: c),
                     'system' => SystemSettingsPanel(controller: c),
                     _ => SystemSettingsPanel(controller: c)
                   }),
@@ -209,6 +213,32 @@ class SpectrumSettings extends StatelessWidget {
           Text('底栏右侧左右滑动可切换频谱和歌词；预览为静态示意。',
               style: TextStyle(fontSize: Design.px(18), color: s.muted)),
         ]));
+  }
+}
+
+/// The ambient light tab. It listens to the shared service so the capability
+/// line stays current, but the live colour is delivered through its own
+/// notifier and never rebuilds this page.
+class AmbientLightSettingsTab extends StatelessWidget {
+  final LauncherController controller;
+  const AmbientLightSettingsTab({super.key, required this.controller});
+  @override
+  Widget build(BuildContext context) {
+    final c = controller;
+    return ListenableBuilder(
+        listenable: AmbientLightService.shared,
+        builder: (context, _) => ListView(
+            key: const PageStorageKey('ambient-settings-scroll'),
+            padding: EdgeInsets.zero,
+            children: [
+              SettingBlock(
+                  title: '音乐律动氛围灯',
+                  note: '按正在播放的音乐频谱换算颜色与亮度',
+                  child: AmbientLightSettingsPanel(
+                      settings: c.ambientLight,
+                      service: AmbientLightService.shared,
+                      onChanged: c.setAmbientLight)),
+            ]));
   }
 }
 

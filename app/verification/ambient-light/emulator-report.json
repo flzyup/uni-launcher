@@ -1,0 +1,36 @@
+{
+  "ambientLight": {
+    "before": {
+      "available": false,
+      "enabled": false,
+      "backend": "未接入",
+      "reason": "",
+      "lastRgb": -1,
+      "lastBrightness": -1,
+      "colorWrites": 0,
+      "brightnessWrites": 0,
+      "enableWrites": 0,
+      "resolved": false,
+      "unresolved": [
+        "SETTING_FUNC_AMBIENCE_LIGHT_COLOR_SET"
+      ]
+    },
+    "after": {
+      "available": false,
+      "enabled": false,
+      "backend": "未接入",
+      "reason": "车机车辆服务尚未就绪",
+      "lastRgb": -1,
+      "lastBrightness": -1,
+      "colorWrites": 1,
+      "brightnessWrites": 1,
+      "enableWrites": 1,
+      "resolved": false,
+      "unresolved": [
+        "SETTING_FUNC_AMBIENCE_LIGHT_COLOR_SET"
+      ]
+    },
+    "colorWrites": 1
+  },
+  "screenshots": []
+}

@@ -19,6 +19,7 @@ class AudioSpectrumService extends ChangeNotifier {
   bool granted = false, available = false;
   String status = 'idle';
   int sequence = 0;
+  double peakLevel = 0;
   bool _disposed = false;
   int get activeConsumers => _owners.length;
   Future<void> refreshStatus() async {
@@ -46,6 +47,14 @@ class AudioSpectrumService extends ChangeNotifier {
         : available
             ? levels
             : const [];
+    // The native side reports the loudest band of the frame. Older packets
+    // carry no peak, so the bands themselves are the fallback.
+    final peak = packet['peakLevel'];
+    peakLevel = peak is num && peak.isFinite
+        ? peak.toDouble().clamp(0.0, 1.0)
+        : levels.isEmpty
+            ? 0
+            : levels.reduce((a, b) => a > b ? a : b);
     notifyListeners();
   }
 

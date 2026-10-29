@@ -31,6 +31,7 @@ public final class MainActivity extends FlutterActivity {
     private static java.lang.ref.WeakReference<MainActivity> active=new java.lang.ref.WeakReference<>(null);
     private LauncherRuntime rt;
     private xyz.i4o.uni.launcher.audio.SpectrumBridge spectrumBridge;
+    private xyz.i4o.uni.launcher.ambient.AmbientLightBridge ambientBridge;
     private NavigationChrome chrome;
     private LiveNavigationHost mapHost;
     private String cached="{}";
@@ -61,6 +62,7 @@ public final class MainActivity extends FlutterActivity {
     @Override public void configureFlutterEngine(FlutterEngine engine){
         super.configureFlutterEngine(engine);
         spectrumBridge=xyz.i4o.uni.launcher.audio.SpectrumBridge.attach(this,engine);
+        ambientBridge=xyz.i4o.uni.launcher.ambient.AmbientLightBridge.attach(this,engine);
         if(rt==null)rt=LauncherRuntime.get(this);
         mapHost=new LiveNavigationHost(this,engine.getDartExecutor().getBinaryMessenger(),engine.getRenderer());
         channel=new MethodChannel(engine.getDartExecutor().getBinaryMessenger(),"xyz.i4o.uni.launcher/platform");
@@ -191,6 +193,7 @@ public final class MainActivity extends FlutterActivity {
                 if(m!=null)for(String key:new String[]{"available","authorized","playing","source","preferredPackage","sessions","reason","canToggle","canNext","canPrevious","canSeek","controlSource","lyricsSource","durationMs","positionMs","steeringControlReady","instrumentMetadataReady"})safe.put(key,m.opt(key));
                 if(m!=null)safe.put("lyricsAvailable",!m.optString("lyrics").isEmpty()).put("artworkAvailable",!m.optString("artwork").isEmpty()).put("officialMedia",m.optJSONObject("officialMedia"));
                 report.put("audioSpectrum",new JSONObject(xyz.i4o.uni.launcher.audio.SpectrumBridge.diagnostics()));
+                if(ambientBridge!=null)report.put("ambientLight",new JSONObject(ambientBridge.status()));
                 report.put("media",safe).put("flutterViewport",flutterViewport).put("globalDock",GlobalDockService.snapshot(this)).put("systemSettings",full.opt("systemSettings"));
                 if(mapHost!=null)report.put("mapViews",mapHost.snapshot());
                 writer.println("UNI_STATE="+report.toString());
@@ -298,6 +301,7 @@ public final class MainActivity extends FlutterActivity {
         if(rt!=null)rt.removeListener(this);
         if(mapHost!=null)mapHost.close();
         if(spectrumBridge!=null){spectrumBridge.close();spectrumBridge=null;}
+        if(ambientBridge!=null){ambientBridge.close();ambientBridge=null;}
         if(channel!=null)channel.setMethodCallHandler(null);
         if(events!=null)events.setStreamHandler(null);
         sink=null;if(active.get()==this)active.clear();

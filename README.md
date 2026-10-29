@@ -7,6 +7,7 @@
 - 卡片式桌面：支持分页、拖动、缩放和布局保存，提供导航、音乐、天气、车辆信息等卡片。
 - 外观：提供深浅色、深蓝玻璃主题、自定义主题色、圆角和壁纸设置。
 - 导航与媒体：支持关联导航和音乐应用，显示歌词及真实音频频谱；全局底栏提供媒体和车辆相关操作。
+- 氛围灯：把正在播放的音乐频谱换算成颜色与亮度，下发到车机氛围灯通道，支持跟随低频／跟随频谱／固定色三种颜色模式。
 - 车辆接入：参考原车 Launcher 的接口读取和控制支持的车辆功能，具体能力以车机权限和实车验证结果为准。
 
 红绿灯卡片支持已核对的高德广播；百度、腾讯地图的多方向数据出口仍在研究。各项能力和验证边界详见[更新日志](CHANGELOG.md)及[红绿灯接入记录](docs/TRAFFIC_LIGHT_PROVIDERS.md)。
@@ -73,7 +74,7 @@ python3 tools/upload_release.py            # 上传 APK 并创建 Release 草稿
 
 - [更新日志](CHANGELOG.md)与[实车验收记录](docs/CAR_ACCEPTANCE.md)
 - [Flutter 工程说明](app/README.md)与[原车车辆接口](docs/OFFICIAL_CAR_API.md)
-- [导航与红绿灯](docs/AMAP_TRAFFIC_LIGHT_CARD.md)、[媒体歌词与动效](docs/MEDIA_LYRICS_AND_MOTION.md)
+- [导航与红绿灯](docs/AMAP_TRAFFIC_LIGHT_CARD.md)、[媒体歌词与动效](docs/MEDIA_LYRICS_AND_MOTION.md)、[音乐律动氛围灯](docs/AMBIENT_LIGHT.md)
 - [产品与界面设计](docs/PRODUCT_DESIGN.md)、[车辆卡片设计](docs/VEHICLE_CARD_DESIGN.md)
 - [项目目录与原生代码](docs/PROJECT_STRUCTURE.md)、[完整参考资料与历史设计](docs/PROJECT_REFERENCE.md)
 

@@ -120,6 +120,21 @@ public final class OfficialCarReader implements VehicleAdapter {
      * PAC_CAMERA_NONE / REARONLY / 360AM. Refreshed with every poll. */
     public int cameraCapability() { return cameraCapability; }
 
+    /**
+     * Borrowed SDK handle for other vehicle features that need the same
+     * transport, such as the ambient light writer.
+     *
+     * The handle belongs to this reader: it is created once per process and
+     * the SDK has no unregister callback, so a second Car.create would be
+     * wrong. The borrower must never create, bind, subscribe, disconnect or
+     * cache it, and must only write when the user asked for it. Returns null
+     * while the transport is not ready.
+     */
+    public static Object borrowedFunctions() { return sharedFunctions; }
+
+    /** Whether the shared SDK has reported itself connected. */
+    public static boolean borrowedSdkReady() { return sharedReady; }
+
     private boolean permitted() {
         return context.checkSelfPermission(OfficialCarContract.PERMISSION) == PackageManager.PERMISSION_GRANTED;
     }
