@@ -73,6 +73,27 @@
 
 本机验证工具链：Flutter 3.47.8 / Dart 3.13.7、Java 17、Android SDK 36。Android 最低 API 24，目标 API 28，维持当前车机行为；不用于商店发布。工程的签名配置使用仓库外的本地开发 keystore，与早期版本一致，便于覆盖安装。可用 `UNI_SIGNING_STORE` 覆盖路径，私钥不入库。
 
+### 实车包必须用 platform 证书单独签名
+
+`android.car.permission.CAR_VENDOR_EXTENSION` 的保护级别是 `signature|privileged`。**证书对不上就拿不到这个权限**，车控 SDK 不会被创建，句柄永远拿不到——车控通道、音乐律动氛围灯全部用不了，而且界面只会显示「此设备没有原车氛围灯接口」，看不出真正原因。
+
+所以有**两个包**，证书不同，不能互相覆盖：
+
+| 包 | 证书 | 用途 |
+| --- | --- | --- |
+| `app-arm64-v8a-release.apk` | 本地开发证书 | 模拟器、开发 |
+| `UNI-Launcher-<版本>-IP753.apk` | platform 证书（与原车 Launcher、cardesk 同一张，SHA256 `C8:A2:E9:BC:…`） | 实车 |
+
+实车包用仓库自带的脚本产出，它会重签、注入导航 inset 资源，并**校验证书指纹**：
+
+```sh
+python3 tools/sign_car_apk.py \
+  --input app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
+  --out app/build/app/outputs/flutter-apk/UNI-Launcher-0.6.18-IP753.apk
+```
+
+脚本默认读 `/data/tools/linkco-android/ip753-signing` 的 `platform.pk8` 与 `platform.x509.pem`；换机器时用 `--toolchain` / `--java` / `--apksigner` / `--sdk` 覆盖。密钥不入 Git。
+
 ```sh
 cd app
 flutter pub get

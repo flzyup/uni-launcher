@@ -119,15 +119,17 @@ adb logcat -s UniAmbient
 
 三种典型结论：
 
-1. `handlePresent: false` → **车机服务没连上**。查厂商权限 `android.car.permission.CAR_VENDOR_EXTENSION` 与车辆服务本身，跟氛围灯功能无关。
+1. `handlePresent: false` → **车机服务没连上**。查两件事：
+   - **签名**：实车包必须用 platform 证书签（`tools/sign_car_apk.py`）。`CAR_VENDOR_EXTENSION` 是 `signature|privileged`，证书对不上就没有权限，车控 SDK 根本不创建——现象和「没接氛围灯」一模一样。
+   - **权限**：厂商权限 `android.car.permission.CAR_VENDOR_EXTENSION` 与车辆服务本身。
 2. `handlePresent: true` + `unresolved` 里有名字 → **功能号按名解析不到**。该名字对应的常量在这台车机上不存在（固件差异）。
 3. `handlePresent: true` + `unresolved` 为空 + `lastWrite.ok: false` → **车机拒绝了写入**。功能号对了但值不被接受，或者写入时机不对。
 
 ## 上车复测步骤
 
-1. 装 arm64 release 包，开桌面设置 →「氛围灯」。
+1. 装**实车签名包**（`tools/sign_car_apk.py` 产出的 platform 证书版本，不是开发证书包），开桌面设置 →「氛围灯」。
 2. 打开「跟随音乐律动」开关，**等状态行变成「正在点亮车机氛围灯」或「频谱采集中」**（不再是「此设备没有原车氛围灯接口」）。
-3. 放音乐，看界面上的颜色与亮度是否随节奏变。
+3. 放音乐，看界面上的颜色与明暗是否随节奏变。
 4. 看灯：三个分区是否都亮，颜色是否跟着变。
 5. 回到第 2 步的命令，把 `ambientLight` 段和 `adb logcat -s UniAmbient` 的输出发回来。
 
