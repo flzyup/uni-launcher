@@ -109,6 +109,8 @@ public final class MainActivity extends FlutterActivity {
         rt=LauncherRuntime.get(this);
         initialSettings=isSettingsIntent(getIntent());
         super.onCreate(saved);getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        // 隐藏 API 豁免：频谱的次选路径要反射 audioSessionId（公开 SDK 里没有）。
+        android.util.Log.i("UniState","隐藏 API 豁免 "+xyz.i4o.uni.launcher.platform.HiddenApiCompat.tryExempt());
         // Android can create a separate HOME task after a regular app launch.
         // Keep one host/engine so hidden instances cannot retain map displays.
         MainActivity previous=active.get();active=new java.lang.ref.WeakReference<>(this);

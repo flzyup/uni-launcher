@@ -193,6 +193,10 @@ class AmbientLightPreview extends StatelessWidget {
               Text(_statusText(service),
                   key: const ValueKey('ambient-status'),
                   style: TextStyle(fontSize: Design.px(18), color: s.muted)),
+              SizedBox(height: Design.px(4)),
+              Text(_spectrumDiagnostics(service),
+                  key: const ValueKey('ambient-spectrum-diagnostics'),
+                  style: TextStyle(fontSize: Design.px(16), color: s.muted)),
               if (service.unresolved.isNotEmpty) ...[
                 SizedBox(height: Design.px(6)),
                 Text(
@@ -226,8 +230,52 @@ class AmbientLightPreview extends StatelessWidget {
     if (!service.switchApplied) {
       return '$channel · 正在点亮车机氛围灯';
     }
-    if (!service.spectrumReady) return '$channel · 等待音乐播放';
-    return '$channel · 频谱采集中';
+    return '$channel · ${_spectrumText(service)}';
+  }
+
+  /// Why the spectrum has nothing to show.
+  ///
+  /// The four cases need four different actions, so they must not collapse
+  /// into one "waiting for music": the permission is missing, the capture
+  /// could not be started, the capture runs but hears nothing, or the
+  /// capture delivers a signal.
+  static String _spectrumText(AmbientLightService service) {
+    final status = service.spectrumStatus;
+    if (status == 'permission-required') return '频谱需要录音权限';
+    if (status == 'unavailable') {
+      final detail = service.spectrumDetail;
+      return detail.isEmpty ? '频谱采集不可用' : '频谱采集不可用（$detail）';
+    }
+    if (status == 'starting') return '正在启动频谱采集';
+    if (!service.spectrumReady) return '等待频谱采集';
+    // The capture runs. Without a single frame that carried a signal there is
+    // simply nothing playing yet.
+    if (service.spectrumSignalFrames == 0) return '等待音乐播放';
+    return '频谱采集中';
+  }
+
+  /// The spectrum diagnostics, for the case where the light does not react.
+  ///
+  /// A car has no logcat to read, so the page itself has to say where the
+  /// spectrum comes from and whether anything was heard at all.
+  static String _spectrumDiagnostics(AmbientLightService service) {
+    final source = switch (service.spectrumSource) {
+      'output-mix' => '输出混音',
+      'session' => '播放会话',
+      _ => '无',
+    };
+    final size = service.spectrumCaptureSize;
+    final rate = service.spectrumSampleRate;
+    final text = StringBuffer('频谱：$source');
+    if (size > 0) text.write(' · 采集点数 $size');
+    if (rate > 0) text.write(' · ${rate ~/ 1000}kHz');
+    text.write(' · 已收到 ${service.spectrumSignalFrames}/'
+        '${service.spectrumFrames} 帧信号');
+    final hidden = service.spectrumHiddenApi;
+    if (hidden.isNotEmpty) text.write(' · 隐藏 API $hidden');
+    final detail = service.spectrumDetail;
+    if (detail.isNotEmpty) text.write(' · $detail');
+    return text.toString();
   }
 }
 

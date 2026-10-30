@@ -16,6 +16,19 @@ public final class SpectrumBands {
      * Both are accepted, so the frequency axis is right on either.
      */
     public static final int MILLI_HZ_THRESHOLD=100000;
+    /**
+     * A sample rate below this is not a sample rate (it is 0, or the ROM
+     * changed the unit).
+     */
+    public static final int MIN_PLAUSIBLE_SAMPLE_RATE=1000;
+    /**
+     * The sample rate to assume when none can be read.
+     *
+     * <p>The car runs at 48 kHz, so that is the fallback. Without a fallback a
+     * rate of 0 makes every band decode to zero: the spectrum would be
+     * silent forever and nothing would say why.
+     */
+    public static final int DEFAULT_SAMPLE_RATE=48000;
     private SpectrumBands(){}
 
     /**
@@ -27,6 +40,13 @@ public final class SpectrumBands {
     public static int normalizeSampleRate(int raw){
         if(raw<=0)return 0;
         return raw>=MILLI_HZ_THRESHOLD?raw/1000:raw;
+    }
+
+    /**
+     * Whether a normalized sample rate can be used for the frequency axis.
+     */
+    public static boolean isPlausibleSampleRate(int sampleRate){
+        return sampleRate>=MIN_PLAUSIBLE_SAMPLE_RATE;
     }
 
     /**

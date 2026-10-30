@@ -1,6 +1,7 @@
 package xyz.i4o.uni.launcher.audio;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
@@ -43,6 +44,19 @@ public class SpectrumBandsTest {
         assertEquals(44100,SpectrumBands.normalizeSampleRate(HZ));
         assertEquals(0,SpectrumBands.normalizeSampleRate(0));
         assertEquals(0,SpectrumBands.normalizeSampleRate(-1));
+    }
+
+    @Test
+    public void anUnusableSampleRateIsRejected(){
+        // A rate of 0 would make every band decode to zero: the spectrum would
+        // be silent for good and nothing would say why.
+        assertTrue(SpectrumBands.isPlausibleSampleRate(48000));
+        assertTrue(SpectrumBands.isPlausibleSampleRate(44100));
+        assertFalse(SpectrumBands.isPlausibleSampleRate(0));
+        assertFalse(SpectrumBands.isPlausibleSampleRate(999));
+        // The car runs at 48 kHz, so that is what is assumed when nothing
+        // can be read.
+        assertEquals(48000,SpectrumBands.DEFAULT_SAMPLE_RATE);
     }
 
     @Test

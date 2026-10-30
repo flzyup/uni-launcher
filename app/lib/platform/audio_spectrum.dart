@@ -18,6 +18,16 @@ class AudioSpectrumService extends ChangeNotifier {
   List<double> levels = const [];
   bool granted = false, available = false;
   String status = 'idle';
+  /// Why the capture is not running, in the words of the native side.
+  String detail = '';
+  /// Where the spectrum is taken from: output-mix, session or none.
+  String source = 'none';
+  /// Whether the hidden API restriction was lifted for this process.
+  String hiddenApi = '';
+  /// The frames the native capture delivered, and how many carried a signal.
+  int frames = 0, signalFrames = 0;
+  /// The capture size the native side settled on, and the sample rate.
+  int captureSize = 0, sampleRateHz = 0;
   int sequence = 0;
   double peakLevel = 0;
   bool _disposed = false;
@@ -36,6 +46,13 @@ class AudioSpectrumService extends ChangeNotifier {
     granted = packet['granted'] == true;
     available = packet['available'] == true;
     status = '${packet['status'] ?? 'unavailable'}';
+    detail = packet['detail'] is String ? packet['detail'] as String : '';
+    source = packet['source'] is String ? packet['source'] as String : 'none';
+    hiddenApi = packet['hiddenApi'] is String ? packet['hiddenApi'] as String : '';
+    frames = (packet['frames'] as num?)?.toInt() ?? frames;
+    signalFrames = (packet['signalFrames'] as num?)?.toInt() ?? signalFrames;
+    captureSize = (packet['captureSize'] as num?)?.toInt() ?? captureSize;
+    sampleRateHz = (packet['sampleRateHz'] as num?)?.toInt() ?? sampleRateHz;
     sequence = (packet['sequence'] as num?)?.toInt() ?? sequence;
     final raw = packet['levels'];
     levels = raw is List

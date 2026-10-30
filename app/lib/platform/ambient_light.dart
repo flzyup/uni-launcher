@@ -81,6 +81,28 @@ class AmbientLightService extends ChangeNotifier {
   int? _writtenBrightness;
   Timer? _poll;
 
+  /// The native status of the spectrum capture: idle, starting, listening,
+  /// permission-required or unavailable.
+  String _spectrumStatus = '';
+
+  /// The native reason of a failed capture, in the words of the native side.
+  String _spectrumDetail = '';
+
+  /// Where the spectrum is taken from: output-mix, session or none.
+  String _spectrumSource = '';
+
+  /// The frames the native capture has delivered, and how many of them
+  /// carried a signal.
+  int _spectrumFrames = 0;
+  int _spectrumSignalFrames = 0;
+
+  /// The capture size the native side settled on, and the sample rate.
+  int _spectrumCaptureSize = 0;
+  int _spectrumSampleRate = 0;
+
+  /// Whether the hidden API restriction was lifted for this process.
+  String _spectrumHiddenApi = '';
+
   /// The motion layer, which turns the spectrum targets into a flow.
   final AmbientMotion _motion = const AmbientMotion();
 
@@ -117,6 +139,31 @@ class AmbientLightService extends ChangeNotifier {
   /// Whether a spectrum frame can currently be read.
   bool get spectrumReady => _spectrumReady;
 
+  /// The native status of the spectrum capture.
+  String get spectrumStatus => _spectrumStatus;
+
+  /// Why the capture is not running, in the words of the native side.
+  String get spectrumDetail => _spectrumDetail;
+
+  /// Where the spectrum is taken from: output-mix, session or none.
+  String get spectrumSource => _spectrumSource;
+
+  /// The frames the native capture delivered, and how many carried a signal.
+  int get spectrumFrames => _spectrumFrames;
+
+  int get spectrumSignalFrames => _spectrumSignalFrames;
+
+  /// The loudest band of the newest frame (0..1).
+  double get spectrumPeak => spectrum.peakLevel;
+
+  /// The capture size the native side settled on, and the sample rate.
+  int get spectrumCaptureSize => _spectrumCaptureSize;
+
+  int get spectrumSampleRate => _spectrumSampleRate;
+
+  /// Whether the hidden API restriction was lifted for this process.
+  String get spectrumHiddenApi => _spectrumHiddenApi;
+
   /// Whether the head unit accepted the most recent write.
   bool get writeOk => _lastWriteOk;
 
@@ -144,9 +191,28 @@ class AmbientLightService extends ChangeNotifier {
       _channelAvailable = false;
       _reason = '氛围灯通道暂不可用';
     }
+    // The spectrum state lives in its own channel, so it is read there too.
+    // Without this the page would keep the values of the last packet and
+    // could not tell "capturing but silent" from "not capturing at all".
+    try {
+      await spectrum.refreshStatus();
+    } catch (_) {}
+    _applySpectrumState();
+    notifyListeners();
+  }
+
+  /// Takes over the state the spectrum service knows about.
+  void _applySpectrumState() {
     _spectrumReady = spectrum.available && spectrum.levels.isNotEmpty;
     _spectrumGranted = spectrum.granted;
-    notifyListeners();
+    _spectrumStatus = spectrum.status;
+    _spectrumDetail = spectrum.detail;
+    _spectrumSource = spectrum.source;
+    _spectrumFrames = spectrum.frames;
+    _spectrumSignalFrames = spectrum.signalFrames;
+    _spectrumCaptureSize = spectrum.captureSize;
+    _spectrumSampleRate = spectrum.sampleRateHz;
+    _spectrumHiddenApi = spectrum.hiddenApi;
   }
 
   /// Takes over the capability state reported by the native side.
@@ -238,13 +304,14 @@ class AmbientLightService extends ChangeNotifier {
   void onSpectrumFrame() {
     // A spectrum frame arrives ten times a second. Only a change of the
     // spectrum state is worth a notification, otherwise every listener would
-    // rebuild ten times a second.
-    final ready = spectrum.available && spectrum.levels.isNotEmpty;
-    if (ready != _spectrumReady || spectrum.granted != _spectrumGranted) {
-      _spectrumReady = ready;
-      _spectrumGranted = spectrum.granted;
-      notifyListeners();
-    }
+    // rebuild ten times a second. The frame counters are left out on purpose:
+    // they change on every frame.
+    final before = '$_spectrumReady|$_spectrumGranted|$_spectrumStatus|'
+        '$_spectrumDetail|$_spectrumSource';
+    _applySpectrumState();
+    final after = '$_spectrumReady|$_spectrumGranted|$_spectrumStatus|'
+        '$_spectrumDetail|$_spectrumSource';
+    if (before != after) notifyListeners();
     if (!_settings.enabled) return;
     final bands = spectrum.levels;
     if (bands.isEmpty) return;
