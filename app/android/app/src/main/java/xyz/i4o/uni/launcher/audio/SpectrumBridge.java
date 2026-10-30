@@ -7,7 +7,6 @@ import android.media.AudioManager;
 import android.media.AudioPlaybackConfiguration;
 import android.media.audiofx.Visualizer;
 import android.os.Handler;
-import android.os.HandlerThread;
 import android.os.Looper;
 import android.util.Log;
 import java.util.ArrayList;
@@ -92,7 +91,6 @@ public final class SpectrumBridge {
         final Context context;
         final Handler main=new Handler(Looper.getMainLooper());
         final IdentityHashMap<SpectrumBridge,Boolean> clients=new IdentityHashMap<>();
-        Handler worker;
         Visualizer visualizer;
         byte[] fft;
         double[] previous=new double[SpectrumBands.COUNT];
@@ -166,22 +164,16 @@ public final class SpectrumBridge {
 
         void stopCapture(){
             running=false;reason="idle";source="none";signalSeen=false;peakLevel=0;generation++;
-            if(worker!=null)worker.post(this::releaseVisualizer);
+            main.post(this::releaseVisualizer);
             publishState();
         }
 
         void startCapture(){
             running=true;reason="starting";detail="";signalSeen=false;startedAt=System.currentTimeMillis();
             int epoch=++generation;
-            ensureWorker();
             watchPlayback();
-            worker.post(()->attachOutputMix(epoch));
-        }
-
-        void ensureWorker(){
-            if(worker!=null)return;
-            HandlerThread thread=new HandlerThread("uni-audio-spectrum",android.os.Process.THREAD_PRIORITY_BACKGROUND);
-            thread.start();worker=new Handler(thread.getLooper());
+            // 采集全程在主线程（车机 ROM 的 Visualizer 要求主线程）。
+            main.post(()->attachOutputMix(epoch));
         }
 
         /** 挂到全局输出混音上（主路径）。 */
@@ -203,9 +195,9 @@ public final class SpectrumBridge {
 
         /** 挂到某个播放会话上（次选路径）。 */
         void attachSession(int id,int epoch){
-            if(id<=0||worker==null)return;
-            // 句柄的创建与释放必须和采集轮询串行，所以一律排到采集线程上。
-            worker.post(()->{
+            if(id<=0)return;
+            // 句柄的创建与释放必须和采集轮询串行，所以一律排在同一个线程上。
+            main.post(()->{
                 if(!running||epoch!=generation)return;
                 // 先放掉旧的句柄：同一个会话只能挂一个 Visualizer，
                 // 不放就会占着通道，新句柄反而挂不上。
@@ -288,8 +280,22 @@ public final class SpectrumBridge {
             }catch(Throwable error){return 0;}
         }
 
+        /**
+         * Schedules the next capture.
+         *
+         * <p>The capture runs on the **main thread** on purpose: the car ROM
+         * marks {@code Visualizer.getFft()} as a main thread method and throws
+         * {@code "Methods marked with @UiThread must be executed on the main
+         * thread"} when it is called from a worker. Stock AOSP expects the
+         * opposite, but the head unit is what counts here.
+         *
+         * <p>The work per frame is tiny (one native read of a kilobyte plus
+         * 24 band sums), so the main thread can afford it at ten frames a
+         * second. Doing it on one thread also removes the race between the
+         * poll and the release of the handle.
+         */
         void schedulePoll(int epoch){
-            poll=()->capture(epoch);worker.post(poll);
+            poll=()->capture(epoch);main.postDelayed(poll,100);
         }
 
         void capture(int epoch){
@@ -298,17 +304,15 @@ public final class SpectrumBridge {
                 if(visualizer.getFft(fft)!=Visualizer.SUCCESS)throw new IllegalStateException("fft-unavailable");
                 double[] values=SpectrumBands.decode(fft,sampleRate);
                 for(int i=0;i<values.length;i++){values[i]=Math.max(values[i],previous[i]*.70);previous[i]=values[i];}
-                main.post(()->{if(running&&epoch==generation){
-                    peakLevel=0;for(double value:values)peakLevel=Math.max(peakLevel,value);
-                    frames++;
-                    if(peakLevel>.02){signalFrames++;signalSeen=true;}
-                    sequence++;
-                    // 静音的帧也要推：不然界面分不清「在采但没声音」和「没在采」，
-                    // 而且灯也不会按快起慢落慢慢暗下去。
-                    publish(values);
-                    maybeSwitchToSession(epoch);
-                }});
-                worker.postDelayed(poll,100);
+                peakLevel=0;for(double value:values)peakLevel=Math.max(peakLevel,value);
+                frames++;
+                if(peakLevel>.02){signalFrames++;signalSeen=true;}
+                sequence++;
+                // 静音的帧也要推：不然界面分不清「在采但没声音」和「没在采」，
+                // 而且灯也不会按快起慢落慢慢暗下去。
+                publish(values);
+                maybeSwitchToSession(epoch);
+                main.postDelayed(poll,100);
             }catch(RuntimeException error){fail(epoch,error);}
         }
 
@@ -334,16 +338,26 @@ public final class SpectrumBridge {
 
         /** 失败不是终局：过几秒重试一次（通道被占、权限迟到都是暂时性的）。 */
         void scheduleRetry(int epoch){
-            if(worker==null)return;
-            worker.postDelayed(()->{
+            main.postDelayed(()->{
                 if(epoch!=generation)return;
                 if(demand()>0&&granted()&&failed){failed=false;startCapture();}
             },RETRY_MS);
         }
 
+        /**
+         * Releases the handle.
+         *
+         * <p>The release is guarded: on a head unit that marks the effect
+         * methods as main thread methods, a failure here must not take the
+         * whole process down — the capture is already broken at that point.
+         */
         void releaseVisualizer(){
-            if(poll!=null&&worker!=null)worker.removeCallbacks(poll);poll=null;
-            if(visualizer!=null){try{visualizer.setEnabled(false);}catch(RuntimeException ignored){}visualizer.release();visualizer=null;}
+            if(poll!=null)main.removeCallbacks(poll);poll=null;
+            if(visualizer!=null){
+                try{visualizer.setEnabled(false);}catch(Throwable ignored){}
+                try{visualizer.release();}catch(Throwable ignored){}
+                visualizer=null;
+            }
             fft=null;previous=new double[SpectrumBands.COUNT];
         }
 
