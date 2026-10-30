@@ -54,6 +54,7 @@ class AmbientLightService extends ChangeNotifier {
   bool _switchApplied = false;
   bool _lastWriteOk = true;
   List<String> _unresolved = const [];
+  int? _writtenBrightness;
   Timer? _poll;
 
   /// The colour of the most recent frame. Listeners get the live value.
@@ -166,6 +167,9 @@ class AmbientLightService extends ChangeNotifier {
     if (_settings.enabled) {
       spectrum.setDemand(this, true);
       await _send('enable', true);
+      // The brightness is the user's absolute value, so it is written once
+      // here instead of on every spectrum frame.
+      await _syncBrightness();
       _startPolling();
     } else {
       spectrum.setDemand(this, false);
@@ -188,8 +192,9 @@ class AmbientLightService extends ChangeNotifier {
 
   /// Pushes the current brightness once, used after a settings change.
   Future<void> _syncBrightness() async {
-    final current = color.value;
-    if (current != null) await _sendBrightness(current.brightness);
+    final value = _settings.vehicleBrightness;
+    if (value == _writtenBrightness) return;
+    if (await _send('brightness', value)) _writtenBrightness = value;
   }
 
   /// Maps one spectrum frame to a colour and hands it to the head unit.
@@ -217,26 +222,28 @@ class AmbientLightService extends ChangeNotifier {
       fallbackHue: _fallbackHue,
     );
     _fallbackHue = AmbientPalette.spectrumHue(bands, _fallbackHue);
-    color.value = computed;
+    // The head unit brightness is the user's absolute value, so the music
+    // reaction has to show in the colour: the louder the music, the brighter
+    // the colour.
+    final scaled = AmbientPalette.scaleByBrightness(computed);
+    color.value = scaled;
     // The native writer drops frames that arrive too often or did not change
     // the colour much, so the stream stays ten frames a second here.
     unawaited(_send('color', {
-      'r': computed.r,
-      'g': computed.g,
-      'b': computed.b,
+      'r': scaled.r,
+      'g': scaled.g,
+      'b': scaled.b,
     }));
-    unawaited(_sendBrightness(computed.brightness));
   }
 
-  Future<void> _sendBrightness(int brightness) =>
-      _send('brightness', brightness);
-
-  Future<void> _send(String method, Object? arguments) async {
+  Future<bool> _send(String method, Object? arguments) async {
     try {
       await methods.invokeMethod<void>(method, arguments);
+      return true;
     } catch (_) {
       // The head unit side is optional; a failed write must not take the
       // launcher down.
+      return false;
     }
   }
 

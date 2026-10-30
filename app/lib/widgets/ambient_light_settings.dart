@@ -83,8 +83,19 @@ class AmbientLightSettingsPanel extends StatelessWidget {
                   onChanged(settings.copyWith(sensitivity: value))),
           SizedBox(height: Design.px(14)),
           _SliderRow(
+              label: '车机亮度',
+              hint: '车机氛围灯的绝对亮度，厂商只有高／低／关三档',
+              value: settings.vehicleBrightness.toDouble(),
+              min: 0,
+              max: 100,
+              divisions: 20,
+              display: '${settings.vehicleBrightness}',
+              onChanged: (value) => onChanged(settings.copyWith(
+                  vehicleBrightness: value.round().clamp(0, 100)))),
+          SizedBox(height: Design.px(14)),
+          _SliderRow(
               label: '最低亮度',
-              hint: '音乐停止时氛围灯保留的最低亮度',
+              hint: '音乐停止时颜色保留的最低明暗',
               value: settings.minBrightness.toDouble(),
               min: 0,
               max: 100,
@@ -95,7 +106,7 @@ class AmbientLightSettingsPanel extends StatelessWidget {
           SizedBox(height: Design.px(14)),
           _SliderRow(
               label: '最高亮度',
-              hint: '音乐最响时氛围灯能达到的亮度',
+              hint: '音乐最响时颜色能达到的最亮明暗',
               value: settings.maxBrightness.toDouble(),
               min: 0,
               max: 100,
@@ -104,6 +115,9 @@ class AmbientLightSettingsPanel extends StatelessWidget {
               onChanged: (value) => onChanged(settings.copyWith(
                   maxBrightness:
                       value.round().clamp(settings.minBrightness, 100)))),
+          SizedBox(height: Design.px(8)),
+          Text('音乐的强弱体现在颜色的明暗上；车机亮度档位由上面的滑杆决定。',
+              style: TextStyle(fontSize: Design.px(16), color: s.muted)),
           if (service.needsPermission) ...[
             SizedBox(height: Design.px(16)),
             Align(
@@ -166,7 +180,7 @@ class AmbientLightPreview extends StatelessWidget {
                           builder: (context, color, _) => Text(
                               color == null
                                   ? '等待音乐'
-                                  : '${color.hex} · 亮度 ${color.brightness}',
+                                  : '${color.hex} · 明暗 ${color.brightness}',
                               key: const ValueKey('ambient-color-readout'),
                               style: TextStyle(fontSize: Design.px(22))))
                     ])),

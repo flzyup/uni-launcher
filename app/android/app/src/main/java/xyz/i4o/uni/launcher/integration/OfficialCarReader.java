@@ -46,8 +46,8 @@ public final class OfficialCarReader implements VehicleAdapter {
     private static final Class<?>[] NONE = new Class<?>[0];
     // This SDK has no unregisterReadyChangedCallback. Register exactly one SDK
     // watcher per process; activity-scoped readers are held only weakly.
-    private static Object sharedSdkCar, sharedFunctions, sharedSignals, sharedWatcher;
-    private static boolean sharedReady;
+    private static volatile Object sharedSdkCar, sharedFunctions, sharedSignals, sharedWatcher;
+    private static volatile boolean sharedReady;
     private static final List<WeakReference<OfficialCarReader>> readers = new ArrayList<>();
     private final Context context;
     private final Runnable changed;
@@ -127,10 +127,35 @@ public final class OfficialCarReader implements VehicleAdapter {
      * The handle belongs to this reader: it is created once per process and
      * the SDK has no unregister callback, so a second Car.create would be
      * wrong. The borrower must never create, bind, subscribe, disconnect or
-     * cache it, and must only write when the user asked for it. Returns null
-     * while the transport is not ready.
+     * cache it, and must only write when the user asked for it.
+     *
+     * <h3>The handle is resolved lazily, on every use</h3>
+     * {@code getICarFunction()} hands out null while the vehicle service is
+     * still connecting, which is the normal state at app start. Caching that
+     * one early answer would leave the handle null for the whole process
+     * lifetime, and every writer would report "no vehicle handle" even
+     * though the service connected a second later. So the lookup is retried
+     * until it succeeds, and the result is cached from then on.
+     *
+     * @return the {@code ICarFunction} handle, or null while the vehicle
+     *         service has not handed it out yet
      */
-    public static Object borrowedFunctions() { return sharedFunctions; }
+    public static Object borrowedFunctions() {
+        Object function = sharedFunctions;
+        if (function != null) return function;
+        synchronized (OfficialCarReader.class) {
+            if (sharedFunctions != null) return sharedFunctions;
+            if (sharedSdkCar == null) return null;
+            try {
+                Object resolved = call(sharedSdkCar, "getICarFunction", NONE);
+                if (resolved != null) sharedFunctions = resolved;
+                return resolved;
+            } catch (Exception | LinkageError ignored) {
+                // The service is not ready yet. The next caller tries again.
+                return null;
+            }
+        }
+    }
 
     /** Whether the shared SDK has reported itself connected. */
     public static boolean borrowedSdkReady() { return sharedReady; }

@@ -30,7 +30,9 @@
       ],
       "handlePresent": false,
       "switchApplied": false,
-      "switchRetries": 0,
+      "desiredEnabled": null,
+      "pendingBrightness": null,
+      "lastBrightnessStep": -1,
       "resolvedIds": {},
       "lastWrite": {
         "op": "",
@@ -50,7 +52,7 @@
       "lastBrightness": -1,
       "colorWrites": 1,
       "brightnessWrites": 1,
-      "enableWrites": 1,
+      "enableWrites": 2,
       "resolved": false,
       "unresolved": [
         "SETTING_FUNC_AMBIENCE_LIGHT_MAINCOLOR",
@@ -71,7 +73,9 @@
       ],
       "handlePresent": false,
       "switchApplied": false,
-      "switchRetries": 1,
+      "desiredEnabled": true,
+      "pendingBrightness": 100,
+      "lastBrightnessStep": -1,
       "resolvedIds": {},
       "lastWrite": {
         "op": "",

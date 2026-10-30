@@ -80,7 +80,8 @@ void main() {
 
     // The palette must have produced a colour for that frame.
     expect(service.color.value, isNotNull);
-    final expected = AmbientPalette.colorFrom(
+    final expected = AmbientPalette.scaleByBrightness(
+        AmbientPalette.colorFrom(
       bands: bands,
       level: 0.85,
       mode: AmbientPalette.modeSpectrum,
@@ -88,7 +89,7 @@ void main() {
       sensitivity: 1.4,
       minBrightness: 15,
       maxBrightness: 100,
-    );
+    ));
     expect(service.color.value!.r, expected.r);
     expect(service.color.value!.g, expected.g);
     expect(service.color.value!.b, expected.b);
@@ -179,9 +180,39 @@ void main() {
     expect(silent, isNotNull);
     expect(silent?.brightness, 15,
         reason: 'silence falls back to the lowest brightness');
-    expect(silent?.r, loudColor?.r);
-    expect(silent?.g, loudColor?.g);
-    expect(silent?.b, loudColor?.b);
+    // The hue is kept, so the colour is the loud one dimmed to the minimum
+    // brightness. The colour is scaled by that brightness, so the channels
+    // differ while the hue stays the same.
+    final loudHue = AmbientPalette.spectrumHue(loud, 0);
+    final expected = AmbientPalette.scaleByBrightness(
+        AmbientPalette.colorFrom(
+      bands: List.filled(24, 0),
+      level: 0,
+      mode: AmbientPalette.modeSpectrum,
+      fixedHue: 210,
+      sensitivity: 1.4,
+      minBrightness: 15,
+      maxBrightness: 100,
+      fallbackHue: loudHue,
+    ));
+    expect(silent?.r, expected.r);
+    expect(silent?.g, expected.g);
+    expect(silent?.b, expected.b);
+    // The bright frame is the same hue, only brighter.
+    final loudScaled = AmbientPalette.scaleByBrightness(
+        AmbientPalette.colorFrom(
+      bands: loud,
+      level: 0.9,
+      mode: AmbientPalette.modeSpectrum,
+      fixedHue: 210,
+      sensitivity: 1.4,
+      minBrightness: 15,
+      maxBrightness: 100,
+    ));
+    expect(loudColor?.r, loudScaled.r);
+    expect(loudColor?.g, loudScaled.g);
+    expect(loudColor?.b, loudScaled.b);
+    expect(expected.r > 0, isTrue, reason: 'the hue is still there');
   });
 
   testWidgets('switching the ambience off stops the capture', (t) async {

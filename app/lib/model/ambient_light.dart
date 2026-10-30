@@ -186,6 +186,26 @@ class AmbientPalette {
     return (lo + (hi - lo) * curve).round().clamp(lo, hi);
   }
 
+  /// Scales the colour by its brightness.
+  ///
+  /// The head unit offers three brightness steps, so the brightness written
+  /// to it is the user's absolute value, not the spectrum derived one. The
+  /// music reaction has to show somewhere else, and it shows here: the
+  /// louder the music, the brighter the colour.
+  ///
+  /// Without this step the sensitivity and the brightness bounds would have
+  /// no effect at all, because the strip would always show the same hue at
+  /// the same brightness.
+  static AmbientColor scaleByBrightness(AmbientColor color) {
+    final k = color.brightness.clamp(0, 100) / 100;
+    return AmbientColor(
+      (color.r * k).round().clamp(0, 255),
+      (color.g * k).round().clamp(0, 255),
+      (color.b * k).round().clamp(0, 255),
+      color.brightness,
+    );
+  }
+
   /// Normalises a hue into 0..360.
   static double normalizeHue(double hue) {
     var h = hue % 360;
@@ -235,10 +255,16 @@ class AmbientLightSettings {
   /// Curve exponent; higher means the quiet parts light up more.
   final double sensitivity;
 
-  /// Lowest brightness the strip may reach.
+  /// The absolute brightness written to the head unit, 0 to 100.
+  ///
+  /// The head unit only offers three steps, so this is the user's value and
+  /// not the spectrum derived one. The music shows in the colour instead.
+  final int vehicleBrightness;
+
+  /// Lowest brightness the spectrum may scale the colour down to.
   final int minBrightness;
 
-  /// Highest brightness the strip may reach.
+  /// Highest brightness the spectrum may scale the colour up to.
   final int maxBrightness;
 
   const AmbientLightSettings({
@@ -246,6 +272,7 @@ class AmbientLightSettings {
     this.mode = AmbientPalette.modeBass,
     this.fixedHue = 210,
     this.sensitivity = 1.4,
+    this.vehicleBrightness = 100,
     this.minBrightness = 15,
     this.maxBrightness = 100,
   });
@@ -266,6 +293,9 @@ class AmbientLightSettings {
               .toDouble()
               .clamp(AmbientPalette.minSensitivity, AmbientPalette.maxSensitivity)
           : 1.4,
+      vehicleBrightness: json['vehicleBrightness'] is num
+          ? (json['vehicleBrightness'] as num).toInt().clamp(0, 100)
+          : 100,
       minBrightness: json['minBrightness'] is num
           ? (json['minBrightness'] as num).toInt().clamp(0, 100)
           : 15,
@@ -280,6 +310,7 @@ class AmbientLightSettings {
         'mode': mode,
         'fixedHue': fixedHue.round(),
         'sensitivity': double.parse(sensitivity.toStringAsFixed(2)),
+        'vehicleBrightness': vehicleBrightness,
         'minBrightness': minBrightness,
         'maxBrightness': maxBrightness,
       };
@@ -289,6 +320,7 @@ class AmbientLightSettings {
     int? mode,
     double? fixedHue,
     double? sensitivity,
+    int? vehicleBrightness,
     int? minBrightness,
     int? maxBrightness,
   }) =>
@@ -297,6 +329,7 @@ class AmbientLightSettings {
         mode: mode ?? this.mode,
         fixedHue: fixedHue ?? this.fixedHue,
         sensitivity: sensitivity ?? this.sensitivity,
+        vehicleBrightness: vehicleBrightness ?? this.vehicleBrightness,
         minBrightness: minBrightness ?? this.minBrightness,
         maxBrightness: maxBrightness ?? this.maxBrightness,
       );
@@ -308,10 +341,17 @@ class AmbientLightSettings {
       other.mode == mode &&
       other.fixedHue == fixedHue &&
       other.sensitivity == sensitivity &&
+      other.vehicleBrightness == vehicleBrightness &&
       other.minBrightness == minBrightness &&
       other.maxBrightness == maxBrightness;
 
   @override
   int get hashCode => Object.hash(
-      enabled, mode, fixedHue, sensitivity, minBrightness, maxBrightness);
+      enabled,
+      mode,
+      fixedHue,
+      sensitivity,
+      vehicleBrightness,
+      minBrightness,
+      maxBrightness);
 }

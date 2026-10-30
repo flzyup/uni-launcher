@@ -126,6 +126,43 @@ void main() {
       expect(AmbientPalette.colorDistance(a, b), 5);
       expect(AmbientPalette.colorDistance(a, a), 0);
     });
+
+    test('the colour is scaled by its brightness', () {
+      const loud = AmbientColor(200, 100, 50, 100);
+      final scaled = AmbientPalette.scaleByBrightness(loud);
+      expect(scaled.r, 200);
+      expect(scaled.g, 100);
+      expect(scaled.b, 50);
+      expect(scaled.brightness, 100);
+
+      const half = AmbientColor(200, 100, 50, 50);
+      final dim = AmbientPalette.scaleByBrightness(half);
+      expect(dim.r, 100);
+      expect(dim.g, 50);
+      expect(dim.b, 25);
+      // The brightness itself is not changed by the scaling.
+      expect(dim.brightness, 50);
+    });
+
+    test('the scaled colour keeps the hue', () {
+      final bands = List<double>.filled(24, .02);
+      for (var i = 4; i < 8; i++) {
+        bands[i] = .9;
+      }
+      final computed = AmbientPalette.colorFrom(
+        bands: bands,
+        level: .9,
+        mode: AmbientPalette.modeBass,
+        fixedHue: 210,
+        sensitivity: 1.4,
+        minBrightness: 15,
+        maxBrightness: 100,
+      );
+      final scaled = AmbientPalette.scaleByBrightness(computed);
+      expect(scaled.brightness, computed.brightness);
+      // The hue survives the scaling: the channels keep their ratio.
+      expect(scaled.g / scaled.r, closeTo(computed.g / computed.r, .02));
+    });
   });
 
   group('AmbientLightSettings', () {
@@ -200,8 +237,7 @@ void main() {
           [false]);
     });
 
-    test('a spectrum frame becomes one colour and one brightness write',
-        () async {
+    test('a spectrum frame becomes one colour write', () async {
       await service.applySettings(const AmbientLightSettings(enabled: true));
       calls.clear();
       spectrum.accept({
@@ -219,9 +255,26 @@ void main() {
       expect(arguments['r'], isA<int>());
       expect(arguments['g'], isA<int>());
       expect(arguments['b'], isA<int>());
-      expect(calls.where((c) => c.method == 'brightness'), hasLength(1));
+      // The head unit brightness is the user's absolute value, so it is not
+      // written again on every frame.
+      expect(calls.where((c) => c.method == 'brightness'), isEmpty);
       expect(service.color.value, isNotNull);
       expect(service.spectrumReady, isTrue);
+    });
+
+    test('the absolute brightness is written once when the strip is switched on',
+        () async {
+      await service.applySettings(const AmbientLightSettings(enabled: true));
+      final brightness =
+          calls.where((c) => c.method == 'brightness').map((c) => c.arguments);
+      expect(brightness, [100]);
+      // A new absolute brightness is written again.
+      calls.clear();
+      await service.applySettings(
+          const AmbientLightSettings(enabled: true, vehicleBrightness: 40));
+      expect(
+          calls.where((c) => c.method == 'brightness').map((c) => c.arguments),
+          [40]);
     });
 
     test('no colour is written while the ambience is off', () async {

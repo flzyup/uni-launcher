@@ -13,6 +13,8 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
 /**
@@ -32,18 +34,25 @@ import java.util.function.Supplier;
  * a minimum interval between writes and a minimum colour distance. The first
  * write after a change always goes through.
  *
+ * <h3>Only the latest frame is written</h3>
+ * The spectrum arrives ten times a second. If the vehicle is slow, queuing
+ * every frame makes the queue grow without bound: the writer falls further
+ * behind, which makes it slower still. So only the newest colour is kept and
+ * the frames in between are dropped. A colour describes what the strip should
+ * show now, so a skipped frame has no value.
+ *
  * <h3>Failures</h3>
  * A failed write is retried, but not at the frame rate: the head unit does
  * not accept a colour that never arrives, and a blind 10 Hz retry storm
  * floods the vehicle IO. Failed writes therefore wait for
  * {@link #FAIL_BACKOFF_MS} before the next attempt.
  *
- * <h3>The switch-on sequence is retried</h3>
- * Switching the strip on needs a sequence: main colour source, experience
- * mode, three zones, interactive effect. The SDK handle may not exist yet
- * when the user flips the switch, for example because the vehicle service is
- * still connecting. A single failed attempt would leave the strip unarmed
- * forever, so the sequence is retried until it succeeds.
+ * <h3>The switch and the brightness are retried</h3>
+ * Lighting the strip needs a sequence: main colour source, experience mode,
+ * three zones, interactive effect. The vehicle service connects
+ * asynchronously, so the first attempt very often fails. The switch and the
+ * brightness are therefore kept as "desired" state and written again every
+ * {@link #STATE_RETRY_MS} until the head unit accepts them.
  */
 public final class AmbientLightWriter {
     private static final String TAG = "UniAmbient";
@@ -62,11 +71,8 @@ public final class AmbientLightWriter {
      */
     public static final long FAIL_BACKOFF_MS = 1000L;
 
-    /** How long the switch-on sequence waits before it is retried. */
-    public static final long SWITCH_RETRY_MS = 800L;
-
-    /** How often the switch-on sequence is retried before it gives up. */
-    public static final int MAX_SWITCH_RETRIES = 90;
+    /** How often the switch and the brightness are written again. */
+    public static final long STATE_RETRY_MS = 3000L;
 
     /** Notified when the capability state or the failure reason changes. */
     public interface StateListener {
@@ -87,6 +93,15 @@ public final class AmbientLightWriter {
                         }
                     });
 
+    /** The newest colour that still has to be written, or -1. */
+    private final AtomicInteger pendingRgb = new AtomicInteger(-1);
+
+    /** Whether a colour write is already queued. */
+    private final AtomicBoolean colorScheduled = new AtomicBoolean(false);
+
+    /** Whether a state retry is already queued. */
+    private final AtomicBoolean stateRetryScheduled = new AtomicBoolean(false);
+
     private volatile boolean enabled;
     private volatile boolean available;
     private volatile String reason = "";
@@ -95,14 +110,23 @@ public final class AmbientLightWriter {
     private volatile long lastWriteAt;
     private volatile boolean experienceCustomWritten;
 
-    /** Whether the user wants the strip on, regardless of whether it worked. */
-    private volatile boolean switchRequested;
+    /** Whether {@link #lastRgb} holds a colour the head unit accepted. */
+    private volatile boolean lastColorAccepted;
 
-    /** Whether the switch-on sequence has completed at least once. */
-    private volatile boolean switchApplied;
+    /** Whether the most recent write failed. */
+    private volatile boolean lastWriteFailed;
 
-    /** How often the switch-on sequence has been retried. */
-    private volatile int switchRetries;
+    /** The folded brightness step the head unit accepted last. */
+    private volatile int lastBrightnessStep = -1;
+
+    /** What the user wants the strip to do. */
+    private volatile Boolean desiredEnabled;
+
+    /** What the head unit has accepted. */
+    private volatile Boolean writtenEnabled;
+
+    /** The absolute brightness that still has to be written. */
+    private volatile Integer pendingBrightness;
 
     /** The last write, for the diagnostics dump. */
     private volatile String lastOp = "";
@@ -178,16 +202,16 @@ public final class AmbientLightWriter {
      * so the next switch-on lights up immediately.
      */
     public void setEnabled(final boolean value) {
-        switchRequested = value;
-        if (!value) {
-            switchRetries = 0;
-            switchApplied = false;
-        }
+        desiredEnabled = value;
+        // The head unit may have lost the state, so the sequence is written
+        // again even when the desired value did not change.
+        writtenEnabled = null;
         worker.execute(new Runnable() {
             @Override public void run() {
-                applyEnabled(value);
+                writeState();
             }
         });
+        scheduleStateRetry();
     }
 
     /**
@@ -197,20 +221,22 @@ public final class AmbientLightWriter {
      * back into red, green and blue.
      */
     public void applyColor(final int r, final int g, final int b) {
-        final int rgb = ((r & 0xFF) << 16) | ((g & 0xFF) << 8) | (b & 0xFF);
-        worker.execute(new Runnable() {
-            @Override public void run() {
-                applyRgb(rgb);
-            }
-        });
+        pendingRgb.set(((r & 0xFF) << 16) | ((g & 0xFF) << 8) | (b & 0xFF));
+        if (colorScheduled.compareAndSet(false, true)) {
+            worker.execute(new Runnable() {
+                @Override public void run() {
+                    drainColors();
+                }
+            });
+        }
     }
 
     /**
      * Sets the brightness, 0 to 100.
      *
-     * <p>The vendor only offers three steps, so the percentage is folded into
-     * low or high. Zero means off on this SDK, which is also what a user
-     * dragging the brightness to zero expects, so it is not mapped to low.
+     * <p>The value is the user's absolute brightness, not the spectrum
+     * derived one: the head unit only offers three steps, and the music
+     * reaction shows in the colour instead.
      *
      * <p>Both ladders are written: the driving one and the parked one. The
      * head unit picks the ladder that applies to the current state, so
@@ -218,11 +244,13 @@ public final class AmbientLightWriter {
      * the car is moving or not.
      */
     public void setBrightness(final int brightness) {
+        pendingBrightness = brightness;
         worker.execute(new Runnable() {
             @Override public void run() {
-                applyBrightness(brightness);
+                writeState();
             }
         });
+        scheduleStateRetry();
     }
 
     /** Releases the background thread. */
@@ -262,8 +290,10 @@ public final class AmbientLightWriter {
             // The detail that tells "no vehicle handle" and "the ids do not
             // resolve" apart. Both look identical in the reason string alone.
             result.put("handlePresent", ready);
-            result.put("switchApplied", switchApplied);
-            result.put("switchRetries", switchRetries);
+            result.put("switchApplied", Boolean.TRUE.equals(writtenEnabled));
+            result.put("desiredEnabled", desiredEnabled);
+            result.put("pendingBrightness", pendingBrightness);
+            result.put("lastBrightnessStep", lastBrightnessStep);
             result.put("resolvedIds", resolvedIds());
             Map<String, Object> write = new LinkedHashMap<>();
             write.put("op", lastOp);
@@ -282,19 +312,95 @@ public final class AmbientLightWriter {
 
     // ----------------------------------------------------------------- internals
 
-    private void applyEnabled(boolean value) {
+    /**
+     * Writes the desired state: the switch first, then the brightness.
+     *
+     * <p>Called on the writer thread only.
+     */
+    private void writeState() {
+        Boolean want = desiredEnabled;
+        if (want != null && !want.equals(writtenEnabled)) {
+            if (applyEnabled(want)) writtenEnabled = want;
+        }
+        Integer brightness = pendingBrightness;
+        if (brightness != null) {
+            if (applyBrightness(brightness)) pendingBrightness = null;
+        }
+    }
+
+    /**
+     * Queues the next state attempt.
+     *
+     * <p>The vehicle service connects asynchronously, so the switch and the
+     * brightness are written again until the head unit accepts them.
+     */
+    private void scheduleStateRetry() {
+        if (!stateRetryScheduled.compareAndSet(false, true)) return;
+        try {
+            worker.schedule(new Runnable() {
+                @Override public void run() {
+                    stateRetryScheduled.set(false);
+                    if (!statePending()) return;
+                    writeState();
+                    if (statePending()) scheduleStateRetry();
+                }
+            }, STATE_RETRY_MS, TimeUnit.MILLISECONDS);
+        } catch (RejectedExecutionException stopped) {
+            stateRetryScheduled.set(false);
+        }
+    }
+
+    /** Whether the switch or the brightness still has to be written. */
+    private boolean statePending() {
+        Boolean want = desiredEnabled;
+        if (want != null && !want.equals(writtenEnabled)) return true;
+        return pendingBrightness != null;
+    }
+
+    /**
+     * Writes the newest colour, dropping the frames in between.
+     *
+     * <p>Called on the writer thread only.
+     */
+    private void drainColors() {
+        try {
+            while (true) {
+                int rgb = pendingRgb.getAndSet(-1);
+                if (rgb < 0) break;
+                applyRgb(rgb);
+                if (pendingRgb.get() < 0) break;
+            }
+        } finally {
+            colorScheduled.set(false);
+            // A frame that arrived while the last one was written.
+            if (pendingRgb.get() >= 0 && colorScheduled.compareAndSet(false, true)) {
+                worker.execute(new Runnable() {
+                    @Override public void run() {
+                        drainColors();
+                    }
+                });
+            }
+        }
+    }
+
+    /**
+     * The switch-on sequence.
+     *
+     * @return true when the head unit accepted it
+     */
+    private boolean applyEnabled(boolean value) {
         enableWrites++;
         Object functions = functions();
         if (functions == null) {
             unavailable("车机车辆服务尚未就绪");
-            scheduleSwitchRetry();
-            return;
+            pushStateIfChanged();
+            return false;
         }
         Integer effect = resolver.resolve(AmbientLightContract.FUNC_INTERACTIVE_EFFECT);
         if (effect == null) {
             unavailable("氛围灯互动效果功能号按名解析不到");
-            scheduleSwitchRetry();
-            return;
+            pushStateIfChanged();
+            return false;
         }
         boolean ok;
         if (value) {
@@ -316,61 +422,44 @@ public final class AmbientLightWriter {
             enabled = value;
             available = true;
             reason = "";
-            switchApplied = value;
-            if (value) switchRetries = 0;
             // The colour written before is no longer meaningful.
             lastRgb = -1;
+            lastColorAccepted = false;
             Log.i(TAG, "氛围灯开关已下发 enabled=" + value);
         } else {
             reason = "氛围灯开关下发失败";
             Log.w(TAG, "氛围灯开关下发失败 enabled=" + value);
-            scheduleSwitchRetry();
         }
         pushStateIfChanged();
+        return ok;
     }
 
     /**
-     * Retries the switch-on sequence.
+     * Writes one colour.
      *
-     * <p>The vehicle service may not be connected yet when the user flips
-     * the switch. Without the retry the strip would stay unarmed: the
-     * interactive effect is never switched on, so the colours that follow
-     * have nothing to show on.
+     * <p>The gates come first, so a head unit that rejects the colour does
+     * not get a resolution attempt ten times a second.
      */
-    private void scheduleSwitchRetry() {
-        if (!switchRequested) return;
-        if (switchRetries >= MAX_SWITCH_RETRIES) return;
-        switchRetries++;
-        try {
-            worker.schedule(new Runnable() {
-                @Override public void run() {
-                    if (switchRequested) applyEnabled(true);
-                }
-            }, SWITCH_RETRY_MS, TimeUnit.MILLISECONDS);
-        } catch (RejectedExecutionException stopped) {
-            // The writer is closing.
-        }
-    }
-
     private void applyRgb(int rgb) {
         colorWrites++;
+        long now = System.currentTimeMillis();
+        if (lastColorAccepted) {
+            if (now - lastWriteAt < MIN_INTERVAL_MS) return;
+            if (distance(lastRgb, rgb) < MIN_COLOR_DELTA) return;
+        }
+        if (lastWriteFailed && now - lastWriteAt < FAIL_BACKOFF_MS) return;
         Object functions = functions();
         if (functions == null) {
+            // The vehicle service is not ready yet. Not a write failure: the
+            // handle is looked up again on the next frame.
             unavailable("车机车辆服务尚未就绪");
             pushStateIfChanged();
             return;
         }
-        long now = System.currentTimeMillis();
-        if (lastRgb >= 0) {
-            if (now - lastWriteAt < MIN_INTERVAL_MS) return;
-            if (distance(lastRgb, rgb) < MIN_COLOR_DELTA) return;
-        } else if (now - lastWriteAt < FAIL_BACKOFF_MS && lastError.length() > 0) {
-            // A previous write failed. Do not hammer the vehicle IO at the
-            // frame rate until the backoff has passed.
-            return;
-        }
+        lastWriteAt = now;
         Integer colorSet = resolver.resolve(AmbientLightContract.FUNC_COLOR_SET);
         if (colorSet == null) {
+            lastWriteFailed = true;
             unavailable("氛围灯颜色功能号按名解析不到");
             pushStateIfChanged();
             return;
@@ -380,31 +469,37 @@ public final class AmbientLightWriter {
         ensureExperienceCustom(functions);
         if (write(functions, colorSet, AmbientLightContract.ZONE, rgb)) {
             lastRgb = rgb;
-            lastWriteAt = now;
+            lastColorAccepted = true;
+            lastWriteFailed = false;
             available = true;
             reason = "";
             Log.i(TAG, "氛围灯颜色已下发 rgb=" + rgb);
         } else {
-            lastWriteAt = now;
+            lastWriteFailed = true;
             reason = "氛围灯颜色下发失败";
             Log.w(TAG, "氛围灯颜色下发失败 rgb=" + rgb);
         }
         pushStateIfChanged();
     }
 
-    private void applyBrightness(int brightness) {
+    /**
+     * Writes the absolute brightness.
+     *
+     * @return true when the head unit accepted it
+     */
+    private boolean applyBrightness(int brightness) {
         brightnessWrites++;
         Object functions = functions();
         if (functions == null) {
             unavailable("车机车辆服务尚未就绪");
             pushStateIfChanged();
-            return;
+            return false;
         }
         Integer driving = resolver.resolve(AmbientLightContract.FUNC_BRIGHTNESS_DRIVING);
         if (driving == null) {
             unavailable("氛围灯亮度功能号按名解析不到");
             pushStateIfChanged();
-            return;
+            return false;
         }
         int value;
         if (brightness <= 0) {
@@ -418,7 +513,7 @@ public final class AmbientLightWriter {
         }
         // Compare the folded step, not the percentage: otherwise every
         // spectrum frame rewrites the same brightness.
-        if (lastBrightness == value) return;
+        if (lastBrightnessStep == value) return true;
         boolean ok = write(functions, driving, AmbientLightContract.ZONE, value);
         // The parked ladder is a separate function with its own constants. It
         // is best effort: a car without it still has a usable brightness.
@@ -434,11 +529,15 @@ public final class AmbientLightWriter {
             write(functions, stationary, AmbientLightContract.ZONE, parked);
         }
         if (ok) {
-            lastBrightness = value;
+            lastBrightnessStep = value;
+            lastBrightness = brightness;
+            available = true;
+            reason = "";
         } else {
             reason = "氛围灯亮度下发失败";
         }
         pushStateIfChanged();
+        return ok;
     }
 
     /**
@@ -565,7 +664,7 @@ public final class AmbientLightWriter {
      */
     private void pushStateIfChanged() {
         if (listeners.isEmpty()) return;
-        String signature = available + "|" + reason + "|" + switchApplied
+        String signature = available + "|" + reason + "|" + writtenEnabled
                 + "|" + lastWriteOk + "|" + lastError;
         if (signature.equals(pushedSignature)) return;
         pushedSignature = signature;
