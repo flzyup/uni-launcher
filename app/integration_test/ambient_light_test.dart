@@ -79,24 +79,32 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 400));
 
     // The palette must have produced a colour for that frame.
-    expect(service.color.value, isNotNull);
-    final expected = AmbientPalette.scaleByBrightness(
-        AmbientPalette.colorFrom(
+    final color = service.color.value;
+    expect(color, isNotNull);
+    // The motion layer lands on the target hue of the first frame and only
+    // moves towards it afterwards, so the colour follows the spectrum.
+    final targetHue = AmbientPalette.targetHue(
+      bands: bands,
+      mode: AmbientPalette.modeSpectrum,
+      fixedHue: 210,
+    );
+    expect(_hueOf(color!), closeTo(targetHue, 5),
+        reason: 'the colour follows the spectrum hue');
+    // The brightness is smoothed towards the target of the frame, so it sits
+    // above the floor and never above the target.
+    final targetLevel = AmbientPalette.targetLevel(
       bands: bands,
       level: 0.85,
       mode: AmbientPalette.modeSpectrum,
-      fixedHue: 210,
       sensitivity: 1.4,
       minBrightness: 15,
       maxBrightness: 100,
-    ));
-    expect(service.color.value!.r, expected.r);
-    expect(service.color.value!.g, expected.g);
-    expect(service.color.value!.b, expected.b);
-    expect(service.color.value!.brightness, expected.brightness);
+    );
+    expect(color.brightness, greaterThan(15));
+    expect(color.brightness, lessThanOrEqualTo(targetLevel));
     // The energy sits in the middle of the spectrum, so the colour is not
     // the fallback hue of a silent frame.
-    expect(service.color.value!.hex, isNot('#FF2626'));
+    expect(color.hex, isNot('#FF2626'));
 
     // The native writer must have received the colour write.
     final after = await _nativeStatus();
@@ -167,52 +175,28 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 300));
     final loudColor = service.color.value;
     expect(loudColor, isNotNull);
+    expect(loudColor!.brightness, greaterThan(15));
 
-    spectrum.accept({
-      'granted': true,
-      'available': true,
-      'status': 'listening',
-      'levels': List.filled(24, 0),
-      'peakLevel': 0,
-    });
-    await Future<void>.delayed(const Duration(milliseconds: 300));
+    // Silence keeps the hue and fades the brightness down to the floor.
+    // The native stream keeps delivering silent frames, so the light fades
+    // out instead of freezing at the last colour.
+    for (var i = 0; i < 30; i++) {
+      spectrum.accept({
+        'granted': true,
+        'available': true,
+        'status': 'listening',
+        'levels': List.filled(24, 0),
+        'peakLevel': 0,
+      });
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
     final silent = service.color.value;
     expect(silent, isNotNull);
-    expect(silent?.brightness, 15,
+    // The hue is kept, so the colour stays the loud one, only dimmer.
+    expect(_hueOf(silent!), closeTo(_hueOf(loudColor), 5),
+        reason: 'the hue is kept while the light fades');
+    expect(silent.brightness, closeTo(15, 1),
         reason: 'silence falls back to the lowest brightness');
-    // The hue is kept, so the colour is the loud one dimmed to the minimum
-    // brightness. The colour is scaled by that brightness, so the channels
-    // differ while the hue stays the same.
-    final loudHue = AmbientPalette.spectrumHue(loud, 0);
-    final expected = AmbientPalette.scaleByBrightness(
-        AmbientPalette.colorFrom(
-      bands: List.filled(24, 0),
-      level: 0,
-      mode: AmbientPalette.modeSpectrum,
-      fixedHue: 210,
-      sensitivity: 1.4,
-      minBrightness: 15,
-      maxBrightness: 100,
-      fallbackHue: loudHue,
-    ));
-    expect(silent?.r, expected.r);
-    expect(silent?.g, expected.g);
-    expect(silent?.b, expected.b);
-    // The bright frame is the same hue, only brighter.
-    final loudScaled = AmbientPalette.scaleByBrightness(
-        AmbientPalette.colorFrom(
-      bands: loud,
-      level: 0.9,
-      mode: AmbientPalette.modeSpectrum,
-      fixedHue: 210,
-      sensitivity: 1.4,
-      minBrightness: 15,
-      maxBrightness: 100,
-    ));
-    expect(loudColor?.r, loudScaled.r);
-    expect(loudColor?.g, loudScaled.g);
-    expect(loudColor?.b, loudScaled.b);
-    expect(expected.r > 0, isTrue, reason: 'the hue is still there');
   });
 
   testWidgets('switching the ambience off stops the capture', (t) async {
@@ -236,4 +220,22 @@ Future<Map<String, dynamic>> _nativeStatus() async {
   const channel = MethodChannel('xyz.i4o.uni.launcher/ambient-light');
   final raw = await channel.invokeMapMethod<String, dynamic>('status');
   return raw ?? const {};
+}
+
+/// The hue of a colour in degrees.
+///
+/// The brightness scales the three channels, so the hue has to be recovered
+/// from the ratios rather than from the raw values.
+double _hueOf(AmbientColor color) {
+  final r = color.r / 255, g = color.g / 255, b = color.b / 255;
+  final max = r > g ? (r > b ? r : b) : (g > b ? g : b);
+  final min = r < g ? (r < b ? r : b) : (g < b ? g : b);
+  final delta = max - min;
+  if (delta <= 0) return 0;
+  final hue = max == r
+      ? 60 * (((g - b) / delta) % 6)
+      : max == g
+          ? 60 * (((b - r) / delta) + 2)
+          : 60 * (((r - g) / delta) + 4);
+  return (hue + 360) % 360;
 }

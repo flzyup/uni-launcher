@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../model/ambient_light.dart';
+import '../model/ambient_motion.dart';
 import 'audio_spectrum.dart';
 
 /// Drives the head unit ambient strip from the music that is playing.
@@ -34,17 +35,40 @@ class AmbientLightService extends ChangeNotifier {
   /// only a safety net for a push that never arrives.
   static const Duration statusPoll = Duration(seconds: 5);
 
+  /// The nominal frame interval of the spectrum (milliseconds).
+  ///
+  /// Only used for the first frame, which has no previous frame to subtract.
+  /// After that the real elapsed time is used, so the smoothing does not
+  /// depend on the frame rate.
+  static const int defaultFrameMs = 100;
+
+  /// The interval between the frame log lines (milliseconds).
+  ///
+  /// One line per frame, so two neighbouring lines are two neighbouring
+  /// frames and the per frame jump can be measured for real.
+  static const int frameLogIntervalMs = 100;
+
   final MethodChannel methods;
   final AudioSpectrumService spectrum;
 
   AmbientLightService({
     MethodChannel? methods,
     AudioSpectrumService? spectrum,
+    int Function()? clock,
   })  : methods = methods ?? defaultChannel,
-        spectrum = spectrum ?? AudioSpectrumService.shared {
+        spectrum = spectrum ?? AudioSpectrumService.shared,
+        _clock = clock ?? _monotonicMillis {
     this.spectrum.addListener(onSpectrumFrame);
     this.methods.setMethodCallHandler(handleNativeCall);
   }
+
+  /// The monotonic clock in milliseconds.
+  ///
+  /// A [Stopwatch] rather than the wall clock: the system time can jump when
+  /// it is corrected, and a negative elapsed time would break the smoothing.
+  static final Stopwatch _stopwatch = Stopwatch()..start();
+
+  static int _monotonicMillis() => _stopwatch.elapsedMilliseconds;
 
   AmbientLightSettings _settings = const AmbientLightSettings();
   bool _channelAvailable = false;
@@ -57,10 +81,23 @@ class AmbientLightService extends ChangeNotifier {
   int? _writtenBrightness;
   Timer? _poll;
 
+  /// The motion layer, which turns the spectrum targets into a flow.
+  final AmbientMotion _motion = const AmbientMotion();
+
+  /// The state of the motion layer, kept across frames.
+  AmbientMotionState _motionState = const AmbientMotionState();
+
+  /// The monotonic clock, in milliseconds.
+  final int Function() _clock;
+
+  /// The moment of the previous frame, for the elapsed time.
+  int _lastFrameAt = 0;
+
+  /// The moment of the previous frame log, for the log throttle.
+  int _lastFrameLogAt = 0;
+
   /// The colour of the most recent frame. Listeners get the live value.
   final ValueNotifier<AmbientColor?> color = ValueNotifier<AmbientColor?>(null);
-
-  double _fallbackHue = 0;
 
   /// The current settings.
   AmbientLightSettings get settings => _settings;
@@ -211,22 +248,47 @@ class AmbientLightService extends ChangeNotifier {
     if (!_settings.enabled) return;
     final bands = spectrum.levels;
     if (bands.isEmpty) return;
-    final computed = AmbientPalette.colorFrom(
+
+    // —— Step one: the targets. Same as before, the raw spectrum picks a
+    // hue and a level. ——
+    final targetHue = AmbientPalette.targetHue(
+      bands: bands,
+      mode: _settings.mode,
+      fixedHue: _settings.fixedHue,
+      // Silence keeps the *current* hue, so the strip does not jump back
+      // to zero degrees.
+      fallbackHue: _motionState.hue,
+    );
+    final targetLevel = AmbientPalette.targetLevel(
       bands: bands,
       level: spectrum.peakLevel,
       mode: _settings.mode,
-      fixedHue: _settings.fixedHue,
       sensitivity: _settings.sensitivity,
       minBrightness: _settings.minBrightness,
       maxBrightness: _settings.maxBrightness,
-      fallbackHue: _fallbackHue,
     );
-    _fallbackHue = AmbientPalette.spectrumHue(bands, _fallbackHue);
-    // The head unit brightness is the user's absolute value, so the music
-    // reaction has to show in the colour: the louder the music, the brighter
-    // the colour.
-    final scaled = AmbientPalette.scaleByBrightness(computed);
+
+    // —— Step two: the motion layer turns the targets into a smooth flow. ——
+    final now = _clock();
+    final dt = _lastFrameAt > 0 ? now - _lastFrameAt : defaultFrameMs;
+    _lastFrameAt = now;
+    final bass = AmbientPalette.bassEnergy(bands);
+    _motionState = _motion.step(
+      prev: _motionState,
+      targetHue: targetHue,
+      targetLevel: targetLevel,
+      bass: bass,
+      dtMs: dt,
+    );
+
+    // —— Step three: the colour. The brightness scales the RGB, so the
+    // change in loudness is a continuous change in brightness. ——
+    final scaled = AmbientPalette.colorOf(
+      _motionState.hue,
+      (_motionState.brightness * 100).round(),
+    );
     color.value = scaled;
+    _logFrame(targetHue, targetLevel, bass, scaled, dt);
     // The native writer drops frames that arrive too often or did not change
     // the colour much, so the stream stays ten frames a second here.
     unawaited(_send('color', {
@@ -234,6 +296,26 @@ class AmbientLightService extends ChangeNotifier {
       'g': scaled.g,
       'b': scaled.b,
     }));
+  }
+
+  /// Writes one line per frame, throttled.
+  ///
+  /// Whether the light is flowing or jumping is invisible otherwise: the
+  /// settings page only shows the current colour. Putting the target next to
+  /// the smoothed value makes "the target is a step, the current value is a
+  /// ramp" obvious in the log.
+  void _logFrame(
+      double targetHue, int targetLevel, double bass, AmbientColor color,
+      int dt) {
+    final now = _clock();
+    if (now - _lastFrameLogAt < frameLogIntervalMs) return;
+    _lastFrameLogAt = now;
+    debugPrint('氛围灯帧 targetHue=${targetHue.toStringAsFixed(1)} '
+        'hue=${_motionState.hue.toStringAsFixed(1)} '
+        'targetLevel=$targetLevel '
+        'brightness=${(_motionState.brightness * 100).round()} '
+        'bass=${bass.toStringAsFixed(3)} '
+        'dtMs=$dt hex=${color.hex}');
   }
 
   Future<bool> _send(String method, Object? arguments) async {

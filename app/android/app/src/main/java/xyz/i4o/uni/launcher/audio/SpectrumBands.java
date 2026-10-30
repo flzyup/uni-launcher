@@ -4,11 +4,44 @@ package xyz.i4o.uni.launcher.audio;
  * Nyquist occupy bytes 0/1). Only normalized logarithmic band energies escape. */
 public final class SpectrumBands {
     public static final int COUNT=24;
+    /** Lowest band edge in hertz. */
+    public static final double BOTTOM_HZ=60d;
+    /** Highest band edge in hertz (the Nyquist half is used when it is lower). */
+    public static final double TOP_HZ=14000d;
+    /**
+     * A raw sample rate above this is read as millihertz.
+     *
+     * <p>The head unit ROM reports {@code Visualizer.getSamplingRate()} in
+     * millihertz (48000000), while a stock device reports hertz (44100).
+     * Both are accepted, so the frequency axis is right on either.
+     */
+    public static final int MILLI_HZ_THRESHOLD=100000;
     private SpectrumBands(){}
-    public static double[] decode(byte[] fft,int sampleRateMilliHz){
+
+    /**
+     * Normalizes a raw sample rate to hertz.
+     *
+     * @param raw the value of {@code Visualizer.getSamplingRate()}
+     * @return the rate in hertz, or 0 when the value is not usable
+     */
+    public static int normalizeSampleRate(int raw){
+        if(raw<=0)return 0;
+        return raw>=MILLI_HZ_THRESHOLD?raw/1000:raw;
+    }
+
+    /**
+     * Decodes one FFT frame into the band energies.
+     *
+     * @param fft the raw bytes of {@code Visualizer.getFft()}
+     * @param sampleRate the sample rate, in hertz or in millihertz (both are
+     *   accepted, see {@link #normalizeSampleRate(int)})
+     */
+    public static double[] decode(byte[] fft,int sampleRate){
         double[] result=new double[COUNT];
-        if(fft==null||fft.length<8||sampleRateMilliHz<=0)return result;
-        double hz=sampleRateMilliHz/1000d,top=Math.min(14000d,hz/2),bottom=Math.min(60d,top/2);
+        if(fft==null||fft.length<8)return result;
+        double hz=normalizeSampleRate(sampleRate);
+        if(hz<=0)return result;
+        double top=Math.min(TOP_HZ,hz/2),bottom=Math.min(BOTTOM_HZ,top/2);
         int bins=fft.length/2;
         for(int band=0;band<COUNT;band++){
             double lo=bottom*Math.pow(top/bottom,band/(double)COUNT);

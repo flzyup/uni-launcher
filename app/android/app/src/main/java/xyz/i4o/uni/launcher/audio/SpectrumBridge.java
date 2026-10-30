@@ -18,8 +18,27 @@ import xyz.i4o.uni.launcher.MainActivity;
 
 /** One output-mix Visualizer for all engines, only while visible music widgets
  * request it. No microphone/AudioRecord, raw PCM, disk writes, or general-state
- * broadcasts. FFT data remains a fixed 24-band packet at at most 10 Hz. */
+ * broadcasts. FFT data remains a fixed 24-band packet at most 10 Hz. */
 public final class SpectrumBridge {
+    /**
+     * 期望的采集点数（2 的幂）。
+     *
+     * <p>频率分辨率 = 采样率 / 采集点数。44.1kHz 下：
+     *
+     * <ul>
+     *   <li>512 点 ⇒ bin 间隔 86.1Hz ⇒ 60~149Hz 的低频四段<b>全部塌进同一个 bin</b>
+     *       ⇒ 四段功率永远相等 ⇒「取最响的那一段」永远取第 0 段
+     *       ⇒ 色相恒为 0°（红）、低频能量饱和 ⇒ 亮度钉死 —— 灯是红的、拉满、一动不动；</li>
+     *   <li>1024 点 ⇒ bin 间隔 43.1Hz ⇒ 四段各占不同 bin，色相才能跟着音高走。</li>
+     * </ul>
+     *
+     * <p>实际取值会被夹到设备支持的范围里，设备只支持 512 就还是 512。
+     */
+    static final int PREFERRED_CAPTURE_SIZE=1024;
+
+    /** 采集点数的兜底值（设备报支持、实际却拒绝时退回这个）。 */
+    static final int FALLBACK_CAPTURE_SIZE=512;
+
     private static Broker broker;
     private final Context context;
     private final MethodChannel methods;
@@ -77,7 +96,7 @@ public final class SpectrumBridge {
             data.put("running",running);data.put("source","output-mix");
             data.put("status",!granted()?"permission-required":reason);
             data.put("activeConsumers",demand());data.put("clients",clients.size());
-            data.put("captureSize",captureSize);data.put("sampleRateHz",sampleRate/1000);
+            data.put("captureSize",captureSize);data.put("sampleRateHz",sampleRate);
             data.put("sequence",sequence);data.put("captureHz",10);
             data.put("peakLevel",running?peakLevel:0d);data.put("signalFrames",signalFrames);
             if(levels!=null){ArrayList<Double> values=new ArrayList<>(levels.length);for(double v:levels)values.add(v);data.put("levels",values);}
@@ -109,9 +128,18 @@ public final class SpectrumBridge {
             release();
             try{
                 visualizer=new Visualizer(0);
-                int[] range=Visualizer.getCaptureSizeRange();captureSize=Math.max(range[0],Math.min(512,range[1]));
-                if(visualizer.setCaptureSize(captureSize)!=Visualizer.SUCCESS)throw new IllegalStateException("capture-size");
-                sampleRate=visualizer.getSamplingRate();fft=new byte[captureSize];
+                int[] range=Visualizer.getCaptureSizeRange();
+                captureSize=Math.max(range[0],Math.min(PREFERRED_CAPTURE_SIZE,range[1]));
+                if(visualizer.setCaptureSize(captureSize)!=Visualizer.SUCCESS){
+                    // 设备报支持却实际拒绝时退回兜底点数，别整个采集起不来。
+                    // 「采集起不来」比「低频分辨不出来」严重得多。
+                    int fallback=Math.max(range[0],Math.min(FALLBACK_CAPTURE_SIZE,range[1]));
+                    if(fallback==captureSize||visualizer.setCaptureSize(fallback)!=Visualizer.SUCCESS)throw new IllegalStateException("capture-size");
+                    captureSize=fallback;
+                }
+                // 车机 ROM 报的是毫赫兹（48000000），标准设备报的是赫兹（44100），
+                // 归一成赫兹再用，频率轴才不会被差 1000 倍。
+                sampleRate=SpectrumBands.normalizeSampleRate(visualizer.getSamplingRate());fft=new byte[captureSize];
                 if(visualizer.setEnabled(true)!=Visualizer.SUCCESS)throw new IllegalStateException("capture-enable");
                 reason="listening";
                 poll=()->capture(epoch);worker.post(poll);

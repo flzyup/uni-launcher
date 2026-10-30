@@ -92,7 +92,25 @@ class AmbientPalette {
   /// Upper bound for the sensitivity curve exponent.
   static const double maxSensitivity = 3;
 
+  /// Colour saturation. Fixed: the ambient strip is a set of LEDs, and a
+  /// washed out colour looks dirty on them.
+  static const double saturation = 0.85;
+
+  /// Hue of the intensity fallback when the audio is quiet.
+  static const double intensityHueCold = 260;
+
+  /// Hue of the intensity fallback when the audio is loud.
+  static const double intensityHueWarm = 20;
+
+  /// Tolerance for "two bands read exactly the same energy".
+  static const double degenerateEpsilon = 0.02;
+
   /// Maps one spectrum frame to a colour.
+  ///
+  /// The RGB channels carry the full value colour and the brightness stays in
+  /// its own field. [scaleByBrightness] is what turns that brightness into a
+  /// visible dimming; the motion layer uses [colorOf] instead, which does
+  /// both in one step.
   ///
   /// [bands] are normalised band energies (0..1), [level] is the overall
   /// level (0..1). [fallbackHue] keeps the previous hue when the frame is
@@ -107,18 +125,68 @@ class AmbientPalette {
     required int maxBrightness,
     double fallbackHue = 0,
   }) {
+    final hue = targetHue(
+      bands: bands,
+      mode: mode,
+      fixedHue: fixedHue,
+      fallbackHue: fallbackHue,
+    );
+    final brightness = targetLevel(
+      bands: bands,
+      level: level,
+      mode: mode,
+      sensitivity: sensitivity,
+      minBrightness: minBrightness,
+      maxBrightness: maxBrightness,
+    );
+    final rgb = hsvToRgb(hue, saturation, 1);
+    return AmbientColor(rgb[0], rgb[1], rgb[2], brightness);
+  }
+
+  /// The target hue (0..360).
+  ///
+  /// Split out from [colorFrom] so the motion layer can smooth the hue
+  /// itself. Smoothing an RGB triple and converting it back to a hue loses
+  /// precision, and the hue is what actually moves.
+  static double targetHue({
+    required List<double> bands,
+    required int mode,
+    required double fixedHue,
+    double fallbackHue = 0,
+  }) {
+    if (mode == modeSpectrum) return spectrumHue(bands, fallbackHue);
+    if (mode == modeFixed) return normalizeHue(fixedHue);
+    return bassHue(bands, fallbackHue);
+  }
+
+  /// The target brightness (0..100).
+  ///
+  /// The source follows the colour mode: the overall level for the spectrum
+  /// and fixed modes, the bass energy for the bass mode, so a kick lights the
+  /// strip up right away.
+  static int targetLevel({
+    required List<double> bands,
+    required double level,
+    required int mode,
+    required double sensitivity,
+    required int minBrightness,
+    required int maxBrightness,
+  }) {
     final lo = minBrightness.clamp(0, 100);
     final hi = maxBrightness.clamp(0, 100);
-    final bass = bassEnergy(bands);
-    final source = mode == modeSpectrum || mode == modeFixed ? level : bass;
-    final brightness = brightnessFor(source, sensitivity, lo, hi);
-    final hue = switch (mode) {
-      modeSpectrum => spectrumHue(bands, fallbackHue),
-      modeFixed => normalizeHue(fixedHue),
-      _ => bassHue(bands, fallbackHue),
-    };
-    final rgb = hsvToRgb(hue, 0.85, 1);
-    return AmbientColor(rgb[0], rgb[1], rgb[2], brightness);
+    final source =
+        (mode == modeSpectrum || mode == modeFixed) ? level : bassEnergy(bands);
+    return brightnessFor(source, sensitivity, lo, hi);
+  }
+
+  /// Builds the colour from a hue and a brightness.
+  ///
+  /// The brightness scales the whole colour, so the loud and quiet parts of
+  /// the music show as a continuous change in brightness rather than a step.
+  static AmbientColor colorOf(double hue, int brightness) {
+    final rgb = hsvToRgb(hue, saturation, 1);
+    final b = brightness.clamp(0, 100);
+    return scaleByBrightness(AmbientColor(rgb[0], rgb[1], rgb[2], b));
   }
 
   /// Bass energy: the loudest of the lowest [bassBands] bands.
@@ -145,7 +213,50 @@ class AmbientPalette {
       }
     }
     if (bestValue <= 0) return normalizeHue(fallbackHue);
+    // The spectrum cannot resolve the low range: do not pretend it has
+    // information.
+    //
+    // With too few capture points (512 at 44.1 kHz means an 86 Hz bin) the
+    // four low bands all land in the same bin, so their powers are always
+    // equal and "the loudest band" is always band zero. The hue would be
+    // stuck at 0 degrees (red) and the bass energy would be saturated.
+    //
+    // Pitch to hue is then fake information, so the bass *intensity* maps to
+    // the hue instead: quiet is deep violet, loud is orange red. A coarse
+    // but real curve beats a curve that is stuck and looks like silence.
+    if (isBassUnresolvable(bands, n)) return intensityHue(bestValue);
     return hueForBand(best, bands.length);
+  }
+
+  /// Whether the low bands cannot be told apart.
+  ///
+  /// The test is that the first [count] bands carry the *same* energy
+  /// (within [degenerateEpsilon]) and that energy is not zero. Zero means
+  /// "silence", which is a different case.
+  ///
+  /// Equal energies mean those bands read the same FFT bins, so the hardware
+  /// cannot resolve that range at all.
+  static bool isBassUnresolvable(List<double> bands, [int count = bassBands]) {
+    final n = math.min(count, bands.length);
+    if (n <= 1) return false;
+    final first = bands[0];
+    if (first <= 0) return false;
+    for (var i = 1; i < n; i++) {
+      if ((bands[i] - first).abs() > degenerateEpsilon) return false;
+    }
+    return true;
+  }
+
+  /// Bass intensity to hue, used when the spectrum cannot resolve the bass.
+  ///
+  /// Quiet (0) is deep violet at 260 degrees, loudest (1) is orange red at
+  /// 20 degrees. The interpolation is linear, so the middle runs through
+  /// blue, cyan and green, which matches the intuition that quiet is cool
+  ///  and loud is warm.
+  static double intensityHue(double level) {
+    final t = level.clamp(0.0, 1.0);
+    return normalizeHue(intensityHueCold -
+        (intensityHueCold - intensityHueWarm) * t);
   }
 
   /// Spectrum mode hue: circular mean weighted by band energy.

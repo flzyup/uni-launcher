@@ -57,11 +57,29 @@ import java.util.function.Supplier;
 public final class AmbientLightWriter {
     private static final String TAG = "UniAmbient";
 
-    /** Minimum time between two colour writes, in milliseconds. */
-    public static final long MIN_INTERVAL_MS = 120L;
+    /**
+     * Minimum time between two colour writes, in milliseconds.
+     *
+     * <p>100 ms is 10 Hz, the frame rate of the spectrum. The motion layer
+     * produces a continuous change at that rate, so a slower write would
+     * cut the smoothing back into steps and the light would jump again.
+     */
+    public static final long MIN_INTERVAL_MS = 100L;
 
-    /** Minimum colour distance that still counts as a change. */
-    public static final int MIN_COLOR_DELTA = 8;
+    /**
+     * Minimum colour distance that still counts as a change.
+     *
+     * <p>The colour used to be computed straight from the spectrum, so it
+     * jumped by a large amount every frame and this threshold only kept the
+     * same colour from being written again.
+     *
+     * <p>Now the colour goes through the motion layer first, so it moves a
+     * little every frame (at most 9 degrees of hue). A threshold of 8 would
+     * throw away more than half of those frames, which cuts the smoothing
+     * back into steps and the light jumps again. The real rate limit is
+     * {@link #MIN_INTERVAL_MS}.
+     */
+    public static final int MIN_COLOR_DELTA = 2;
 
     /**
      * How long a failed write waits before the next attempt.
