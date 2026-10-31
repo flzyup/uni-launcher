@@ -58,12 +58,7 @@ class SettingsScreen extends StatelessWidget {
                                   style: TextStyle(
                                       fontSize: Design.px(20), color: s.muted))
                             ]),
-                        const Spacer(),
-                        UniIcon('check', size: Design.px(23), color: s.accent),
-                        SizedBox(width: Design.px(10)),
-                        Text(c.message.isEmpty ? '更改自动保存' : c.message,
-                            style: TextStyle(
-                                color: s.muted, fontSize: Design.px(19)))
+                        const Spacer()
                       ])),
                   SizedBox(height: Design.px(24)),
                   Container(
@@ -75,7 +70,8 @@ class SettingsScreen extends StatelessWidget {
                           ('appearance', '外观主题'),
                           ('motion', '切换动效'),
                           ('ambient', '氛围灯'),
-                          ('system', '系统设置')
+                          ('system', '系统设置'),
+                          ('about', '关于')
                         ])
                           _SettingsTab(controller: c, id: tab.$1, label: tab.$2)
                       ])),
@@ -93,7 +89,7 @@ class SettingsScreen extends StatelessWidget {
                     'ambient' => AmbientLightSettingsTab(controller: c),
                     'system' => SystemSettingsPanel(controller: c),
                     'about' => update == null
-                        ? const SizedBox.shrink()
+                        ? const Center(child: Text('更新服务暂不可用'))
                         : AboutPanel(update: update!),
                     _ => SystemSettingsPanel(controller: c)
                   }),
@@ -518,6 +514,20 @@ class WallpaperSetting extends StatelessWidget {
     final c = controller, a = c.appearance, s = SurfaceStyle.of(context);
     return SettingBlock(
         title: '桌面壁纸',
+        trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+          Text('叠加主题渐变',
+              style: TextStyle(
+                  color: a.wallpaper == 'gradient' ? s.muted : null,
+                  fontSize: Design.px(18))),
+          SizedBox(width: Design.px(10)),
+          Switch(
+              key: const ValueKey('wallpaper-overlay'),
+              value: a.wallpaper == 'gradient' ? true : a.wallpaperOverlay,
+              onChanged: a.wallpaper == 'gradient'
+                  ? null
+                  : (value) =>
+                      c.setAppearance(a.copyWith(wallpaperOverlay: value)))
+        ]),
         child: LayoutBuilder(builder: (context, box) {
           final width = (box.maxWidth - Design.px(36)) / 4;
           return Wrap(

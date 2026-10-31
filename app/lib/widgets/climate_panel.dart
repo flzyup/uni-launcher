@@ -30,7 +30,26 @@ Future<void> showClimatePanel(
                 ? climate['auto'] == true
                 : (autoField.valid && autoField.value == true) ||
                     (fanField.valid &&
-                        '${fanField.value}'.toLowerCase() == 'auto');
+                        '${fanField.value}'.toLowerCase() == 'auto') ||
+                    climate['auto'] == true;
+            String rememberedValue(String key) {
+              final field = VehicleField.fromNative(n, key);
+              if (field.valid) {
+                return key == 'fan'
+                    ? field.display(decimals: 0)
+                    : field.display();
+              }
+              final value = climate[key];
+              if (value is num) {
+                return key == 'fan'
+                    ? value.toStringAsFixed(0)
+                    : value.toStringAsFixed(1);
+              }
+              return value == null ? '—' : '$value';
+            }
+
+            bool valueLive(String key) =>
+                demo || VehicleField.fromNative(n, key).valid;
             Widget step(String label, IconData icon, VoidCallback? tap) =>
                 IconAction(
                     icon: icon,
@@ -91,8 +110,10 @@ Future<void> showClimatePanel(
                                                       children: [
                                                         if (zone == 'fan') ...[
                                                           UniIcon('fan',
+                                                              key: const ValueKey(
+                                                                  'climate-fan-icon'),
                                                               size:
-                                                                  Design.px(25),
+                                                                  Design.px(38),
                                                               color: s.accent),
                                                           SizedBox(
                                                               width:
@@ -102,14 +123,9 @@ Future<void> showClimatePanel(
                                                             zone == 'fan'
                                                                 ? (automatic
                                                                     ? 'AUTO'
-                                                                    : (demo
-                                                                        ? '${climate['fan'] ?? 3}'
-                                                                        : fanField.display(
-                                                                            decimals:
-                                                                                0)))
-                                                                : (demo
-                                                                    ? '${(climate[zone] as num? ?? 22.5).toStringAsFixed(1)}°'
-                                                                    : '${VehicleField.fromNative(n, zone).display()}°'),
+                                                                    : rememberedValue(
+                                                                        'fan'))
+                                                                : '${rememberedValue(zone)}°',
                                                             key: zone == 'fan'
                                                                 ? const ValueKey(
                                                                     'climate-fan-value')
@@ -124,7 +140,11 @@ Future<void> showClimatePanel(
                                                                         : 48),
                                                                 fontWeight:
                                                                     FontWeight
-                                                                        .w300))
+                                                                        .w300,
+                                                                color: valueLive(
+                                                                        zone)
+                                                                    ? s.text
+                                                                    : s.disabled))
                                                       ])))),
                                       step(
                                           zone == 'fan'
@@ -160,14 +180,16 @@ Future<void> showClimatePanel(
                               ? climate['recirc'] as bool?
                               : (field.valid && mode == 'recirc'
                                   ? field.value as bool?
-                                  : null);
+                                  : climate['recirc'] as bool?);
                           final selected = mode == 'auto'
                               ? automatic
                               : mode == 'recirc'
                                   ? recirc != null
                                   : mode == 'power'
                                       ? climate['power'] == true
-                                      : (demo || field.valid) &&
+                                      : (demo ||
+                                              field.valid ||
+                                              climate.containsKey(mode)) &&
                                           climate[mode] == true;
                           final label = mode == 'ac'
                               ? 'A/C  制冷'
@@ -199,12 +221,31 @@ Future<void> showClimatePanel(
                                       .weakSelectionStyle(selected)
                                       .copyWith(
                                           backgroundColor:
-                                              WidgetStatePropertyAll(selected
-                                                  ? s.accent
-                                                      .withValues(alpha: .16)
-                                                  : s.soft),
-                                          padding: const WidgetStatePropertyAll(
-                                              EdgeInsets.zero)),
+                                              WidgetStateProperty.resolveWith(
+                                                  (states) => states.contains(
+                                                          WidgetState.disabled)
+                                                      ? s.background.withValues(
+                                                          alpha: .72)
+                                                      : selected
+                                                          ? s.accent.withValues(
+                                                              alpha: .16)
+                                                          : s.soft),
+                                          foregroundColor:
+                                              WidgetStateProperty.resolveWith(
+                                                  (states) => states.contains(
+                                                          WidgetState.disabled)
+                                                      ? s.disabled
+                                                      : selected
+                                                          ? s.accent
+                                                          : s.text),
+                                          side: WidgetStateProperty.resolveWith(
+                                              (states) => BorderSide(
+                                                  color: states.contains(WidgetState.disabled)
+                                                      ? s.disabled.withValues(alpha: .48)
+                                                      : selected
+                                                          ? s.accent
+                                                          : s.edge)),
+                                          padding: const WidgetStatePropertyAll(EdgeInsets.zero)),
                                   child: FittedBox(
                                       fit: BoxFit.scaleDown,
                                       child: Row(
@@ -215,16 +256,22 @@ Future<void> showClimatePanel(
                                                   key: const ValueKey(
                                                       'climate-circulation-icon'),
                                                   recirculating: recirc,
-                                                  color: s.accent,
+                                                  color:
+                                                      climateWritable(n, mode)
+                                                          ? s.accent
+                                                          : s.disabled,
                                                   size: Design.px(28)),
                                               SizedBox(width: Design.px(8)),
                                             ],
                                             if (mode == 'power') ...[
                                               UniIcon('power',
                                                   size: Design.px(26),
-                                                  color: selected
-                                                      ? s.accent
-                                                      : s.muted),
+                                                  color:
+                                                      !climateWritable(n, mode)
+                                                          ? s.disabled
+                                                          : selected
+                                                              ? s.accent
+                                                              : s.muted),
                                               SizedBox(width: Design.px(8)),
                                             ],
                                             Text(label,

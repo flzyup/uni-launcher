@@ -18,6 +18,12 @@ import 'climate_panel.dart';
 import 'circulation_icon.dart';
 export 'climate_panel.dart' show showClimatePanel;
 
+double _dockContentScale(String size) => switch (size) {
+      'medium' => 1.14,
+      'large' => 1.3,
+      _ => 1.0,
+    };
+
 class BottomDock extends StatelessWidget {
   final LauncherController controller;
   const BottomDock({super.key, required this.controller});
@@ -34,16 +40,8 @@ class BottomDock extends StatelessWidget {
             canPlay = demo || media['available'] == true,
             canToggle = demo || media['canToggle'] == true,
             playing = media['playing'] == true,
-            dockScale = switch (c.appearance.dockSize) {
-              'medium' => 1.14,
-              'large' => 1.3,
-              _ => 1.0,
-            };
-        Widget gap() => SizedBox(width: Design.px(20));
-        Widget separator() => SizedBox(
-            height: Design.px(34),
-            width: Design.px(1),
-            child: ColoredBox(color: s.edge));
+            dockScale = _dockContentScale(c.appearance.dockSize);
+        Widget gap() => SizedBox(width: Design.px(12));
         Widget action(
                 String key, IconData icon, String label, VoidCallback? tap,
                 {bool active = false,
@@ -81,20 +79,29 @@ class BottomDock extends StatelessWidget {
               : null;
         }
 
-        Widget zone(String id, String label) => SizedBox(
-            width: Design.px(82),
-            height: Design.px(60),
-            child: InkWell(
-                key: ValueKey('dock-temperature-$id'),
-                onTap: () => showClimatePanel(context, c),
-                child: Center(
-                    child: Text(
-                        demo
-                            ? '${(climate[id] as num? ?? 22.5).toStringAsFixed(1)}°'
-                            : '${VehicleField.fromNative(native, id).display()}°',
-                        maxLines: 1,
-                        style:
-                            TextStyle(fontSize: Design.px(30 * dockScale))))));
+        Widget zone(String id, String label) => IconAction(
+            key: ValueKey('dock-temperature-$id'),
+            icon: Icons.device_thermostat,
+            label: '$label温度',
+            size: Design.px(72),
+            framed: false,
+            onTap: () => showClimatePanel(context, c),
+            child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                    demo
+                        ? '${(climate[id] as num? ?? 22.5).toStringAsFixed(1)}°'
+                        : (VehicleField.fromNative(native, id).valid
+                            ? VehicleField.fromNative(native, id).display()
+                            : climate[id] is num
+                                ? (climate[id] as num).toStringAsFixed(1)
+                                : '—'),
+                    maxLines: 1,
+                    style: TextStyle(
+                        fontSize: Design.px(30 * dockScale),
+                        color: demo || VehicleField.fromNative(native, id).valid
+                            ? s.text
+                            : s.disabled))));
         final ac = climateFlag('ac'), recirc = climateFlag('recirc');
         Widget climateIndicator(
                 String id, String mode, Widget child, String label) =>
@@ -102,7 +109,7 @@ class BottomDock extends StatelessWidget {
                 key: ValueKey(id),
                 icon: Icons.air,
                 label: label,
-                size: Design.px(46),
+                size: Design.px(72),
                 framed: false,
                 onTap: climateWritable(native, mode)
                     ? () => c.command('climate-mode', value: mode)
@@ -120,17 +127,18 @@ class BottomDock extends StatelessWidget {
                     horizontal: Design.px(14), vertical: Design.px(12)),
                 child: Row(children: [
                   SizedBox(
-                      width: Design.px(376),
+                      width: Design.px(352),
                       child: Row(children: [
                         action('system-back', Icons.arrow_back, '返回',
                             () => c.command('system-back')),
-                        SizedBox(width: Design.px(12)),
+                        SizedBox(width: Design.px(6)),
                         IconAction(
                             key: const ValueKey('home'),
                             icon: Icons.home_outlined,
                             label: '首页，长按进入桌面设置',
                             size: Design.px(72),
                             iconSize: Design.px(29 * dockScale),
+                            framed: false,
                             active: c.isGlobalDock
                                 ? native['desktopSelected'] == true &&
                                     mapOf(native['globalDock'])['expanded'] !=
@@ -138,22 +146,16 @@ class BottomDock extends StatelessWidget {
                                 : !c.settings &&
                                     c.page == 0 &&
                                     (ModalRoute.of(context)?.isCurrent ?? true),
-                            soft: c.isGlobalDock
-                                ? native['desktopSelected'] == true &&
-                                    mapOf(native['globalDock'])['expanded'] !=
-                                        true
-                                : !c.settings &&
-                                    c.page == 0 &&
-                                    (ModalRoute.of(context)?.isCurrent ?? true),
+                            soft: false,
                             onTap: c.home,
                             onLongPress: c.openSettings),
-                        SizedBox(width: Design.px(12)),
+                        SizedBox(width: Design.px(6)),
                         action('all-apps', Icons.apps, '全部应用',
                             () => showAppsPanel(context, c)),
-                        SizedBox(width: Design.px(12)),
+                        SizedBox(width: Design.px(6)),
                         action('recents', Icons.check_box_outline_blank_rounded,
                             '最近任务', () => c.command('show-recents')),
-                        SizedBox(width: Design.px(12)),
+                        SizedBox(width: Design.px(6)),
                         action(
                             'camera',
                             Icons.surround_sound_outlined,
@@ -161,10 +163,8 @@ class BottomDock extends StatelessWidget {
                             () => c.command('open-official', value: 'camera'))
                       ])),
                   gap(),
-                  separator(),
-                  gap(),
-                  SizedBox(
-                      width: Design.px(480),
+                  Expanded(
+                      flex: 5,
                       child: climateGroup(Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
@@ -176,8 +176,11 @@ class BottomDock extends StatelessWidget {
                                     style: TextStyle(
                                         fontSize: Design.px(17 * dockScale),
                                         fontWeight: FontWeight.w600,
-                                        color:
-                                            ac == true ? s.accent : s.muted)),
+                                        color: !climateWritable(native, 'ac')
+                                            ? s.disabled
+                                            : ac == true
+                                                ? s.accent
+                                                : s.muted)),
                                 ac == null
                                     ? '空调制冷状态未知'
                                     : (ac ? '空调制冷开启' : '空调制冷关闭')),
@@ -191,7 +194,11 @@ class BottomDock extends StatelessWidget {
                                 'recirc',
                                 CirculationIcon(
                                     recirculating: recirc,
-                                    color: recirc == null ? s.muted : s.accent,
+                                    color: !climateWritable(native, 'recirc')
+                                        ? s.disabled
+                                        : recirc == null
+                                            ? s.muted
+                                            : s.accent,
                                     size: Design.px(28 * dockScale)),
                                 recirc == null
                                     ? '空气循环状态未知'
@@ -205,13 +212,12 @@ class BottomDock extends StatelessWidget {
                                     ? () => c.command('climate-power')
                                     : null,
                                 active: climate['power'] == true,
-                                framed: !s.technicalFrame,
-                                width: 56)
+                                framed: false,
+                                width: 72)
                           ]))),
                   gap(),
-                  separator(),
-                  gap(),
                   Expanded(
+                      flex: 8,
                       child: GlassSurface(
                           key: const ValueKey('dock-music-frame'),
                           radius: s.controlRadius,
@@ -343,8 +349,6 @@ class BottomDock extends StatelessWidget {
                                             ])))
                                   ]))))),
                   gap(),
-                  separator(),
-                  gap(),
                   IconAction(
                       key: const ValueKey('uni-menu'),
                       icon: Icons.apps,
@@ -377,12 +381,14 @@ Future<void> showUniDockMenu(BuildContext context, LauncherController c) async {
 /// Anchored popup that expands above the UNI dock button.
 Future<String?> _showUniDockPopup(BuildContext context, LauncherController c) {
   return Navigator.of(context).push(_UniDockPopupRoute(
-      panelWindow: c.native.value['hostMode'] == 'global-panel'));
+      panelWindow: c.native.value['hostMode'] == 'global-panel',
+      scale: _dockContentScale(c.appearance.dockSize)));
 }
 
 class _UniDockPopupRoute extends PopupRoute<String> {
   final bool panelWindow;
-  _UniDockPopupRoute({required this.panelWindow});
+  final double scale;
+  _UniDockPopupRoute({required this.panelWindow, required this.scale});
   @override
   Color? get barrierColor => null;
   @override
@@ -411,23 +417,23 @@ class _UniDockPopupRoute extends PopupRoute<String> {
                 child: Column(mainAxisSize: MainAxisSize.min, children: [
                   _UniPopupItem(
                       key: const ValueKey('uni-menu-vehicle'),
-                      icon: const UniIcon('car'),
+                      icon: UniIcon('car', size: Design.px(29 * scale)),
                       title: '车辆信息',
-                      subtitle: '车辆数据 · 只读',
+                      scale: scale,
                       onTap: () => Navigator.pop(context, 'vehicle')),
                   SizedBox(height: Design.px(8)),
                   _UniPopupItem(
                       key: const ValueKey('uni-menu-transfer'),
-                      icon: Icon(Icons.upload_file, size: Design.px(30)),
+                      icon: Icon(Icons.upload_file, size: Design.px(29 * scale)),
                       title: '传文件',
-                      subtitle: '扫码向车机传送文件',
+                      scale: scale,
                       onTap: () => Navigator.pop(context, 'transfer')),
                   SizedBox(height: Design.px(8)),
                   _UniPopupItem(
                       key: const ValueKey('uni-menu-settings'),
-                      icon: UniAppIcon(size: Design.px(34)),
+                      icon: UniAppIcon(size: Design.px(29 * scale)),
                       title: 'UNI桌面设置',
-                      subtitle: '外观、应用与底栏',
+                      scale: scale,
                       onTap: () => Navigator.pop(context, 'settings')),
                 ]))),
       ),
@@ -452,13 +458,13 @@ class _UniDockPopupRoute extends PopupRoute<String> {
 class _UniPopupItem extends StatelessWidget {
   final Widget icon;
   final String title;
-  final String subtitle;
+  final double scale;
   final VoidCallback onTap;
   const _UniPopupItem(
       {super.key,
       required this.icon,
       required this.title,
-      required this.subtitle,
+      required this.scale,
       required this.onTap});
   @override
   Widget build(BuildContext context) {
@@ -473,23 +479,17 @@ class _UniPopupItem extends StatelessWidget {
                     horizontal: Design.px(14), vertical: Design.px(10)),
                 child: Row(children: [
                   SizedBox(
-                      width: Design.px(42),
-                      height: Design.px(42),
+                      width: Design.px(42 * scale),
+                      height: Design.px(42 * scale),
                       child: Center(child: icon)),
                   SizedBox(width: Design.px(12)),
                   Expanded(
-                      child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                        Text(title,
+                        child: Text(title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                                fontSize: Design.px(21),
-                                fontWeight: FontWeight.w500)),
-                        SizedBox(height: Design.px(2)),
-                        Text(subtitle,
-                            style: TextStyle(
-                                fontSize: Design.px(14), color: s.muted)),
-                      ]))
+                                fontSize: Design.px(23 * scale),
+                                fontWeight: FontWeight.w500)))
                 ]))));
   }
 }

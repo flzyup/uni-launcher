@@ -14,13 +14,15 @@ class GlobalDockApp extends StatelessWidget {
       builder: (context, _) => MaterialApp(
           debugShowCheckedModeBanner: false,
           theme: launcherTheme(SurfaceStyle.from(
-              controller.appearance, controller.native.value['dark'] == true)),
+              controller.appearance, controller.native.value['dark'] == true,
+              adaptToWallpaper: true)),
           color: Colors.transparent,
           home: Scaffold(
               // Keep native navigation controls underneath this replacement
               // from bleeding through the glass material.
               backgroundColor: SurfaceStyle.from(controller.appearance,
-                      controller.native.value['dark'] == true)
+                      controller.native.value['dark'] == true,
+                      adaptToWallpaper: true)
                   .strong
                   .withValues(alpha: 1),
               resizeToAvoidBottomInset: false,

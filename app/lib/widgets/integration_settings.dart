@@ -167,16 +167,6 @@ class RuntimeSettings extends StatelessWidget {
                                 ? (v) => c.command('system-navigation-hidden',
                                     enabled: v)
                                 : null),
-                        Row(children: [
-                          Text('UNI · xyz.i4o.uni.launcher',
-                              style: TextStyle(
-                                  fontSize: Design.px(18), color: s.muted)),
-                          const Spacer(),
-                          TextButton(
-                              onPressed: () =>
-                                  c.command('open-official', value: 'settings'),
-                              child: const Text('打开原车设置'))
-                        ])
                       ]))
                 ]);
           });

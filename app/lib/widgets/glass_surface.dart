@@ -121,8 +121,7 @@ class IconAction extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = SurfaceStyle.of(context),
         enabled = onTap != null || onLongPress != null;
-    final fg = !enabled
-        ? s.muted.withValues(alpha: .35)
+    final fg = !enabled ? s.disabled
         : solid && !s.technicalFrame
             ? s.accentText
             : active
@@ -139,10 +138,9 @@ class IconAction extends StatelessWidget {
                 width: size,
                 height: size,
                 child: Material(
-                    shape:
-                        s.technicalFrame && framed && (active || solid || soft)
-                            ? s.controlShape(selected: active && enabled)
-                            : null,
+                    shape: s.technicalFrame && framed && (active || solid || soft)
+                        ? s.controlShape(selected: active && enabled)
+                        : null,
                     color: s.technicalFrame && framed && active && enabled
                         ? s.accent.withValues(alpha: .11)
                         : solid && s.technicalFrame
@@ -158,9 +156,15 @@ class IconAction extends StatelessWidget {
                         borderRadius: BorderRadius.circular(s.controlRadius),
                         onTap: onTap,
                         onLongPress: onLongPress,
-                        highlightColor: s.accent.withValues(alpha: .20),
-                        splashColor: s.accent.withValues(alpha: .12),
-                        splashFactory: NoSplash.splashFactory,
+                        highlightColor: s.accent.withValues(alpha: .24),
+                        hoverColor: s.accent.withValues(alpha: .08),
+                        focusColor: s.accent.withValues(alpha: .16),
+                        splashColor: s.accent.withValues(alpha: .16),
+                        overlayColor: WidgetStateProperty.resolveWith<Color>(
+                            (states) => s.accent.withValues(
+                                alpha: states.contains(WidgetState.pressed)
+                                    ? .24
+                                    : .08)),
                         child: Center(
                             child: child ??
                                 DesignIcon(icon,

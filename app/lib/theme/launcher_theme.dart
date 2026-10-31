@@ -12,6 +12,7 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
       seed,
       text,
       muted,
+      disabled,
       surface,
       strong,
       soft,
@@ -28,6 +29,7 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
       required this.seed,
       required this.text,
       required this.muted,
+      required this.disabled,
       required this.surface,
       required this.strong,
       required this.soft,
@@ -53,6 +55,7 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
           seed: a.seed(),
           text: dark ? const Color(0xFFF2F6FC) : const Color(0xFF172B42),
           muted: dark ? const Color(0xFFA2B3C7) : const Color(0xFF52687F),
+          disabled: dark ? const Color(0xFF68808F) : const Color(0xFF93A5BA),
           surface: dark ? const Color(0xF0102034) : const Color(0xF0F6F9FD),
           strong: dark ? const Color(0xFA172B43) : const Color(0xFAFFFFFF),
           soft: dark ? const Color(0xFF1B3048) : const Color(0xFFE9EFF7),
@@ -70,6 +73,7 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
         seed: a.seed(),
         text: dark ? const Color(0xFFF2F6F5) : const Color(0xFF182D29),
         muted: dark ? const Color(0xFFADBDC4) : const Color(0xFF546C65),
+        disabled: dark ? const Color(0xFF668081) : const Color(0xFF93A8A2),
         surface: dark ? const Color(0xA116232B) : const Color(0x8CFFFFFF),
         strong: dark ? const Color(0xCC192730) : const Color(0xCCFAFFFD),
         soft: dark ? const Color(0x14B3D9D9) : const Color(0x5CFFFFFF),
@@ -141,6 +145,7 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
       other.seed == seed &&
       other.text == text &&
       other.muted == muted &&
+      other.disabled == disabled &&
       other.surface == surface &&
       other.strong == strong &&
       other.soft == soft &&
@@ -148,8 +153,8 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
       other.shadow == shadow;
   @override
   int get hashCode => Object.hash(dark, glass, technicalFrame, radius,
-      spectrumStyle, accent, accentText, seed, text, muted, surface, strong,
-      soft, edge, shadow);
+      spectrumStyle, accent, accentText, seed, text, muted, disabled, surface,
+      strong, soft, edge, shadow);
 }
 
 SurfaceStyle? _cachedStyle;

@@ -11,7 +11,7 @@ class DockSizeSettings extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = SurfaceStyle.of(context), c = controller;
     return SettingBlock(
-        title: '底部栏大小',
+        title: '底栏图标大小',
         child: Row(children: [
           for (final (value, label) in [
             ('small', '小'),

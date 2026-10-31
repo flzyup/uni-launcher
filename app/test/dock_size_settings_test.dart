@@ -26,7 +26,7 @@ void main() {
       tester.view.resetDevicePixelRatio();
     });
 
-    expect(controller.appearance.dockSize, 'medium');
+    expect(controller.appearance.dockSize, 'large');
 
     for (final (size, scale) in [
       ('small', 1.0),

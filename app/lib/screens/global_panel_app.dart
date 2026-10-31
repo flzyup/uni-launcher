@@ -123,7 +123,8 @@ class _GlobalPanelAppState extends State<GlobalPanelApp> {
               debugShowCheckedModeBanner: false,
               theme: launcherTheme(SurfaceStyle.from(
                   widget.controller.appearance,
-                  widget.controller.native.value['dark'] == true)),
+                  widget.controller.native.value['dark'] == true,
+                  adaptToWallpaper: true)),
               color: Colors.transparent,
               home: Scaffold(
                   backgroundColor: Colors.transparent,

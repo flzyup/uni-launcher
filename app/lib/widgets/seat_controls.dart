@@ -195,9 +195,10 @@ class _SeatCard extends StatelessWidget {
                                   decoration: const BoxDecoration(),
                                   child: OutlinedButton(
                                       key: step.key,
-                                      style: s.weakSelectionStyle(step.selected).copyWith(
-                                          backgroundColor:
-                                              WidgetStatePropertyAll(
+                                      style: s
+                                          .weakSelectionStyle(step.selected)
+                                          .copyWith(
+                                              backgroundColor: WidgetStatePropertyAll(
                                                   step.color == null
                                                       ? (step.selected
                                                           ? s.accent.withValues(
@@ -207,9 +208,18 @@ class _SeatCard extends StatelessWidget {
                                                           alpha: step.selected
                                                               ? .29
                                                               : .12)),
-                                          side: WidgetStatePropertyAll(BorderSide(color: (step.color ?? s.accent).withValues(alpha: step.selected ? .7 : .24))),
-                                          padding: const WidgetStatePropertyAll(EdgeInsets.zero),
-                                          foregroundColor: WidgetStatePropertyAll(step.selected ? (step.color ?? s.accent) : s.muted)),
+                                              side: WidgetStatePropertyAll(BorderSide(
+                                                  color: (step.color ?? s.accent)
+                                                      .withValues(
+                                                          alpha: step.selected
+                                                              ? .7
+                                                              : .24))),
+                                              padding: const WidgetStatePropertyAll(EdgeInsets.zero),
+                                              foregroundColor: WidgetStateProperty.resolveWith((states) => states.contains(WidgetState.disabled)
+                                                  ? s.disabled
+                                                  : step.selected
+                                                      ? (step.color ?? s.accent)
+                                                      : s.muted)),
                                       onPressed: writable && step.enabled ? step.onTap : null,
                                       child: Text(step.label, style: TextStyle(fontSize: Design.px(22), fontWeight: step.selected ? FontWeight.w600 : FontWeight.w400))))))))
           ])

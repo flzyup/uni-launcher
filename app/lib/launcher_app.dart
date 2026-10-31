@@ -12,7 +12,7 @@ class LauncherApp extends StatelessWidget {
       builder: (context, _) {
         final style = SurfaceStyle.from(
             controller.appearance, controller.native.value['dark'] == true,
-            adaptToWallpaper: !controller.settings);
+            adaptToWallpaper: true);
         return MaterialApp(
             title: 'UNI 桌面',
             debugShowCheckedModeBanner: false,
