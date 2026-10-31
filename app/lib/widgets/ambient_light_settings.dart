@@ -5,6 +5,7 @@ import '../platform/ambient_light.dart';
 import '../theme/design_tokens.dart';
 import '../theme/launcher_theme.dart';
 import 'glass_surface.dart';
+import 'color_picker.dart';
 
 /// Settings block for the music driven ambient light.
 ///
@@ -26,109 +27,146 @@ class AmbientLightSettingsPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = SurfaceStyle.of(context);
-    return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(children: [
-            Text('跟随音乐律动',
-                style: TextStyle(fontSize: Design.px(20), color: s.muted)),
-            const Spacer(),
-            Switch(
-                key: const ValueKey('ambient-light-switch'),
-                value: settings.enabled,
-                onChanged: (value) =>
-                    onChanged(settings.copyWith(enabled: value)))
-          ]),
-          SizedBox(height: Design.px(12)),
-          AmbientLightPreview(service: service, settings: settings),
-          SizedBox(height: Design.px(18)),
-          Text('颜色跟随',
-              style: TextStyle(fontSize: Design.px(20), color: s.muted)),
-          SizedBox(height: Design.px(10)),
-          Wrap(
-              spacing: Design.px(12),
-              runSpacing: Design.px(12),
-              children: [
-                for (var mode = 0;
-                    mode < AmbientPalette.modeLabels.length;
-                    mode++)
-                  ChoiceChip(
-                      key: ValueKey('ambient-mode-$mode'),
-                      label: Text(AmbientPalette.modeLabels[mode]),
-                      selected: settings.mode == mode,
-                      side: s.technicalFrame
-                          ? s.controlSide(settings.mode == mode)
-                          : null,
-                      shape: s.controlShape(selected: settings.mode == mode),
-                      onSelected: (_) =>
-                          onChanged(settings.copyWith(mode: mode)))
-              ]),
-          if (settings.mode == AmbientPalette.modeFixed) ...[
-            SizedBox(height: Design.px(18)),
-            _HueRow(
-                hue: settings.fixedHue,
-                onChanged: (hue) =>
-                    onChanged(settings.copyWith(fixedHue: hue)))
-          ],
-          SizedBox(height: Design.px(18)),
-          _SliderRow(
-              label: '灵敏度',
-              hint: '数值越大，微弱的声音也越能点亮氛围灯',
-              value: settings.sensitivity,
-              min: AmbientPalette.minSensitivity,
-              max: AmbientPalette.maxSensitivity,
-              divisions: 27,
-              display: settings.sensitivity.toStringAsFixed(1),
-              onChanged: (value) =>
-                  onChanged(settings.copyWith(sensitivity: value))),
-          SizedBox(height: Design.px(14)),
-          _SliderRow(
-              label: '车机亮度',
-              hint: '车机氛围灯的绝对亮度，厂商只有高／低／关三档',
-              value: settings.vehicleBrightness.toDouble(),
-              min: 0,
-              max: 100,
-              divisions: 20,
-              display: '${settings.vehicleBrightness}',
-              onChanged: (value) => onChanged(settings.copyWith(
-                  vehicleBrightness: value.round().clamp(0, 100)))),
-          SizedBox(height: Design.px(14)),
-          _SliderRow(
-              label: '最低亮度',
-              hint: '音乐停止时颜色保留的最低明暗',
-              value: settings.minBrightness.toDouble(),
-              min: 0,
-              max: 100,
-              divisions: 20,
-              display: '${settings.minBrightness}',
-              onChanged: (value) => onChanged(settings.copyWith(
-                  minBrightness: value.round().clamp(0, settings.maxBrightness)))),
-          SizedBox(height: Design.px(14)),
-          _SliderRow(
-              label: '最高亮度',
-              hint: '音乐最响时颜色能达到的最亮明暗',
-              value: settings.maxBrightness.toDouble(),
-              min: 0,
-              max: 100,
-              divisions: 20,
-              display: '${settings.maxBrightness}',
-              onChanged: (value) => onChanged(settings.copyWith(
-                  maxBrightness:
-                      value.round().clamp(settings.minBrightness, 100)))),
-          SizedBox(height: Design.px(8)),
-          Text('音乐的强弱体现在颜色的明暗上；车机亮度档位由上面的滑杆决定。',
-              style: TextStyle(fontSize: Design.px(16), color: s.muted)),
-          if (service.needsPermission) ...[
-            SizedBox(height: Design.px(16)),
-            Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton.icon(
-                    key: const ValueKey('ambient-request-permission'),
-                    onPressed: service.spectrum.requestPermission,
-                    icon: const Icon(Icons.mic_none),
-                    label: const Text('授权录音权限以启用频谱'))),
-          ],
-        ]);
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Row(children: [
+        Text('跟随音乐律动',
+            style: TextStyle(fontSize: Design.px(20), color: s.muted)),
+        const Spacer(),
+        Switch(
+            key: const ValueKey('ambient-light-switch'),
+            value: settings.enabled,
+            onChanged: (value) => onChanged(settings.copyWith(enabled: value)))
+      ]),
+      SizedBox(height: Design.px(12)),
+      AmbientLightPreview(service: service, settings: settings),
+      SizedBox(height: Design.px(18)),
+      Text('颜色跟随', style: TextStyle(fontSize: Design.px(20), color: s.muted)),
+      SizedBox(height: Design.px(10)),
+      Wrap(spacing: Design.px(12), runSpacing: Design.px(12), children: [
+        for (var mode = 0; mode < AmbientPalette.modeLabels.length; mode++)
+          ChoiceChip(
+              key: ValueKey('ambient-mode-$mode'),
+              label: Text(AmbientPalette.modeLabels[mode]),
+              selected: settings.mode == mode,
+              side: s.technicalFrame
+                  ? s.controlSide(settings.mode == mode)
+                  : null,
+              shape: s.controlShape(selected: settings.mode == mode),
+              onSelected: (_) => onChanged(
+                  settings.copyWith(mode: mode, modeConfigured: true)))
+      ]),
+      if (settings.mode == AmbientPalette.modeFixed) ...[
+        SizedBox(height: Design.px(18)),
+        _HueRow(
+            label: '固定颜色',
+            sliderKey: const ValueKey('ambient-hue-slider'),
+            hue: settings.fixedHue,
+            onChanged: (hue) => onChanged(settings.copyWith(fixedHue: hue)))
+      ],
+      if (settings.mode == AmbientPalette.modeSpectrum) ...[
+        SizedBox(height: Design.px(18)),
+        Text('氛围灯色彩',
+            style: TextStyle(fontSize: Design.px(20), color: s.muted)),
+        SizedBox(height: Design.px(12)),
+        Row(children: [
+          Expanded(
+              child: _RhythmColorCard(
+                  id: 'bass',
+                  label: '低频',
+                  hue: settings.bassHue,
+                  custom: settings.bassCustom,
+                  onChanged: (selection) => onChanged(settings.copyWith(
+                      bassHue: selection.$1, bassCustom: selection.$2)))),
+          SizedBox(width: Design.px(14)),
+          Expanded(
+              child: _RhythmColorCard(
+                  id: 'mid',
+                  label: '中频',
+                  hue: settings.midHue,
+                  custom: settings.midCustom,
+                  onChanged: (selection) => onChanged(settings.copyWith(
+                      midHue: selection.$1, midCustom: selection.$2)))),
+          SizedBox(width: Design.px(14)),
+          Expanded(
+              child: _RhythmColorCard(
+                  id: 'treble',
+                  label: '高频',
+                  hue: settings.trebleHue,
+                  custom: settings.trebleCustom,
+                  onChanged: (selection) => onChanged(settings.copyWith(
+                      trebleHue: selection.$1, trebleCustom: selection.$2))))
+        ]),
+      ],
+      SizedBox(height: Design.px(18)),
+      _SliderRow(
+          label: '节拍提前量',
+          hint: '补偿原车氛围灯过渡延迟；灯光偏慢则调大',
+          value: settings.beatLeadMs.toDouble(),
+          min: 0,
+          max: 250,
+          divisions: 25,
+          display: '${settings.beatLeadMs}ms',
+          onChanged: (value) =>
+              onChanged(settings.copyWith(beatLeadMs: value.round()))),
+      SizedBox(height: Design.px(18)),
+      _SliderRow(
+          label: '灵敏度',
+          hint: '数值越大，微弱的声音也越能点亮氛围灯',
+          value: settings.sensitivity,
+          min: AmbientPalette.minSensitivity,
+          max: AmbientPalette.maxSensitivity,
+          divisions: 27,
+          display: settings.sensitivity.toStringAsFixed(1),
+          onChanged: (value) =>
+              onChanged(settings.copyWith(sensitivity: value))),
+      SizedBox(height: Design.px(14)),
+      _SliderRow(
+          label: '车机亮度',
+          hint: '车机氛围灯的绝对亮度，厂商只有高／低／关三档',
+          value: settings.vehicleBrightness.toDouble(),
+          min: 0,
+          max: 100,
+          divisions: 20,
+          display: '${settings.vehicleBrightness}',
+          onChanged: (value) => onChanged(settings.copyWith(
+              vehicleBrightness: value.round().clamp(0, 100)))),
+      SizedBox(height: Design.px(14)),
+      _SliderRow(
+          label: '最低亮度',
+          hint: '音乐停止时颜色保留的最低明暗',
+          value: settings.minBrightness.toDouble(),
+          min: 0,
+          max: 100,
+          divisions: 20,
+          display: '${settings.minBrightness}',
+          onChanged: (value) => onChanged(settings.copyWith(
+              minBrightness: value.round().clamp(0, settings.maxBrightness)))),
+      SizedBox(height: Design.px(14)),
+      _SliderRow(
+          label: '最高亮度',
+          hint: '音乐最响时颜色能达到的最亮明暗',
+          value: settings.maxBrightness.toDouble(),
+          min: 0,
+          max: 100,
+          divisions: 20,
+          display: '${settings.maxBrightness}',
+          onChanged: (value) => onChanged(settings.copyWith(
+              maxBrightness:
+                  value.round().clamp(settings.minBrightness, 100)))),
+      SizedBox(height: Design.px(8)),
+      Text('音乐的强弱体现在颜色的明暗上；车机亮度档位由上面的滑杆决定。',
+          style: TextStyle(fontSize: Design.px(16), color: s.muted)),
+      if (service.needsPermission) ...[
+        SizedBox(height: Design.px(16)),
+        Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+                key: const ValueKey('ambient-request-permission'),
+                onPressed: service.spectrum.requestPermission,
+                icon: const Icon(Icons.mic_none),
+                label: const Text('授权录音权限以启用频谱'))),
+      ],
+    ]);
   }
 }
 
@@ -147,67 +185,65 @@ class AmbientLightPreview extends StatelessWidget {
         tone: SurfaceTone.soft,
         padding: EdgeInsets.all(Design.px(16)),
         shadow: false,
-        child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(children: [
-                ValueListenableBuilder<AmbientColor?>(
-                    valueListenable: service.color,
-                    builder: (context, color, _) {
-                      final swatch = color == null
-                          ? s.soft
-                          : Color(0xFF000000 | color.packed);
-                      return Container(
-                          key: const ValueKey('ambient-color-swatch'),
-                          width: Design.px(64),
-                          height: Design.px(64),
-                          decoration: BoxDecoration(
-                              color: swatch,
-                              borderRadius: BorderRadius.circular(s.radius * .4),
-                              border: Border.all(color: s.edge)));
-                    }),
-                SizedBox(width: Design.px(16)),
-                Expanded(
-                    child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                      Text('当前颜色',
-                          style: TextStyle(
-                              fontSize: Design.px(20), color: s.muted)),
-                      SizedBox(height: Design.px(6)),
-                      ValueListenableBuilder<AmbientColor?>(
-                          valueListenable: service.color,
-                          builder: (context, color, _) => Text(
-                              color == null
-                                  ? '等待音乐'
-                                  : '${color.hex} · 明暗 ${color.brightness}',
-                              key: const ValueKey('ambient-color-readout'),
-                              style: TextStyle(fontSize: Design.px(22))))
-                    ])),
-              ]),
-              SizedBox(height: Design.px(14)),
-              _BrightnessBar(service: service, surface: s),
-              SizedBox(height: Design.px(12)),
-              _SpectrumStrip(service: service, surface: s),
-              SizedBox(height: Design.px(12)),
-              Text(_statusText(service),
-                  key: const ValueKey('ambient-status'),
-                  style: TextStyle(fontSize: Design.px(18), color: s.muted)),
-              SizedBox(height: Design.px(4)),
-              Text(_spectrumDiagnostics(service),
-                  key: const ValueKey('ambient-spectrum-diagnostics'),
-                  style: TextStyle(fontSize: Design.px(16), color: s.muted)),
-              if (service.unresolved.isNotEmpty) ...[
-                SizedBox(height: Design.px(6)),
-                Text(
-                  '车机上按名解析不到的功能号：'
-                  '${service.unresolved.take(6).join('、')}'
-                  '${service.unresolved.length > 6 ? ' 等 ${service.unresolved.length} 个' : ''}',
-                  key: const ValueKey('ambient-unresolved'),
-                  style: TextStyle(fontSize: Design.px(16), color: s.muted),
-                )
-              ]
-            ]));
+        child:
+            Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Row(children: [
+            ValueListenableBuilder<AmbientColor?>(
+                valueListenable: service.color,
+                builder: (context, color, _) {
+                  final swatch =
+                      color == null ? s.soft : Color(0xFF000000 | color.packed);
+                  return Container(
+                      key: const ValueKey('ambient-color-swatch'),
+                      width: Design.px(64),
+                      height: Design.px(64),
+                      decoration: BoxDecoration(
+                          color: swatch,
+                          borderRadius: BorderRadius.circular(s.radius * .4),
+                          border: Border.all(color: s.edge)));
+                }),
+            SizedBox(width: Design.px(16)),
+            Expanded(
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                  Text('当前颜色',
+                      style:
+                          TextStyle(fontSize: Design.px(20), color: s.muted)),
+                  SizedBox(height: Design.px(6)),
+                  ValueListenableBuilder<AmbientColor?>(
+                      valueListenable: service.color,
+                      builder: (context, color, _) => Text(
+                          color == null
+                              ? '等待音乐'
+                              : '${color.hex} · 明暗 ${color.brightness}',
+                          key: const ValueKey('ambient-color-readout'),
+                          style: TextStyle(fontSize: Design.px(22))))
+                ])),
+          ]),
+          SizedBox(height: Design.px(14)),
+          _BrightnessBar(service: service, surface: s),
+          SizedBox(height: Design.px(12)),
+          _SpectrumStrip(service: service, surface: s),
+          SizedBox(height: Design.px(12)),
+          Text(_statusText(service),
+              key: const ValueKey('ambient-status'),
+              style: TextStyle(fontSize: Design.px(18), color: s.muted)),
+          SizedBox(height: Design.px(4)),
+          Text(_spectrumDiagnostics(service),
+              key: const ValueKey('ambient-spectrum-diagnostics'),
+              style: TextStyle(fontSize: Design.px(16), color: s.muted)),
+          if (service.unresolved.isNotEmpty) ...[
+            SizedBox(height: Design.px(6)),
+            Text(
+              '车机上按名解析不到的功能号：'
+              '${service.unresolved.take(6).join('、')}'
+              '${service.unresolved.length > 6 ? ' 等 ${service.unresolved.length} 个' : ''}',
+              key: const ValueKey('ambient-unresolved'),
+              style: TextStyle(fontSize: Design.px(16), color: s.muted),
+            )
+          ]
+        ]));
   }
 
   /// The capability line.
@@ -330,7 +366,9 @@ class _SpectrumStrip extends StatelessWidget {
                 key: const ValueKey('ambient-spectrum-strip'),
                 painter: _StripPainter(
                     levels,
-                    color == null ? surface.edge : Color(0xFF000000 | color.packed),
+                    color == null
+                        ? surface.edge
+                        : Color(0xFF000000 | color.packed),
                     surface.edge)));
       });
 }
@@ -354,19 +392,16 @@ class _StripPainter extends CustomPainter {
           ? levels[i].clamp(0.0, 1.0)
           : 0.0;
       final h = (value * (size.height - 2)).clamp(1.0, size.height);
-      final rect = Rect.fromLTWH((i + .5) * step - width / 2,
-          size.height - h, width, h);
-      canvas.drawRRect(
-          RRect.fromRectAndRadius(rect, const Radius.circular(1)),
+      final rect =
+          Rect.fromLTWH((i + .5) * step - width / 2, size.height - h, width, h);
+      canvas.drawRRect(RRect.fromRectAndRadius(rect, const Radius.circular(1)),
           value > .015 ? bar : track);
     }
   }
 
   @override
   bool shouldRepaint(_StripPainter old) =>
-      old.ink != ink ||
-      old.edge != edge ||
-      !_same(old.levels, levels);
+      old.ink != ink || old.edge != edge || !_same(old.levels, levels);
 
   static bool _same(List<double> a, List<double> b) {
     if (a.length != b.length) return false;
@@ -397,81 +432,204 @@ class _SliderRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = SurfaceStyle.of(context);
-    return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Row(children: [
+        Text(label, style: TextStyle(fontSize: Design.px(20))),
+        const Spacer(),
+        Text(display, style: TextStyle(fontSize: Design.px(20), color: s.muted))
+      ]),
+      SizedBox(height: Design.px(4)),
+      Text(hint, style: TextStyle(fontSize: Design.px(17), color: s.muted)),
+      SliderTheme(
+          data: SliderTheme.of(context).copyWith(trackHeight: Design.px(4)),
+          child: Slider(
+              key: ValueKey('ambient-slider-$label'),
+              value: value.clamp(min, max),
+              min: min,
+              max: max,
+              divisions: divisions,
+              onChanged: onChanged))
+    ]);
+  }
+}
+
+/// One frequency region: full-width preset circles plus the shared picker.
+class _RhythmColorCard extends StatelessWidget {
+  final String id, label;
+  final double hue;
+  final String custom;
+  final ValueChanged<(double, String)> onChanged;
+
+  const _RhythmColorCard({
+    required this.id,
+    required this.label,
+    required this.hue,
+    required this.custom,
+    required this.onChanged,
+  });
+
+  bool _matches(double preset) => (hue - preset).abs() < 1;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = SurfaceStyle.of(context);
+    final customSelected = custom.isNotEmpty;
+    final currentColor = customSelected
+        ? Color(0xFF000000 | int.parse(custom.substring(1), radix: 16))
+        : HSVColor.fromAHSV(1, hue, .85, 1).toColor();
+    return GlassSurface(
+        tone: SurfaceTone.soft,
+        shadow: false,
+        padding: EdgeInsets.all(Design.px(12)),
+        child:
+            Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Row(children: [
             Text(label, style: TextStyle(fontSize: Design.px(20))),
             const Spacer(),
-            Text(display, style: TextStyle(fontSize: Design.px(20), color: s.muted))
+            Container(
+                width: Design.px(24),
+                height: Design.px(24),
+                decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: currentColor,
+                    border: Border.all(color: s.edge)))
           ]),
-          SizedBox(height: Design.px(4)),
-          Text(hint, style: TextStyle(fontSize: Design.px(17), color: s.muted)),
-          SliderTheme(
-              data: SliderTheme.of(context).copyWith(trackHeight: Design.px(4)),
-              child: Slider(
-                  key: ValueKey('ambient-slider-$label'),
-                  value: value.clamp(min, max),
-                  min: min,
-                  max: max,
-                  divisions: divisions,
-                  onChanged: onChanged))
-        ]);
+          SizedBox(height: Design.px(12)),
+          LayoutBuilder(builder: (context, box) {
+            final customColor = currentColor;
+            Widget circle(
+                    {required Color color,
+                    required bool selected,
+                    Key? key,
+                    bool last = false,
+                    Widget? child,
+                    VoidCallback? onTap}) =>
+                Padding(
+                    padding: EdgeInsets.only(right: last ? 0 : Design.px(7)),
+                    child: AspectRatio(
+                        aspectRatio: 1,
+                        child: Tooltip(
+                            message: selected ? '$label·当前' : label,
+                            child: InkWell(
+                                key: key,
+                                onTap: onTap,
+                                child: Container(
+                                    decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        color: color,
+                                        border: Border.all(
+                                            color: selected ? s.accent : s.edge,
+                                            width: selected
+                                                ? Design.px(4)
+                                                : Design.px(1))),
+                                    child: child)))));
+            return Row(children: [
+              for (final preset in AmbientPalette.fixedColors)
+                Expanded(
+                    child: circle(
+                        key: ValueKey('ambient-$id-color-${preset.$1.toInt()}'),
+                        color:
+                            HSVColor.fromAHSV(1, preset.$1, .85, 1).toColor(),
+                        selected: !customSelected && _matches(preset.$1),
+                        onTap: () => onChanged((preset.$1, '')))),
+              Expanded(
+                  child: circle(
+                      key: ValueKey('ambient-$id-custom'),
+                      color: customSelected ? customColor : s.soft,
+                      selected: customSelected,
+                      last: true,
+                      onTap: () async {
+                        final value =
+                            await _editRhythmColor(context, label, custom, hue);
+                        if (value != null) {
+                          final color = HSVColor.fromColor(Color(0xFF000000 |
+                              int.parse(value.substring(1), radix: 16)));
+                          onChanged((color.hue, value.toUpperCase()));
+                        }
+                      },
+                      child: Icon(
+                        Icons.tune,
+                        size: Design.px(21),
+                        color: customSelected
+                            ? (ThemeData.estimateBrightnessForColor(
+                                        customColor) ==
+                                    Brightness.dark
+                                ? Colors.white
+                                : Colors.black)
+                            : s.muted,
+                      )))
+            ]);
+          })
+        ]));
   }
+}
+
+Future<String?> _editRhythmColor(
+    BuildContext context, String label, String custom, double initial) async {
+  final result = await showCustomColorPicker(context,
+      title: '自定义${label}颜色',
+      subtitle: '从完整色域取色，或选择常用颜色',
+      initial: custom.isNotEmpty
+          ? Color(0xFF000000 | int.parse(custom.substring(1), radix: 16))
+          : HSVColor.fromAHSV(1, initial, .85, 1).toColor(),
+      presets: [
+        for (final preset in AmbientPalette.fixedColors)
+          HSVColor.fromAHSV(1, preset.$1, .85, 1).toColor(),
+        ...standardPickerColors
+      ]);
+  if (result == null) return null;
+  return result.toUpperCase();
 }
 
 /// Fixed hue presets plus a hue slider.
 class _HueRow extends StatelessWidget {
   final double hue;
   final ValueChanged<double> onChanged;
+  final String label;
+  final Key sliderKey;
 
-  const _HueRow({required this.hue, required this.onChanged});
+  const _HueRow({
+    required this.hue,
+    required this.onChanged,
+    required this.label,
+    required this.sliderKey,
+  });
 
   @override
   Widget build(BuildContext context) {
     final s = SurfaceStyle.of(context);
-    return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text('固定颜色',
-              style: TextStyle(fontSize: Design.px(20), color: s.muted)),
-          SizedBox(height: Design.px(10)),
-          Wrap(
-              spacing: Design.px(12),
-              runSpacing: Design.px(12),
-              children: [
-                for (final preset in AmbientPalette.fixedColors)
-                  InkWell(
-                      key: ValueKey('ambient-hue-${preset.$1.toInt()}'),
-                      onTap: () => onChanged(preset.$1),
-                      child: Container(
-                          width: Design.px(40),
-                          height: Design.px(40),
-                          decoration: BoxDecoration(
-                              color: HSVColor.fromAHSV(
-                                      1, preset.$1, .82, 1)
-                                  .toColor(),
-                              borderRadius:
-                                  BorderRadius.circular(s.radius * .4),
-                              border: Border.all(
-                                  color: (hue - preset.$1).abs() < 1
-                                      ? s.accent
-                                      : s.edge,
-                                  width: (hue - preset.$1).abs() < 1
-                                      ? Design.px(3)
-                                      : Design.px(1)))))
-              ]),
-          SizedBox(height: Design.px(10)),
-          SliderTheme(
-              data: SliderTheme.of(context).copyWith(trackHeight: Design.px(4)),
-              child: Slider(
-                  key: const ValueKey('ambient-hue-slider'),
-                  value: hue.clamp(0, 360),
-                  min: 0,
-                  max: 360,
-                  divisions: 36,
-                  activeColor: HSVColor.fromAHSV(1, hue, .82, 1).toColor(),
-                  onChanged: onChanged))
-        ]);
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Text(label, style: TextStyle(fontSize: Design.px(20), color: s.muted)),
+      SizedBox(height: Design.px(10)),
+      Wrap(spacing: Design.px(12), runSpacing: Design.px(12), children: [
+        for (final preset in AmbientPalette.fixedColors)
+          InkWell(
+              key: ValueKey('$label-hue-${preset.$1.toInt()}'),
+              onTap: () => onChanged(preset.$1),
+              child: Container(
+                  width: Design.px(40),
+                  height: Design.px(40),
+                  decoration: BoxDecoration(
+                      color: HSVColor.fromAHSV(1, preset.$1, .82, 1).toColor(),
+                      borderRadius: BorderRadius.circular(s.radius * .4),
+                      border: Border.all(
+                          color:
+                              (hue - preset.$1).abs() < 1 ? s.accent : s.edge,
+                          width: (hue - preset.$1).abs() < 1
+                              ? Design.px(3)
+                              : Design.px(1)))))
+      ]),
+      SizedBox(height: Design.px(10)),
+      SliderTheme(
+          data: SliderTheme.of(context).copyWith(trackHeight: Design.px(4)),
+          child: Slider(
+              key: sliderKey,
+              value: hue.clamp(0, 360),
+              min: 0,
+              max: 360,
+              divisions: 36,
+              activeColor: HSVColor.fromAHSV(1, hue, .82, 1).toColor(),
+              onChanged: onChanged))
+    ]);
   }
 }

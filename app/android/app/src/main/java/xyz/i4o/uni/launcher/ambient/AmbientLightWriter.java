@@ -29,13 +29,13 @@ import java.util.function.Supplier;
  * round trip and must never sit on the Flutter platform thread.
  *
  * <h3>Throttling</h3>
- * A spectrum frame arrives every 100 ms while music plays. Writing every
+ * A spectrum frame arrives every 50 ms while music plays. Writing every
  * frame would keep the head unit busy for no visible gain, so two gates apply:
  * a minimum interval between writes and a minimum colour distance. The first
  * write after a change always goes through.
  *
  * <h3>Only the latest frame is written</h3>
- * The spectrum arrives ten times a second. If the vehicle is slow, queuing
+ * The spectrum arrives twenty times a second. If the vehicle is slow, queuing
  * every frame makes the queue grow without bound: the writer falls further
  * behind, which makes it slower still. So only the newest colour is kept and
  * the frames in between are dropped. A colour describes what the strip should
@@ -60,11 +60,11 @@ public final class AmbientLightWriter {
     /**
      * Minimum time between two colour writes, in milliseconds.
      *
-     * <p>100 ms is 10 Hz, the frame rate of the spectrum. The motion layer
+     * <p>50 ms is 20 Hz, the frame rate of the spectrum. The motion layer
      * produces a continuous change at that rate, so a slower write would
      * cut the smoothing back into steps and the light would jump again.
      */
-    public static final long MIN_INTERVAL_MS = 100L;
+    public static final long MIN_INTERVAL_MS = 50L;
 
     /**
      * Minimum colour distance that still counts as a change.
@@ -84,7 +84,7 @@ public final class AmbientLightWriter {
     /**
      * How long a failed write waits before the next attempt.
      *
-     * <p>The spectrum arrives ten times a second. Retrying every frame would
+     * <p>The spectrum arrives twenty times a second. Retrying every frame would
      * flood the vehicle IO with writes the head unit rejects.
      */
     public static final long FAIL_BACKOFF_MS = 1000L;
@@ -456,7 +456,7 @@ public final class AmbientLightWriter {
      * Writes one colour.
      *
      * <p>The gates come first, so a head unit that rejects the colour does
-     * not get a resolution attempt ten times a second.
+     * not get a resolution attempt twenty times a second.
      */
     private void applyRgb(int rgb) {
         colorWrites++;
@@ -677,7 +677,7 @@ public final class AmbientLightWriter {
      * Pushes the state to the listeners when the capability or the failure
      * reason changed.
      *
-     * <p>Only changes are pushed: a spectrum frame arrives ten times a
+     * <p>Only changes are pushed: a spectrum frame arrives twenty times a
      * second, and the UI only cares about "is it usable and why not".
      */
     private void pushStateIfChanged() {

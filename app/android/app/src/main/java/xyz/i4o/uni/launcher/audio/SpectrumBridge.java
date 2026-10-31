@@ -21,7 +21,7 @@ import xyz.i4o.uni.launcher.MainActivity;
 
 /** One output-mix Visualizer for all engines, only while visible music widgets
  * request it. No microphone/AudioRecord, raw PCM, disk writes, or general-state
- * broadcasts. FFT data remains a fixed 24-band packet at most 10 Hz. */
+ * broadcasts. FFT data remains a fixed 24-band packet at most 20 Hz. */
 public final class SpectrumBridge {
     private static final String TAG="UniSpectrum";
 
@@ -295,7 +295,7 @@ public final class SpectrumBridge {
          * poll and the release of the handle.
          */
         void schedulePoll(int epoch){
-            poll=()->capture(epoch);main.postDelayed(poll,100);
+            poll=()->capture(epoch);main.postDelayed(poll,50);
         }
 
         void capture(int epoch){
@@ -312,7 +312,7 @@ public final class SpectrumBridge {
                 // 而且灯也不会按快起慢落慢慢暗下去。
                 publish(values);
                 maybeSwitchToSession(epoch);
-                main.postDelayed(poll,100);
+                main.postDelayed(poll,50);
             }catch(RuntimeException error){fail(epoch,error);}
         }
 

@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:math' as math;
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../model/ambient_light.dart';
 import '../model/ambient_motion.dart';
+import '../model/ambient_rhythm.dart';
 import 'audio_spectrum.dart';
 
 /// Drives the head unit ambient strip from the music that is playing.
@@ -19,8 +21,8 @@ import 'audio_spectrum.dart';
 /// of failing silently.
 ///
 /// The live colour is exposed through [color] as a separate notifier: a
-/// spectrum frame arrives ten times a second, and the settings page must not
-/// rebuild ten times a second because of it.
+/// spectrum frame arrives twenty times a second, and the settings page must
+/// not rebuild twenty times a second because of it.
 class AmbientLightService extends ChangeNotifier {
   /// One shared instance per process, so the strip is driven by one writer.
   static final AmbientLightService shared = AmbientLightService();
@@ -40,7 +42,7 @@ class AmbientLightService extends ChangeNotifier {
   /// Only used for the first frame, which has no previous frame to subtract.
   /// After that the real elapsed time is used, so the smoothing does not
   /// depend on the frame rate.
-  static const int defaultFrameMs = 100;
+  static const int defaultFrameMs = 50;
 
   /// The interval between the frame log lines (milliseconds).
   ///
@@ -80,6 +82,14 @@ class AmbientLightService extends ChangeNotifier {
   List<String> _unresolved = const [];
   int? _writtenBrightness;
   Timer? _poll;
+  Timer? _fallbackTimer;
+  final AmbientRhythm _rhythm = AmbientRhythm();
+  int _lastSignalAt = 0;
+  int _lastAmbientWriteAt = 0;
+  int _valleyWriteAt = 0;
+  int _lastPeakWriteAt = 0;
+  int? _predictedBeatAt;
+  int? _lastPeakBand;
 
   /// The native status of the spectrum capture: idle, starting, listening,
   /// permission-required or unavailable.
@@ -268,13 +278,30 @@ class AmbientLightService extends ChangeNotifier {
   /// Turns the strip on and starts the spectrum capture it needs.
   Future<void> _syncEnabled() async {
     if (_settings.enabled) {
+      _rhythm.reset();
+      _lastSignalAt = 0;
+      _lastAmbientWriteAt = 0;
+      _valleyWriteAt = 0;
+      _lastPeakWriteAt = 0;
+      _predictedBeatAt = null;
+      _lastPeakBand = null;
       spectrum.setDemand(this, true);
       await _send('enable', true);
       // The brightness is the user's absolute value, so it is written once
       // here instead of on every spectrum frame.
       await _syncBrightness();
+      await _writeFallback();
+      _fallbackTimer?.cancel();
+      _fallbackTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (_settings.enabled &&
+            (_lastSignalAt == 0 || _clock() - _lastSignalAt > 1500)) {
+          unawaited(_writeFallback());
+        }
+      });
       _startPolling();
     } else {
+      _fallbackTimer?.cancel();
+      _fallbackTimer = null;
       spectrum.setDemand(this, false);
       await _send('enable', false);
       _stopPolling();
@@ -300,9 +327,57 @@ class AmbientLightService extends ChangeNotifier {
     if (await _send('brightness', value)) _writtenBrightness = value;
   }
 
+  /// A visible static colour while capture is starting, silent or unavailable.
+  Future<void> _writeFallback() async {
+    if (!_settings.enabled) return;
+    final ceiling = _settings.maxBrightness.clamp(0, 100);
+    final level = (_settings.minBrightness < 30 ? 30 : _settings.minBrightness)
+        .clamp(0, ceiling);
+    final fallback = AmbientPalette.colorOf(_settings.fixedHue, level);
+    color.value = fallback;
+    await _send('color', {'r': fallback.r, 'g': fallback.g, 'b': fallback.b});
+    if (_writtenBrightness != _settings.vehicleBrightness) {
+      if (await _send('brightness', _settings.vehicleBrightness)) {
+        _writtenBrightness = _settings.vehicleBrightness;
+      }
+    }
+  }
+
+  Future<void> _writePeak(AmbientColor color) async {
+    _lastAmbientWriteAt = _clock();
+    _valleyWriteAt = 0;
+    this.color.value = color;
+    await _send('color', {'r': color.r, 'g': color.g, 'b': color.b});
+    // The vendor strip low-passes rapid colour targets. Its own high/low
+    // brightness ladder is much more visible, and is only toggled on beats.
+    await _send('brightness', _settings.vehicleBrightness);
+  }
+
+  Future<void> _writeValley(AmbientColor color) async {
+    _lastAmbientWriteAt = _clock();
+    _valleyWriteAt = 0;
+    this.color.value = color;
+    await _send('color', {'r': color.r, 'g': color.g, 'b': color.b});
+    if (_settings.vehicleBrightness > 50) {
+      await _send('brightness', (_settings.vehicleBrightness * .38).round());
+    }
+  }
+
+  double _bandSaturation(int band) {
+    final custom = switch (band) {
+      AmbientRhythm.bassBand => _settings.bassCustom,
+      AmbientRhythm.midBand => _settings.midCustom,
+      _ => _settings.trebleCustom,
+    };
+    if (custom.isEmpty) return AmbientPalette.saturation;
+    return HSVColor.fromColor(
+            Color(0xFF000000 | int.parse(custom.substring(1), radix: 16)))
+        .saturation;
+  }
+
   /// Maps one spectrum frame to a colour and hands it to the head unit.
   void onSpectrumFrame() {
-    // A spectrum frame arrives ten times a second. Only a change of the
+    // A spectrum frame arrives twenty times a second. Only a change of the
     // spectrum state is worth a notification, otherwise every listener would
     // rebuild ten times a second. The frame counters are left out on purpose:
     // they change on every frame.
@@ -314,11 +389,14 @@ class AmbientLightService extends ChangeNotifier {
     if (before != after) notifyListeners();
     if (!_settings.enabled) return;
     final bands = spectrum.levels;
-    if (bands.isEmpty) return;
+    if (!_spectrumReady || bands.isEmpty || spectrum.peakLevel < .025) return;
+    final now = _clock();
+    _lastSignalAt = now;
+    final rhythm = _rhythm.step(bands, now);
 
     // —— Step one: the targets. Same as before, the raw spectrum picks a
     // hue and a level. ——
-    final targetHue = AmbientPalette.targetHue(
+    var targetHue = AmbientPalette.targetHue(
       bands: bands,
       mode: _settings.mode,
       fixedHue: _settings.fixedHue,
@@ -326,7 +404,23 @@ class AmbientLightService extends ChangeNotifier {
       // to zero degrees.
       fallbackHue: _motionState.hue,
     );
-    final targetLevel = AmbientPalette.targetLevel(
+    if (_settings.mode == AmbientPalette.modeSpectrum) {
+      // Keep the three frequency regions visibly apart: bass reads warm,
+      // voice/guitar reads green, and cymbals read blue-violet. The previous
+      // violet/cyan/pale-blue mapping sat inside one narrow blue family.
+      final sum = rhythm.bass + rhythm.mid + rhythm.treble;
+      if (sum > .02) {
+        final x = math.cos(_settings.bassHue * math.pi / 180) * rhythm.bass +
+            math.cos(_settings.midHue * math.pi / 180) * rhythm.mid +
+            math.cos(_settings.trebleHue * math.pi / 180) * rhythm.treble;
+        final y = math.sin(_settings.bassHue * math.pi / 180) * rhythm.bass +
+            math.sin(_settings.midHue * math.pi / 180) * rhythm.mid +
+            math.sin(_settings.trebleHue * math.pi / 180) * rhythm.treble;
+        targetHue =
+            AmbientPalette.normalizeHue(math.atan2(y, x) * 180 / math.pi);
+      }
+    }
+    final rawLevel = AmbientPalette.targetLevel(
       bands: bands,
       level: spectrum.peakLevel,
       mode: _settings.mode,
@@ -334,9 +428,20 @@ class AmbientLightService extends ChangeNotifier {
       minBrightness: _settings.minBrightness,
       maxBrightness: _settings.maxBrightness,
     );
+    final floor = _settings.minBrightness.clamp(0, _settings.maxBrightness);
+    // Keep the between-beat level in a visible valley. Without this reserve,
+    // compressed pop music keeps the strip near maximum and a kick cannot
+    // read as an impact.
+    final baselineScale = rhythm.bpm == null
+        ? .68
+        : rhythm.intervalMs >= 600
+            ? .44
+            : rhythm.intervalMs >= 430
+                ? .52
+                : .60;
+    final targetLevel = floor + ((rawLevel - floor) * baselineScale).round();
 
     // —— Step two: the motion layer turns the targets into a smooth flow. ——
-    final now = _clock();
     final dt = _lastFrameAt > 0 ? now - _lastFrameAt : defaultFrameMs;
     _lastFrameAt = now;
     final bass = AmbientPalette.bassEnergy(bands);
@@ -346,23 +451,122 @@ class AmbientLightService extends ChangeNotifier {
       targetLevel: targetLevel,
       bass: bass,
       dtMs: dt,
+      onset: rhythm.onset,
+      impact: rhythm.impact,
+      pulseDecayMs: (rhythm.intervalMs * .58).clamp(180.0, 620.0),
+      pulseGain: rhythm.intervalMs >= 600
+          ? 1.7
+          : rhythm.intervalMs >= 430
+              ? 1.4
+              : 1.0,
     );
 
-    // —— Step three: the colour. The brightness scales the RGB, so the
-    // change in loudness is a continuous change in brightness. ——
-    final scaled = AmbientPalette.colorOf(
-      _motionState.hue,
-      (_motionState.brightness * 100).round(),
-    );
-    color.value = scaled;
-    _logFrame(targetHue, targetLevel, bass, scaled, dt);
-    // The native writer drops frames that arrive too often or did not change
-    // the colour much, so the stream stays ten frames a second here.
-    unawaited(_send('color', {
-      'r': scaled.r,
-      'g': scaled.g,
-      'b': scaled.b,
-    }));
+    final actualBeat = rhythm.impact > 0;
+    final predictedBeat = rhythm.nextBeatMs != null &&
+        rhythm.bpm != null &&
+        now >= rhythm.nextBeatMs! - _settings.beatLeadMs &&
+        _predictedBeatAt != rhythm.nextBeatMs;
+    if (predictedBeat) _predictedBeatAt = rhythm.nextBeatMs;
+    final peakDue = actualBeat || predictedBeat;
+    final eventBand = actualBeat ? rhythm.band : rhythm.predictedBand;
+    final duplicatePredictedPeak = actualBeat &&
+        now - _lastPeakWriteAt < 160 &&
+        _lastPeakBand == eventBand;
+    final peakLevel = (72 + rhythm.impact * 28).round().clamp(72, 100).toInt();
+    final valleyLevel = (_settings.minBrightness +
+            (_settings.maxBrightness - _settings.minBrightness) * .16)
+        .round()
+        .clamp(0, 100)
+        .toInt();
+    final spectrumMode = _settings.mode == AmbientPalette.modeSpectrum;
+    final otherBands = <(double, double, double)>[
+      if (eventBand != AmbientRhythm.bassBand)
+        (
+          _settings.bassHue,
+          rhythm.bass,
+          _bandSaturation(AmbientRhythm.bassBand)
+        ),
+      if (eventBand != AmbientRhythm.midBand)
+        (_settings.midHue, rhythm.mid, _bandSaturation(AmbientRhythm.midBand)),
+      if (eventBand != AmbientRhythm.trebleBand)
+        (
+          _settings.trebleHue,
+          rhythm.treble,
+          _bandSaturation(AmbientRhythm.trebleBand)
+        ),
+    ];
+    final otherWeight = otherBands.fold<double>(
+        0, (sum, entry) => sum + entry.$2.clamp(0.0, 1.0));
+    final otherX = otherBands.fold<double>(
+        0,
+        (sum, entry) =>
+            sum +
+            math.cos(entry.$1 * math.pi / 180) * entry.$2.clamp(0.0, 1.0));
+    final otherY = otherBands.fold<double>(
+        0,
+        (sum, entry) =>
+            sum +
+            math.sin(entry.$1 * math.pi / 180) * entry.$2.clamp(0.0, 1.0));
+    final valleyHue = spectrumMode && otherWeight > .01
+        ? AmbientPalette.normalizeHue(
+            math.atan2(otherY, otherX) * 180 / math.pi)
+        : _motionState.hue;
+    final valleySaturation = otherWeight <= 0
+        ? AmbientPalette.saturation
+        : otherBands.fold<double>(
+                0, (sum, entry) => sum + entry.$3 * entry.$2.clamp(0.0, 1.0)) /
+            otherWeight;
+    final peakHue = !spectrumMode || !peakDue
+        ? _motionState.hue
+        : switch (eventBand) {
+            AmbientRhythm.bassBand => _settings.bassHue,
+            AmbientRhythm.midBand => _settings.midHue,
+            _ => _settings.trebleHue,
+          };
+
+    // The physical strip low-passes a continuously moving target. Hold the
+    // peak and valley long enough for its transition to reach the LED, then
+    // stop writing until the next onset. This makes one beat read as one
+    // impact instead of ten tiny intermediate colours.
+    if (peakDue && !duplicatePredictedPeak) {
+      final peak = AmbientPalette.colorOf(
+          peakHue, peakLevel, _bandSaturation(eventBand));
+      _lastPeakWriteAt = now;
+      _lastPeakBand = eventBand;
+      unawaited(_writePeak(peak));
+      _valleyWriteAt =
+          now + (rhythm.intervalMs * .22).clamp(100.0, 230.0).round();
+      _logFrame(targetHue, peakLevel, bass, peak, dt);
+      return;
+    }
+    if (actualBeat && duplicatePredictedPeak) return;
+    if (_valleyWriteAt > 0 && now >= _valleyWriteAt) {
+      final valley =
+          AmbientPalette.colorOf(valleyHue, valleyLevel, valleySaturation);
+      unawaited(_writeValley(valley));
+      _logFrame(targetHue, valleyLevel, bass, valley, dt);
+      return;
+    }
+
+    // Between the valley and the next beat, keep the target stable. If no
+    // reliable pulse exists, fall back to a gentle 5Hz colour flow.
+    if (_valleyWriteAt == 0 &&
+        rhythm.bpm == null &&
+        (_lastAmbientWriteAt == 0 || now - _lastAmbientWriteAt >= 200)) {
+      final scaled = AmbientPalette.colorOf(
+        _motionState.hue,
+        (math.pow(_motionState.brightness.clamp(0.0, 1.0), 1.28) * 100).round(),
+      );
+      color.value = scaled;
+      _lastAmbientWriteAt = now;
+      _logFrame(targetHue, targetLevel, bass, scaled, dt);
+      unawaited(_send('color', {
+        'r': scaled.r,
+        'g': scaled.g,
+        'b': scaled.b,
+      }));
+    }
+    return;
   }
 
   /// Writes one line per frame, throttled.
@@ -371,9 +575,8 @@ class AmbientLightService extends ChangeNotifier {
   /// settings page only shows the current colour. Putting the target next to
   /// the smoothed value makes "the target is a step, the current value is a
   /// ramp" obvious in the log.
-  void _logFrame(
-      double targetHue, int targetLevel, double bass, AmbientColor color,
-      int dt) {
+  void _logFrame(double targetHue, int targetLevel, double bass,
+      AmbientColor color, int dt) {
     final now = _clock();
     if (now - _lastFrameLogAt < frameLogIntervalMs) return;
     _lastFrameLogAt = now;
@@ -399,6 +602,7 @@ class AmbientLightService extends ChangeNotifier {
   @override
   void dispose() {
     _stopPolling();
+    _fallbackTimer?.cancel();
     spectrum.removeListener(onSpectrumFrame);
     color.dispose();
     super.dispose();

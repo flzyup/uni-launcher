@@ -144,6 +144,10 @@ class AmbientMotion {
     required int targetLevel,
     required double bass,
     required int dtMs,
+    double? onset,
+    double? impact,
+    double? pulseDecayMs,
+    double? pulseGain,
   }) {
     // Clamp the elapsed time: coming back from the background may take
     // minutes, and catching up in one step would look like a jump.
@@ -153,7 +157,8 @@ class AmbientMotion {
 
     // Brightness: fast attack, slow decay.
     final tau = target > prev.level ? attackTauMs : decayTauMs;
-    final level = prev.level + (target - prev.level) * (1 - math.exp(-dt / tau));
+    final level =
+        prev.level + (target - prev.level) * (1 - math.exp(-dt / tau));
 
     // Hue: exponential smoothing, then the shortest path, then the rate
     // limit.
@@ -170,13 +175,17 @@ class AmbientMotion {
     }
 
     // Onset: the low frequency jumped above the slow envelope.
-    final bassSlow =
-        prev.bassSlow + (bassNow - prev.bassSlow) * (1 - math.exp(-dt / bassTauMs));
+    final bassSlow = prev.bassSlow +
+        (bassNow - prev.bassSlow) * (1 - math.exp(-dt / bassTauMs));
     final beat = bassNow > beatFloor && bassNow > bassSlow * beatRatio;
-    final pulse = beat ? 1.0 : prev.pulse * math.exp(-dt / pulseTauMs);
+    final detected = onset == null ? (beat ? 1.0 : 0.0) : onset.clamp(0.0, 1.0);
+    final trigger = math.max(detected, (impact ?? 0).clamp(0.0, 1.0));
+    final pulse = math.max(
+        trigger, prev.pulse * math.exp(-dt / (pulseDecayMs ?? pulseTauMs)));
 
     // Final brightness: the level plus the onset gain.
-    final brightness = (level * (1 + pulse * pulseGain)).clamp(0.0, 1.0);
+    final brightness =
+        (level * (1 + pulse * (pulseGain ?? this.pulseGain))).clamp(0.0, 1.0);
 
     return AmbientMotionState(
       hue: hue,

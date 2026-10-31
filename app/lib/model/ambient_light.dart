@@ -11,12 +11,13 @@ class AmbientColor {
   const AmbientColor(this.r, this.g, this.b, this.brightness);
 
   /// Packed `0xRRGGBB`, the encoding the vendor SDK expects.
-  int get packed => ((r.clamp(0, 255)) << 16) | ((g.clamp(0, 255)) << 8) |
+  int get packed =>
+      ((r.clamp(0, 255)) << 16) |
+      ((g.clamp(0, 255)) << 8) |
       (b.clamp(0, 255)).clamp(0, 255);
 
   /// `#RRGGBB` for diagnostics and the settings preview.
-  String get hex =>
-      '#${r.clamp(0, 255).toRadixString(16).padLeft(2, '0')}'
+  String get hex => '#${r.clamp(0, 255).toRadixString(16).padLeft(2, '0')}'
       '${g.clamp(0, 255).toRadixString(16).padLeft(2, '0')}'
       '${b.clamp(0, 255).toRadixString(16).padLeft(2, '0')}';
 
@@ -183,8 +184,10 @@ class AmbientPalette {
   ///
   /// The brightness scales the whole colour, so the loud and quiet parts of
   /// the music show as a continuous change in brightness rather than a step.
-  static AmbientColor colorOf(double hue, int brightness) {
-    final rgb = hsvToRgb(hue, saturation, 1);
+  static AmbientColor colorOf(double hue, int brightness,
+      [double? colorSaturation]) {
+    final rgb =
+        hsvToRgb(hue, (colorSaturation ?? saturation).clamp(0.0, 1.0), 1);
     final b = brightness.clamp(0, 100);
     return scaleByBrightness(AmbientColor(rgb[0], rgb[1], rgb[2], b));
   }
@@ -255,8 +258,8 @@ class AmbientPalette {
   ///  and loud is warm.
   static double intensityHue(double level) {
     final t = level.clamp(0.0, 1.0);
-    return normalizeHue(intensityHueCold -
-        (intensityHueCold - intensityHueWarm) * t);
+    return normalizeHue(
+        intensityHueCold - (intensityHueCold - intensityHueWarm) * t);
   }
 
   /// Spectrum mode hue: circular mean weighted by band energy.
@@ -286,8 +289,7 @@ class AmbientPalette {
   ///
   /// Sensitivity 1 is linear. Above 1 the quiet parts light up too and the
   /// strip keeps up with the music; below 1 only loud passages light it.
-  static int brightnessFor(
-      double level, double sensitivity, int min, int max) {
+  static int brightnessFor(double level, double sensitivity, int min, int max) {
     final lo = min.clamp(0, 100);
     final hi = max.clamp(0, 100);
     if (hi <= lo) return lo;
@@ -360,8 +362,28 @@ class AmbientLightSettings {
   /// Colour mode, one of [AmbientPalette.modeBass] and friends.
   final int mode;
 
+  /// Whether the user explicitly chose [mode]. Old payloads always contain
+  /// the former bass default, so that legacy default migrates to spectrum.
+  final bool modeConfigured;
+
   /// Fixed hue in degrees, used by [AmbientPalette.modeFixed].
   final double fixedHue;
+
+  /// Spectrum-mode hue for the bass region.
+  final double bassHue;
+
+  /// Spectrum-mode hue for the voice/instrument region.
+  final double midHue;
+
+  /// Spectrum-mode hue for the percussion/air region.
+  final double trebleHue;
+
+  /// Explicit custom spectrum colours. A custom colour may share a hue with a
+  /// preset, so selection cannot be inferred by comparing hues alone.
+  final String bassCustom, midCustom, trebleCustom;
+
+  /// How long a stable predicted beat is written before its expected onset.
+  final int beatLeadMs;
 
   /// Curve exponent; higher means the quiet parts light up more.
   final double sensitivity;
@@ -380,8 +402,16 @@ class AmbientLightSettings {
 
   const AmbientLightSettings({
     this.enabled = false,
-    this.mode = AmbientPalette.modeBass,
+    this.mode = AmbientPalette.modeSpectrum,
+    this.modeConfigured = false,
     this.fixedHue = 210,
+    this.bassHue = 12,
+    this.midHue = 122,
+    this.trebleHue = 252,
+    this.bassCustom = '',
+    this.midCustom = '',
+    this.trebleCustom = '',
+    this.beatLeadMs = 140,
     this.sensitivity = 1.4,
     this.vehicleBrightness = 100,
     this.minBrightness = 15,
@@ -391,18 +421,37 @@ class AmbientLightSettings {
   factory AmbientLightSettings.fromJson(Map<String, dynamic>? json) {
     if (json == null) return const AmbientLightSettings();
     final mode = json['mode'];
+    final configured = json['modeConfigured'] == true;
+    final parsedMode = mode is num && mode.toInt() >= 0 && mode.toInt() <= 2
+        ? mode.toInt()
+        : AmbientPalette.modeSpectrum;
     return AmbientLightSettings(
       enabled: json['enabled'] == true,
-      mode: mode is num && mode.toInt() >= 0 && mode.toInt() <= 2
-          ? mode.toInt()
-          : AmbientPalette.modeBass,
+      mode: configured || parsedMode != AmbientPalette.modeBass
+          ? parsedMode
+          : AmbientPalette.modeSpectrum,
+      modeConfigured: configured,
       fixedHue: json['fixedHue'] is num
           ? AmbientPalette.normalizeHue((json['fixedHue'] as num).toDouble())
           : 210,
+      bassHue: json['bassHue'] is num
+          ? AmbientPalette.normalizeHue((json['bassHue'] as num).toDouble())
+          : 12,
+      midHue: json['midHue'] is num
+          ? AmbientPalette.normalizeHue((json['midHue'] as num).toDouble())
+          : 122,
+      trebleHue: json['trebleHue'] is num
+          ? AmbientPalette.normalizeHue((json['trebleHue'] as num).toDouble())
+          : 252,
+      bassCustom: _customColor(json['bassCustom']),
+      midCustom: _customColor(json['midCustom']),
+      trebleCustom: _customColor(json['trebleCustom']),
+      beatLeadMs: json['beatLeadMs'] is num
+          ? (json['beatLeadMs'] as num).toInt().clamp(0, 250)
+          : 140,
       sensitivity: json['sensitivity'] is num
-          ? (json['sensitivity'] as num)
-              .toDouble()
-              .clamp(AmbientPalette.minSensitivity, AmbientPalette.maxSensitivity)
+          ? (json['sensitivity'] as num).toDouble().clamp(
+              AmbientPalette.minSensitivity, AmbientPalette.maxSensitivity)
           : 1.4,
       vehicleBrightness: json['vehicleBrightness'] is num
           ? (json['vehicleBrightness'] as num).toInt().clamp(0, 100)
@@ -419,7 +468,15 @@ class AmbientLightSettings {
   Map<String, dynamic> toJson() => {
         'enabled': enabled,
         'mode': mode,
+        'modeConfigured': modeConfigured,
         'fixedHue': fixedHue.round(),
+        'bassHue': bassHue.round(),
+        'midHue': midHue.round(),
+        'trebleHue': trebleHue.round(),
+        'bassCustom': bassCustom,
+        'midCustom': midCustom,
+        'trebleCustom': trebleCustom,
+        'beatLeadMs': beatLeadMs,
         'sensitivity': double.parse(sensitivity.toStringAsFixed(2)),
         'vehicleBrightness': vehicleBrightness,
         'minBrightness': minBrightness,
@@ -429,7 +486,15 @@ class AmbientLightSettings {
   AmbientLightSettings copyWith({
     bool? enabled,
     int? mode,
+    bool? modeConfigured,
     double? fixedHue,
+    double? bassHue,
+    double? midHue,
+    double? trebleHue,
+    String? bassCustom,
+    String? midCustom,
+    String? trebleCustom,
+    int? beatLeadMs,
     double? sensitivity,
     int? vehicleBrightness,
     int? minBrightness,
@@ -438,7 +503,16 @@ class AmbientLightSettings {
       AmbientLightSettings(
         enabled: enabled ?? this.enabled,
         mode: mode ?? this.mode,
+        modeConfigured: modeConfigured ?? this.modeConfigured,
         fixedHue: fixedHue ?? this.fixedHue,
+        bassHue: bassHue ?? this.bassHue,
+        midHue: midHue ?? this.midHue,
+        trebleHue: trebleHue ?? this.trebleHue,
+        bassCustom: bassCustom ?? this.bassCustom,
+        midCustom: midCustom ?? this.midCustom,
+        trebleCustom: trebleCustom ?? this.trebleCustom,
+        beatLeadMs:
+            beatLeadMs == null ? this.beatLeadMs : beatLeadMs.clamp(0, 250),
         sensitivity: sensitivity ?? this.sensitivity,
         vehicleBrightness: vehicleBrightness ?? this.vehicleBrightness,
         minBrightness: minBrightness ?? this.minBrightness,
@@ -450,7 +524,15 @@ class AmbientLightSettings {
       other is AmbientLightSettings &&
       other.enabled == enabled &&
       other.mode == mode &&
+      other.modeConfigured == modeConfigured &&
       other.fixedHue == fixedHue &&
+      other.bassHue == bassHue &&
+      other.midHue == midHue &&
+      other.trebleHue == trebleHue &&
+      other.bassCustom == bassCustom &&
+      other.midCustom == midCustom &&
+      other.trebleCustom == trebleCustom &&
+      other.beatLeadMs == beatLeadMs &&
       other.sensitivity == sensitivity &&
       other.vehicleBrightness == vehicleBrightness &&
       other.minBrightness == minBrightness &&
@@ -460,9 +542,22 @@ class AmbientLightSettings {
   int get hashCode => Object.hash(
       enabled,
       mode,
+      modeConfigured,
       fixedHue,
+      bassHue,
+      midHue,
+      trebleHue,
+      bassCustom,
+      midCustom,
+      trebleCustom,
+      beatLeadMs,
       sensitivity,
       vehicleBrightness,
       minBrightness,
       maxBrightness);
+
+  static String _customColor(Object? value) =>
+      value is String && RegExp(r'^#[0-9A-Fa-f]{6}$').hasMatch(value)
+          ? value.toUpperCase()
+          : '';
 }

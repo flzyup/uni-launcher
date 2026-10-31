@@ -1,8 +1,12 @@
 import 'package:flutter/services.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:uni_launcher/model/appearance.dart';
 import 'package:uni_launcher/model/ambient_light.dart';
 import 'package:uni_launcher/platform/ambient_light.dart';
 import 'package:uni_launcher/platform/audio_spectrum.dart';
+import 'package:uni_launcher/theme/launcher_theme.dart';
+import 'package:uni_launcher/widgets/ambient_light_settings.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -44,7 +48,8 @@ void main() {
   tearDown(() {
     messenger.setMockMethodCallHandler(methods, null);
     messenger.setMockMethodCallHandler(spectrumMethods, null);
-    messenger.setMockMethodCallHandler(MethodChannel(spectrumEvents.name), null);
+    messenger.setMockMethodCallHandler(
+        MethodChannel(spectrumEvents.name), null);
   });
 
   group('AmbientPalette', () {
@@ -61,7 +66,8 @@ void main() {
     });
 
     test('a silent frame keeps the previous hue', () {
-      expect(AmbientPalette.bassHue(List.filled(24, 0), 123), closeTo(123, .001));
+      expect(
+          AmbientPalette.bassHue(List.filled(24, 0), 123), closeTo(123, .001));
       expect(AmbientPalette.spectrumHue(List.filled(24, 0), 123),
           closeTo(123, .001));
     });
@@ -170,12 +176,19 @@ void main() {
       const settings = AmbientLightSettings(
           enabled: true,
           mode: AmbientPalette.modeFixed,
+          modeConfigured: true,
           fixedHue: 330,
+          bassHue: 20,
+          bassCustom: '#20B2AA',
+          midHue: 130,
+          midCustom: '#87CEEB',
+          trebleHue: 260,
+          trebleCustom: '#FFB6C1',
+          beatLeadMs: 180,
           sensitivity: 2.2,
           minBrightness: 10,
           maxBrightness: 90);
-      final restored =
-          AmbientLightSettings.fromJson(settings.toJson());
+      final restored = AmbientLightSettings.fromJson(settings.toJson());
       expect(restored, settings);
     });
 
@@ -183,20 +196,42 @@ void main() {
       final settings = AmbientLightSettings.fromJson({
         'mode': 9,
         'fixedHue': 400,
+        'bassHue': 500,
+        'midHue': 130,
+        'trebleHue': 260,
+        'bassCustom': 'invalid',
+        'midCustom': '#87CEEB',
+        'trebleCustom': '#nope',
+        'beatLeadMs': 300,
         'sensitivity': 99,
         'minBrightness': -5,
         'maxBrightness': 500,
       });
-      expect(settings.mode, AmbientPalette.modeBass);
+      expect(settings.mode, AmbientPalette.modeSpectrum);
+      expect(settings.modeConfigured, isFalse);
+      expect(
+          AmbientLightSettings.fromJson({'mode': AmbientPalette.modeBass}).mode,
+          AmbientPalette.modeSpectrum);
+      expect(
+          AmbientLightSettings.fromJson(
+              {'mode': AmbientPalette.modeBass, 'modeConfigured': true}).mode,
+          AmbientPalette.modeBass);
       expect(settings.fixedHue, closeTo(40, .001));
+      expect(settings.bassHue, closeTo(140, .001));
+      expect(settings.midHue, closeTo(130, .001));
+      expect(settings.trebleHue, closeTo(260, .001));
+      expect(settings.bassCustom, isEmpty);
+      expect(settings.midCustom, '#87CEEB');
+      expect(settings.trebleCustom, isEmpty);
+      expect(settings.beatLeadMs, 250);
       expect(settings.sensitivity, AmbientPalette.maxSensitivity);
       expect(settings.minBrightness, 0);
       expect(settings.maxBrightness, 100);
     });
 
     test('a missing payload keeps the defaults', () {
-      expect(AmbientLightSettings.fromJson(null),
-          const AmbientLightSettings());
+      expect(AmbientLightSettings.fromJson(null), const AmbientLightSettings());
+      expect(const AmbientLightSettings().mode, AmbientPalette.modeSpectrum);
     });
   });
 
@@ -226,6 +261,11 @@ void main() {
       expect(spectrum.activeConsumers, 1);
       expect(calls.where((c) => c.method == 'enable').map((c) => c.arguments),
           [true]);
+      final initial =
+          calls.where((c) => c.method == 'color').single.arguments as Map;
+      expect(
+          (initial['r'] as int) + (initial['g'] as int) + (initial['b'] as int),
+          greaterThan(0));
     });
 
     test('switching off stops the capture and the strip', () async {
@@ -262,7 +302,8 @@ void main() {
       expect(service.spectrumReady, isTrue);
     });
 
-    test('the absolute brightness is written once when the strip is switched on',
+    test(
+        'the absolute brightness is written once when the strip is switched on',
         () async {
       await service.applySettings(const AmbientLightSettings(enabled: true));
       final brightness =
@@ -298,8 +339,7 @@ void main() {
       expect(calls.where((c) => c.method == 'color'), isEmpty);
     });
 
-    test('a native state push updates the capability and the reason',
-        () async {
+    test('a native state push updates the capability and the reason', () async {
       var notified = 0;
       service.addListener(() => notified++);
       await service.handleNativeCall(MethodCall('state', {
@@ -334,5 +374,100 @@ void main() {
       expect(service.reason, '氛围灯颜色功能号按名解析不到');
       expect(service.switchApplied, isFalse);
     });
+  });
+
+  testWidgets('rhythm colors use three compact custom-capable cards',
+      (t) async {
+    t.view.physicalSize = const Size(1920, 1080);
+    t.view.devicePixelRatio = 1;
+    final spectrum =
+        AudioSpectrumService(methods: spectrumMethods, events: spectrumEvents);
+    final service = AmbientLightService(methods: methods, spectrum: spectrum);
+    final changed = <AmbientLightSettings>[];
+    addTearDown(() {
+      service.dispose();
+      spectrum.dispose();
+      t.view.resetPhysicalSize();
+      t.view.resetDevicePixelRatio();
+    });
+    await t.pumpWidget(MaterialApp(
+        theme: launcherTheme(SurfaceStyle.from(const Appearance(), true)),
+        home: Scaffold(
+            body: SingleChildScrollView(
+                child: AmbientLightSettingsPanel(
+                    settings: const AmbientLightSettings(
+                        mode: AmbientPalette.modeSpectrum),
+                    service: service,
+                    onChanged: changed.add)))));
+    expect(find.text('氛围灯色彩'), findsOneWidget);
+    for (final label in ['低频', '中频', '高频']) {
+      expect(find.text(label), findsOneWidget);
+    }
+    final bass =
+        t.getTopLeft(find.byKey(const ValueKey('ambient-bass-custom')));
+    final mid = t.getTopLeft(find.byKey(const ValueKey('ambient-mid-custom')));
+    final treble =
+        t.getTopLeft(find.byKey(const ValueKey('ambient-treble-custom')));
+    final rowTop =
+        t.getTopLeft(find.byKey(const ValueKey('ambient-bass-color-30'))).dy;
+    for (final hue in [0, 330, 280, 210, 180, 120]) {
+      expect(
+          t
+              .getTopLeft(
+                  find.byKey(ValueKey('ambient-bass-color-${hue.toInt()}')))
+              .dy,
+          closeTo(rowTop, .1));
+    }
+    final customFinder = find.byKey(const ValueKey('ambient-bass-custom'));
+    expect(t.getTopLeft(customFinder).dy, closeTo(rowTop, 5));
+    BoxDecoration decoration(Finder finder) => t
+        .widget<Container>(
+            find.descendant(of: finder, matching: find.byType(Container)))
+        .decoration! as BoxDecoration;
+
+    // With no explicit custom colour the entry keeps the standard button tone.
+    final style = SurfaceStyle.of(t.element(customFinder));
+    expect(decoration(customFinder).color, style.soft);
+    await t.pumpWidget(MaterialApp(
+        theme: launcherTheme(SurfaceStyle.from(const Appearance(), true)),
+        home: Scaffold(
+            body: SingleChildScrollView(
+                child: AmbientLightSettingsPanel(
+                    settings: const AmbientLightSettings(
+                        mode: AmbientPalette.modeSpectrum,
+                        bassHue: 30,
+                        bassCustom: '#FFB000'),
+                    service: service,
+                    onChanged: changed.add)))));
+    // Even when the custom colour shares a hue with a preset, the explicit
+    // custom marker wins and the custom entry shows the exact chosen colour.
+    expect(decoration(customFinder).color, const Color(0xFFFFB000));
+    await t.pumpWidget(MaterialApp(
+        theme: launcherTheme(SurfaceStyle.from(const Appearance(), true)),
+        home: Scaffold(
+            body: SingleChildScrollView(
+                child: AmbientLightSettingsPanel(
+                    settings: const AmbientLightSettings(
+                        mode: AmbientPalette.modeSpectrum, bassHue: 30),
+                    service: service,
+                    onChanged: changed.add)))));
+    expect(decoration(customFinder), isNotNull);
+    expect(decoration(customFinder).color, style.soft);
+    expect(bass.dx, lessThan(mid.dx));
+    expect(mid.dx, lessThan(treble.dx));
+    await t.scrollUntilVisible(
+        find.byKey(const ValueKey('ambient-bass-custom')), 1000,
+        scrollable: find.byType(Scrollable).first, maxScrolls: 1000);
+    await t.tap(find.byKey(const ValueKey('ambient-bass-custom')));
+    await t.pumpAndSettle();
+    expect(find.text('自定义低频颜色'), findsOneWidget);
+    await t.tap(find.byKey(const ValueKey('standard-color-#F44336')));
+    await t.pump();
+    await t.tap(find.text('应用颜色'));
+    await t.pumpAndSettle();
+    expect(changed, isNotEmpty);
+    expect(changed.last.bassHue, closeTo(4.1, .1));
+    expect(changed.last.bassCustom, '#F44336');
+    expect(t.takeException(), isNull);
   });
 }
