@@ -10,6 +10,7 @@ import 'package:uni_launcher/theme/technical_frame.dart';
 import 'package:uni_launcher/widgets/bottom_dock.dart';
 import 'package:uni_launcher/widgets/launcher_dialog.dart';
 import 'package:uni_launcher/widgets/glass_surface.dart';
+import 'package:uni_launcher/widgets/audio_spectrum.dart';
 import 'package:uni_launcher/widgets/card_content.dart';
 import 'package:uni_launcher/model/card_layout.dart';
 import 'package:uni_launcher/widgets/lyrics_view.dart';
@@ -17,6 +18,7 @@ import 'fake_gateway.dart';
 import 'package:uni_launcher/widgets/recent_tasks_panel.dart';
 import 'package:uni_launcher/widgets/uni_icon.dart';
 import 'package:uni_launcher/widgets/desktop.dart';
+import 'package:uni_launcher/widgets/editable_card.dart';
 
 void main() {
   Future<(LauncherController, FakeGateway)> setup(WidgetTester t,
@@ -134,6 +136,7 @@ void main() {
   testWidgets('all-app pressed material exactly matches the icon frame',
       (t) async {
     final (c, _) = await setup(t);
+    c.beginEdit();
     await t.pumpWidget(MaterialApp(
         theme: launcherTheme(SurfaceStyle.from(const Appearance(), true)),
         home: Scaffold(
@@ -405,8 +408,7 @@ void main() {
     expect(home().active, false);
   });
 
-  testWidgets(
-      'music card sizes keep lyrics only in 4x4 and 8x6 with metadata on left',
+  testWidgets('music card layouts put lyrics and spectrum by card size',
       (t) async {
     final (c, _) = await setup(t);
     for (final size in [
@@ -414,6 +416,8 @@ void main() {
       (4, 2, 600.0, 240.0),
       (4, 3, 600.0, 390.0),
       (4, 4, 600.0, 530.0),
+      (4, 5, 600.0, 690.0),
+      (4, 6, 600.0, 820.0),
       (8, 6, 1200.0, 800.0)
     ]) {
       final card = LauncherCard(
@@ -428,22 +432,57 @@ void main() {
       await t.pumpAndSettle();
       expect(find.text('测试播放器'), findsOneWidget);
       expect(find.text('正在播放'), findsOneWidget);
-      if (size.$2 < 4) {
+      if (size.$2 <= 3) {
         expect(find.byType(LyricsView), findsNothing);
+        if (size.$2 == 2) expect(find.byType(AudioSpectrum), findsNothing);
         await t.tap(find.byKey(const ValueKey('media-source-entry')));
         expect(c.gateway, isA<FakeGateway>());
         expect((c.gateway as FakeGateway).commands.last['action'],
             'launch-player');
       } else {
         expect(find.byKey(const ValueKey('music-card-lyrics')), findsOneWidget);
+        expect(find.byKey(const ValueKey('music-card-lyrics-fade')),
+            findsOneWidget);
+        expect(find.byType(AudioSpectrum), findsOneWidget);
+        final lyrics =
+            t.getCenter(find.byKey(const ValueKey('music-card-lyrics')));
+        final metadata =
+            t.getCenter(find.byKey(const ValueKey('music-card-metadata')));
+        if (size.$1 == 4 && size.$2 >= 5) {
+          expect(lyrics.dy, greaterThan(metadata.dy));
+        } else {
+          expect(lyrics.dx, greaterThan(metadata.dx));
+        }
         expect(
-            t.getCenter(find.byKey(const ValueKey('music-card-lyrics'))).dx,
-            greaterThan(t
-                .getCenter(find.byKey(const ValueKey('music-card-metadata')))
-                .dx));
+            t.getCenter(find.byType(AudioSpectrum)).dy, greaterThan(lyrics.dy));
       }
       expect(t.takeException(), isNull);
     }
+  });
+
+  testWidgets('music edit strip retains source and playing title', (t) async {
+    final (c, _) = await setup(t);
+    c.beginEdit();
+    await t.pumpWidget(MaterialApp(
+        theme: launcherTheme(SurfaceStyle.from(const Appearance(), true)),
+        home: Scaffold(
+            body: SizedBox(
+                width: 600,
+                height: 400,
+                child: EditableCard(
+                    card: const LauncherCard(
+                        'music-edit', 'music', '正在播放', 0, 0, 4, 3, 0),
+                    controller: c,
+                    unitX: 150,
+                    unitY: 100)))));
+    await t.pumpAndSettle();
+    expect(find.text('测试播放器'), findsOneWidget);
+    expect(find.text('正在播放'), findsOneWidget);
+    final title = t.getRect(find.byKey(const ValueKey('media-source-entry')));
+    expect(title.top, lessThan(70));
+    expect(find.byKey(const ValueKey('music-app-picker')).hitTestable(),
+        findsNothing);
+    expect(t.takeException(), isNull);
   });
 
   testWidgets(
