@@ -39,8 +39,14 @@ void main() {
     expect(custom.wallpaperPath, '/data/user/wall.jpg');
     expect(custom.wallpaperLuminance, .24);
     expect(Appearance.fromJson({'wallpaper': 'invalid'}).wallpaper, 'gradient');
-    expect(Appearance.fromJson({'wallpaperOverlay': true}).toJson(),
-        isNot(contains('wallpaperOverlay')));
+    expect(const Appearance().wallpaperOverlay, isFalse);
+    expect(Appearance.fromJson({'wallpaperOverlay': true}).wallpaperOverlay,
+        isTrue);
+    expect(
+        Appearance.fromJson(
+                const Appearance().copyWith(wallpaperOverlay: true).toJson())
+            .wallpaperOverlay,
+        isTrue);
   });
   test('smart contrast follows wallpaper while manual themes remain explicit',
       () {
@@ -140,6 +146,9 @@ void main() {
     final firstPage = defaultCards().where((card) => card.page == 0).toList();
     expect(
         firstPage.map((card) => card.type), ['nav', 'music', 'trafficLight']);
+    final body = defaultCards().singleWhere((card) => card.type == 'body');
+    expect((body.page, body.x, body.y, body.w, body.h), (1, 0, 0, 4, 3));
+    expect(defaultCards().any((card) => card.type == 'tpms'), isFalse);
     final clockWeather =
         defaultCards().singleWhere((card) => card.type == 'clockWeather');
     expect((

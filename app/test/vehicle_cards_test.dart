@@ -89,7 +89,7 @@ void main() {
       'nav',
       'music',
       'trafficLight',
-      'tpms',
+      'body',
       'battery',
       'clockWeather',
       'shortcuts',

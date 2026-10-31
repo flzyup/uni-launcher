@@ -102,7 +102,7 @@ List<LauncherCard> defaultCards() => const [
       LauncherCard('nav-1', 'nav', '导航', 0, 0, 8, 6, 0),
       LauncherCard('music-1', 'music', '正在播放', 8, 0, 4, 4, 0),
       LauncherCard('traffic-light-1', 'trafficLight', '红绿灯', 8, 4, 4, 2, 0),
-      LauncherCard('tpms-1', 'tpms', '胎压', 0, 0, 4, 3, 1),
+      LauncherCard('body-1', 'body', '车况与胎压', 0, 0, 4, 3, 1),
       LauncherCard('battery-1', 'battery', '动力电池', 4, 0, 4, 3, 1),
       LauncherCard('clock-weather-1', 'clockWeather', '时钟与天气', 8, 0, 4, 3, 1,
           layout: 'combined'),
