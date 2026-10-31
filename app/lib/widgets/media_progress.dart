@@ -62,46 +62,38 @@ class _MediaProgressState extends State<MediaProgress> {
         t.durationMs > 0;
     final shown = dragging?.round() ?? p;
     return Column(children: [
-      if (canSeek)
-        SizedBox(
-          height: Design.px(28),
-          child: SliderTheme(
-            data: SliderTheme.of(context).copyWith(
-              trackHeight: Design.px(4),
-              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
-              overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
-              activeTrackColor: s.accent,
-              inactiveTrackColor: s.edge,
-              thumbColor: s.accent,
-            ),
-            child: Slider(
-              key: const ValueKey('media-seek'),
-              min: 0,
-              max: t.durationMs.toDouble(),
-              value: shown.toDouble().clamp(0, t.durationMs.toDouble()),
-              semanticFormatterCallback: (v) => time(v.round()),
-              onChanged: (v) => setState(() => dragging = v),
-              onChangeEnd: (v) {
-                widget.onSeek!(v.round());
-                setState(() => dragging = null);
-              },
-            ),
+      SizedBox(
+        height: Design.px(28),
+        child: SliderTheme(
+          data: SliderTheme.of(context).copyWith(
+            trackHeight: Design.px(4),
+            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
+            overlayShape: const RoundSliderOverlayShape(overlayRadius: 14),
+            activeTrackColor: s.accent,
+            inactiveTrackColor: s.edge,
+            thumbColor: s.accent,
+            disabledActiveTrackColor: s.accent,
+            disabledInactiveTrackColor: s.edge,
+            disabledThumbColor: s.accent,
           ),
-        )
-      else
-        ClipRRect(
-            borderRadius: BorderRadius.circular(Design.px(4)),
-            child: SizedBox(
-                width: double.infinity,
-                height: Design.px(4),
-                child: Stack(fit: StackFit.expand, children: [
-                  ColoredBox(color: s.edge),
-                  if (t.known && t.durationMs > 0)
-                    FractionallySizedBox(
-                        alignment: Alignment.centerLeft,
-                        widthFactor: (p / t.durationMs).clamp(0, 1),
-                        child: ColoredBox(color: s.accent))
-                ]))),
+          child: Slider(
+            key: const ValueKey('media-seek'),
+            min: 0,
+            max: t.durationMs > 0 ? t.durationMs.toDouble() : 1,
+            value: t.known && t.durationMs > 0
+                ? shown.toDouble().clamp(0, t.durationMs.toDouble())
+                : 0,
+            semanticFormatterCallback: (v) => time(v.round()),
+            onChanged: canSeek ? (v) => setState(() => dragging = v) : null,
+            onChangeEnd: canSeek
+                ? (v) {
+                    widget.onSeek!(v.round());
+                    setState(() => dragging = null);
+                  }
+                : null,
+          ),
+        ),
+      ),
       SizedBox(height: Design.px(11)),
       Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
         for (final label in [

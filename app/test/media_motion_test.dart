@@ -187,12 +187,14 @@ void main() {
 
     await display(true);
     final slider = find.byKey(const ValueKey('media-seek'));
+    final position = t.getRect(slider);
     await t.drag(slider, const Offset(200, 0));
     await t.pumpAndSettle();
     expect(positions.length, 1);
     expect(positions.single, inInclusiveRange(10000, 180000));
     await display(false);
-    expect(find.byType(Slider), findsNothing);
+    expect(t.widget<Slider>(slider).onChanged, isNull);
+    expect(t.getRect(slider), position);
     expect(positions.length, 1);
   });
   test('Transition preference has a safe default and round trips', () {
@@ -245,7 +247,7 @@ void main() {
     expect(c.page, 0);
     expect(t.getRect(indicator).left, greaterThan(start));
     expect(t.getRect(nav).left, lessThan(navStart - 300));
-    expect(find.byKey(const ValueKey('tpms-1')), findsOneWidget);
+    expect(find.byKey(const ValueKey('body-1')), findsOneWidget);
     expect(t.getRect(find.byKey(const ValueKey('bottom-dock'))), dockBefore);
     await gesture.up();
     await t.pumpAndSettle();
@@ -259,11 +261,11 @@ void main() {
       await t.pump();
       if (effect != 'none') {
         await t.pump(const Duration(milliseconds: 90));
-        expect(find.byKey(const ValueKey('tpms-1')), findsOneWidget);
+        expect(find.byKey(const ValueKey('body-1')), findsOneWidget);
       }
       await t.pumpAndSettle();
       expect(find.byKey(const ValueKey('nav-1')), findsOneWidget);
-      expect(find.byKey(const ValueKey('tpms-1')), findsNothing);
+      expect(find.byKey(const ValueKey('body-1')), findsNothing);
       await c.switchPage(1);
       await t.pumpAndSettle();
     }
