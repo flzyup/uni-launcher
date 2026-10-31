@@ -518,6 +518,51 @@ void main() {
         true);
   });
 
+  testWidgets('locked recent tasks cannot be swiped away', (t) async {
+    final (c, g) = await setup(t, host: 'global-panel', global: true);
+    g.state['globalDock'] = {
+      'enabled': true,
+      'running': true,
+      'allowed': true,
+      'panel': 'recents',
+      'recentsReady': true,
+      'recentsClearSupported': true
+    };
+    g.state['recentTasks'] = [
+      {'taskId': 51, 'package': 'locked.app', 'label': '锁定应用', 'locked': true}
+    ];
+    g.stream.add(Map.of(g.state));
+    await t.pumpWidget(MaterialApp(
+        theme: launcherTheme(SurfaceStyle.from(const Appearance(), true)),
+        home: const Scaffold(body: SizedBox(width: 1920, height: 984))));
+    await t.pump();
+    await t.pumpWidget(MaterialApp(
+        theme: launcherTheme(SurfaceStyle.from(const Appearance(), true)),
+        home: SizedBox(
+            width: 1920, height: 984, child: RecentTasksPanel(controller: c))));
+    await t.pumpAndSettle();
+    expect(find.byKey(const ValueKey('recent-task-lock-51')), findsOneWidget);
+    g.commands.clear();
+    final card = find.byKey(const ValueKey('recent-task-51'));
+    final before = t.getCenter(card);
+    final gesture = await t.startGesture(before);
+    await gesture.moveBy(const Offset(0, -40));
+    await t.pump();
+    await gesture.moveBy(const Offset(0, -150));
+    await t.pump();
+    expect(t.getCenter(card).dy, lessThan(before.dy));
+    await gesture.up();
+    await t.pumpAndSettle();
+    expect(t.getCenter(card).dy, closeTo(before.dy, 1));
+    expect(
+        g.commands.where((a) => a['action'] == 'remove-recent-task'), isEmpty);
+    await t.tap(find.byKey(const ValueKey('recent-task-lock-51')));
+    await t.pumpAndSettle();
+    expect(g.commands.last['action'], 'toggle-recent-lock');
+    expect(g.commands.last['value'], '51');
+    expect(t.takeException(), isNull);
+  });
+
   testWidgets('music title opens player and bottom dock selects global panel',
       (t) async {
     final (c, g) = await setup(t, global: true);
