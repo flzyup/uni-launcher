@@ -172,7 +172,12 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
 
   /// Payloads that Android sends on bootstrap and on change, never with every
   /// telemetry tick. A partial packet omits them and the last copy is retained.
-  static const _carriedKeys = ['apps', 'recentTasks', 'savedDesign', 'appNames'];
+  static const _carriedKeys = [
+    'apps',
+    'recentTasks',
+    'savedDesign',
+    'appNames'
+  ];
   static const _carriedMedia = ['artwork', 'lyrics'];
 
   void _receive(Map<String, dynamic> incoming) {
@@ -214,8 +219,7 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
     final keepRecents = !(partial && !incoming.containsKey('recentTasks'));
     if (keepIcons) _icons.begin(previous['apps'], const ['icon']);
     if (keepRecents) {
-      _recentImages
-          .begin(previous['recentTasks'], const ['icon', 'snapshot']);
+      _recentImages.begin(previous['recentTasks'], const ['icon', 'snapshot']);
     }
     final apps = state['apps'];
     if (keepIcons && apps is List) {
@@ -460,7 +464,9 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> switchPage(int value) async {
-    final target = value.clamp(0, pageCount - 1), request = ++_pageRequest;
+    // pageCount itself is the transient trailing library page. It is not part
+    // of pageCount until a card is actually placed there.
+    final target = value.clamp(0, pageCount).toInt(), request = ++_pageRequest;
     if (target == page) return;
     // Page selection is intentionally a small one-way platform call. Sending
     // it through the general action channel publishes a complete vehicle
@@ -492,6 +498,12 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
     _backupPages = pageCount;
     editing = true;
     settings = false;
+    notifyListeners();
+  }
+
+  void beginEditAtEnd() {
+    beginEdit();
+    _setPage(pageCount);
     notifyListeners();
   }
 

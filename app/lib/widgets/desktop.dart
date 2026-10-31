@@ -126,7 +126,9 @@ class _HeaderState extends State<Header> {
               ])),
           if (widget.position != null && !widget.controller.settings)
             _DesktopPageIndicator(
-                controller: widget.controller, position: widget.position!),
+                controller: widget.controller,
+                position: widget.position!,
+                pageCount: widget.controller.pageCount + 1),
         ]));
   }
 }
@@ -194,7 +196,8 @@ class _DesktopState extends State<Desktop> with _DesktopDrag {
     final c = controller;
     // Keep pages and live map textures mounted while the workspace animates.
     final grids = <Widget>[
-      for (int page = 0; page < c.pageCount; page++) _grid(context, page)
+      for (int page = 0; page < c.pageCount; page++) _grid(context, page),
+      if (c.pageCount < 20) _grid(context, c.pageCount, scratch: true),
     ];
     // Page changes use a dedicated signal. Header, dock, theme, inactive cards
     // and the MaterialApp no longer rebuild for every swipe.
@@ -212,6 +215,7 @@ class _DesktopState extends State<Desktop> with _DesktopDrag {
                       controller: c,
                       pagerKey: _pagerKey,
                       position: _pagePosition,
+                      displayPageCount: grids.length,
                       grids: [
                         for (int i = 0; i < grids.length; i++)
                           EmbeddedContentPolicy(
@@ -227,7 +231,7 @@ class _DesktopState extends State<Desktop> with _DesktopDrag {
         ]));
   }
 
-  Widget _grid(BuildContext context, int page) {
+  Widget _grid(BuildContext context, int page, {bool scratch = false}) {
     final c = controller;
     return LayoutBuilder(builder: (context, box) {
       const gap = 20.0;
@@ -264,8 +268,12 @@ class _DesktopState extends State<Desktop> with _DesktopDrag {
                   child: Center(
                       child: OutlinedButton.icon(
                           onPressed: () {
-                            if (!c.editing) c.beginEdit();
-                            showCardLibrary(context, c);
+                            if (!c.editing) {
+                              c.beginEditAtEnd();
+                            } else if (scratch) {
+                              unawaited(c.switchPage(page));
+                            }
+                            if (context.mounted) showCardLibrary(context, c);
                           },
                           icon: const Icon(Icons.add),
                           label: const Text('添加一张卡片')))),
@@ -337,11 +345,13 @@ class _DesktopStaticLayers extends StatelessWidget {
   final List<Widget> grids;
   final GlobalKey<DesktopPageStackState> pagerKey;
   final ValueNotifier<double> position;
+  final int displayPageCount;
   const _DesktopStaticLayers(
       {required this.controller,
       required this.grids,
       required this.pagerKey,
-      required this.position});
+      required this.position,
+      required this.displayPageCount});
   @override
   Widget build(BuildContext context) {
     final c = controller;
@@ -385,11 +395,13 @@ class _DesktopStaticLayers extends StatelessWidget {
                                   key: const ValueKey('cancel-edit'),
                                   onPressed: c.cancelEdit,
                                   child: const Text('取消')),
+                              SizedBox(width: Design.px(14)),
                               TextButton.icon(
                                   key: const ValueKey('add-card'),
                                   onPressed: () => showCardLibrary(context, c),
                                   icon: const Icon(Icons.add),
                                   label: const Text('添加卡片')),
+                              SizedBox(width: Design.px(14)),
                               FilledButton(
                                   key: const ValueKey('finish-edit'),
                                   onPressed: c.finishEdit,
@@ -411,8 +423,11 @@ class _DesktopStaticLayers extends StatelessWidget {
 class _DesktopPageIndicator extends StatelessWidget {
   final LauncherController controller;
   final ValueNotifier<double> position;
+  final int pageCount;
   const _DesktopPageIndicator(
-      {required this.controller, required this.position});
+      {required this.controller,
+      required this.position,
+      required this.pageCount});
   @override
   Widget build(BuildContext context) {
     final c = controller,
@@ -427,10 +442,10 @@ class _DesktopPageIndicator extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               SizedBox(
-                  width: slot * c.pageCount,
+                  width: slot * pageCount,
                   height: Design.px(16),
                   child: Stack(children: [
-                    for (int i = 0; i < c.pageCount; i++)
+                    for (int i = 0; i < pageCount; i++)
                       Positioned(
                           left: slot * i + (slot - dot) / 2,
                           top: Design.px(4),
@@ -461,7 +476,7 @@ class _DesktopPageIndicator extends StatelessWidget {
                                         color: s.accent,
                                         borderRadius:
                                             BorderRadius.circular(dot / 2)))))),
-                    for (int i = 0; i < c.pageCount; i++)
+                    for (int i = 0; i < pageCount; i++)
                       Positioned(
                           left: slot * i,
                           width: slot,
