@@ -12,10 +12,11 @@ public final class NavigationChrome {
     private final SharedPreferences prefs;
     public NavigationChrome(Activity activity, SharedPreferences prefs) { this.activity=activity; this.prefs=prefs; }
     public void apply() {
-        boolean nativeInsets=prefs.getBoolean("uniNativeInsetsApplied",false);
-        boolean hide = !nativeInsets&&(prefs.getBoolean("hideNavigation", false) || prefs.getBoolean("systemNavigationHidden", false));
+        boolean hide = prefs.getBoolean("hideNavigation", false) || prefs.getBoolean("systemNavigationHidden", false);
         activity.getWindow().getDecorView().setSystemUiVisibility(hide
             ? View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_FULLSCREEN : 0);
+        activity.getWindow().getDecorView().requestApplyInsets();
+        activity.getWindow().getDecorView().requestLayout();
         if (!prefs.getBoolean("globalNavigation", false) && !prefs.contains("savedPolicy")) return;
         if (activity.checkSelfPermission("android.permission.WRITE_SECURE_SETTINGS") != PackageManager.PERMISSION_GRANTED) return;
         try {

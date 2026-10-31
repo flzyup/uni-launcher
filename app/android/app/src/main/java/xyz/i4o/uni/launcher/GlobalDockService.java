@@ -90,9 +90,8 @@ public final class GlobalDockService extends Service {
         String a=r.optString("action");SharedPreferences p=c.getSharedPreferences("launcher",0);
         LauncherRuntime rt=LauncherRuntime.get(c);
         if("global-dock".equals(a)){
-            boolean on=r.optBoolean("enabled"),was=p.getBoolean("globalDockEnabled",false);
-            SharedPreferences.Editor edit=p.edit().putBoolean("globalDockEnabled",on);
-            if(on&&!was)edit.putBoolean("systemNavigationHidden",true);edit.apply();
+            boolean on=r.optBoolean("enabled");
+            p.edit().putBoolean("globalDockEnabled",on).apply();
             if(on){
                 if(!Settings.canDrawOverlays(c)){try{c.startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,Uri.parse("package:"+c.getPackageName())).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));}catch(RuntimeException e){toast(c,"请在系统设置允许 UNI 显示在其他应用上层");}}
                 else ensureStarted(c);
@@ -100,6 +99,7 @@ public final class GlobalDockService extends Service {
                 c.stopService(new Intent(c,GlobalDockService.class));
                 disableBarModifications(c,p);
             }
+            MainActivity.refreshNavigationChrome(p.getBoolean("systemNavigationHidden",false));
             rt.publish();return true;
         }
         if("system-navigation-hidden".equals(a)){
@@ -108,7 +108,15 @@ public final class GlobalDockService extends Service {
                 else{active.dismissPanel();NavigationInsets.restore(c,p);}
             }
             if(!SystemNavigationPolicy.setHidden(c,p,r.optBoolean("enabled")))toast(c,"当前系统未允许管理原有导航栏");
-            if(active!=null)active.update();rt.publish();return true;
+            MainActivity.refreshNavigationChrome(r.optBoolean("enabled"));
+            if(active!=null){
+                active.update();
+                // Overlay-resource changes settle asynchronously on Android 9.
+                // Re-read dimensions after policy refresh without restarting engines.
+                GlobalDockService service=active;
+                service.main.postDelayed(()->{if(active==service)service.update();},400);
+            }
+            rt.publish();return true;
         }
         if("show-dock-panel".equals(a)){
             if(active!=null)active.showPanel(r.optString("value"));return true;
@@ -165,8 +173,12 @@ public final class GlobalDockService extends Service {
     private static void disableBarModifications(Context c,SharedPreferences p){
         if(OverscanPolicy.applied(c))OverscanPolicy.apply(c,p,false);
         new WorkspacePolicy(c,p).stopAndRestore();
-        SystemNavigationPolicy.setHidden(c,p,false);
         NavigationInsets.restore(c,p);
+        // The system navigation switch is independent from the global dock.
+        // Keep its chosen state when only the dock is stopped.
+        boolean hidden=p.getBoolean("systemNavigationHidden",false);
+        SystemNavigationPolicy.setHidden(c,p,hidden);
+        MainActivity.refreshNavigationChrome(hidden);
     }
     private static void stopAndRestore(Context c){
         SharedPreferences p=c.getSharedPreferences("launcher",0);
@@ -190,7 +202,7 @@ public final class GlobalDockService extends Service {
     private void startWindows(){
         if(dockWindow!=null)return;
         enableBarModifications(this,runtime.prefs());nativeInsets=NavigationInsets.applied(this);
-        workspace=new WorkspacePolicy(this,runtime.prefs(),nativeInsets);
+        workspace=new WorkspacePolicy(this,runtime.prefs());
         if(nativeInsets)workspace.stopAndRestore();
         workspace.start();
         try{dockWindow=new OverlayWindow(false);}catch(RuntimeException e){
@@ -268,9 +280,9 @@ public final class GlobalDockService extends Service {
         }
         private boolean setBounds(){
             DisplayMetrics real=new DisplayMetrics();windows.getDefaultDisplay().getRealMetrics(real);
-            int bar=Math.round(real.widthPixels*96f/1920f);
-            int h=isPanel?real.heightPixels-bar:bar;
-            int y=isPanel?0:real.heightPixels-bar;
+            int bar=WorkspacePolicy.dockHeight(GlobalDockService.this,runtime.prefs());
+            int y=isPanel?0:WorkspacePolicy.dockTop(GlobalDockService.this,runtime.prefs());
+            int h=isPanel?WorkspacePolicy.dockTop(GlobalDockService.this,runtime.prefs()):bar;
             boolean changed=bounds.width!=real.widthPixels||bounds.height!=h||bounds.x!=0||bounds.y!=y;
             bounds.width=real.widthPixels;bounds.height=h;bounds.x=0;bounds.y=y;return changed;
         }
@@ -424,7 +436,7 @@ public final class GlobalDockService extends Service {
         if(dockWindow==null)return;
         if(!Settings.canDrawOverlays(this)){stopSelf();return;}
         if(runtime.homeVisible())cameraSuspended=false;
-        visible=!cameraSuspended&&(!nativeInsets||runtime.prefs().getBoolean("systemNavigationHidden",false));
+        visible=!cameraSuspended;
         dockWindow.updateBounds();dockWindow.show(visible);
         if(panelWindow!=null){panelWindow.updateBounds();panelWindow.show(visible&&!panel.isEmpty());}
         publish();
@@ -468,7 +480,12 @@ public final class GlobalDockService extends Service {
         });
     }
     @Override public int onStartCommand(Intent intent,int flags,int id){
-        if(intent!=null&&(STOP.equals(intent.getAction())||RESTORE.equals(intent.getAction()))){stopAndRestore(this);stopSelf();return START_NOT_STICKY;}
+        if(intent!=null&&STOP.equals(intent.getAction())){stopAndRestore(this);stopSelf();return START_NOT_STICKY;}
+        if(intent!=null&&RESTORE.equals(intent.getAction())){
+            try{handleCommand(this,new JSONObject().put("action","system-navigation-hidden").put("enabled",false));}
+            catch(Exception e){android.util.Log.w("UniDock","Unable to restore system navigation",e);}
+            return START_STICKY;
+        }
         return START_STICKY;
     }
     @Override public void onConfigurationChanged(android.content.res.Configuration config){super.onConfigurationChanged(config);update();}

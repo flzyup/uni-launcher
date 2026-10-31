@@ -53,12 +53,27 @@ public final class WorkspacePolicy {
     public void start(){running=true;handler.post(check);}
     public boolean available(){return available;}
     public int resized(){return resized;}
+    public static int systemBarHeight(Context c,SharedPreferences p){
+        if(p.getBoolean("systemNavigationHidden",false))return 0;
+        android.content.res.Resources r=c.getResources();
+        int id=r.getIdentifier("navigation_bar_height_landscape","dimen","android");
+        if(id==0)id=r.getIdentifier("navigation_bar_height","dimen","android");
+        return id==0?0:r.getDimensionPixelSize(id);
+    }
+    public static int dockHeight(Context c,SharedPreferences p){
+        DisplayMetrics real=new DisplayMetrics();((WindowManager)c.getSystemService(Context.WINDOW_SERVICE)).getDefaultDisplay().getRealMetrics(real);
+        return Math.round(real.widthPixels*96f/1920f);
+    }
+    public static int dockTop(Context c,SharedPreferences p){
+        DisplayMetrics real=new DisplayMetrics();((WindowManager)c.getSystemService(Context.WINDOW_SERVICE)).getDefaultDisplay().getRealMetrics(real);
+        return Math.max(0,real.heightPixels-dockHeight(c,p)-systemBarHeight(c,p));
+    }
     private void resize(int id,Rect bounds)throws Exception{resize.invoke(manager,id,bounds,true,true,false,-1);}
     private void update(){
         if(!available)return;
         try{
             DisplayMetrics real=new DisplayMetrics();((WindowManager)context.getSystemService(Context.WINDOW_SERVICE)).getDefaultDisplay().getRealMetrics(real);
-            Rect target=new Rect(0,0,real.widthPixels,real.heightPixels-Math.round(real.widthPixels*96f/1920f));
+            Rect target=new Rect(0,0,real.widthPixels,dockTop(context,prefs));
             for(Object info:(List<?>)stacks.invoke(manager)){
                 Class<?> t=info.getClass();
                 if(t.getField("displayId").getInt(info)!=0)continue;
@@ -78,7 +93,9 @@ public final class WorkspacePolicy {
                 // Preserve floating, split-screen or PIP tasks; never resize a
                 // map's virtual display, SystemUI window or unrelated small task.
                 if(bounds==null||bounds.left!=0||bounds.top!=0||bounds.width()!=real.widthPixels
-                    ||(bounds.height()!=real.heightPixels&&!bounds.equals(target)))continue;
+                    ||(bounds.height()!=real.heightPixels&&!bounds.equals(target)
+                       &&bounds.height()!=real.heightPixels-Math.round(real.widthPixels*96f/1920f)
+                       &&!originals.has(""+id)))continue;
                 if(bounds.equals(target))continue;
                 String key=""+id;
                 if(!originals.has(key)){

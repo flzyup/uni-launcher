@@ -65,7 +65,8 @@ class _LauncherShellState extends State<LauncherShell> {
                     final globalDock = controller.native.value['globalDock'];
                     final globalDockActive = globalDock is Map &&
                         globalDock['enabled'] == true &&
-                        globalDock['running'] == true;
+                        globalDock['running'] == true &&
+                        globalDock['visible'] == true;
                     final height = nativeHeight != null && nativeHeight > 0
                         ? (nativeHeight /
                                 MediaQuery.devicePixelRatioOf(context))
@@ -82,8 +83,8 @@ class _LauncherShellState extends State<LauncherShell> {
                         'settings': controller.settings
                       });
                       final pending = metrics;
-                      WidgetsBinding.instance
-                          .addPostFrameCallback((_) => _reportViewport(pending));
+                      WidgetsBinding.instance.addPostFrameCallback(
+                          (_) => _reportViewport(pending));
                     }
                     return Align(
                         alignment: Alignment.topCenter,
@@ -110,8 +111,7 @@ class _LauncherShellState extends State<LauncherShell> {
                                                     controller: controller,
                                                     position: pagePosition)),
                                             controller.settings
-                                                ? SettingsScreen(
-                                                    controller: controller)
+                                                ? SettingsScreen(controller: controller)
                                                 : const SizedBox.shrink(),
                                           ])),
                                       if (!globalDockActive)

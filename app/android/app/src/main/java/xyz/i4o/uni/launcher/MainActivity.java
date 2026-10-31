@@ -29,6 +29,14 @@ import xyz.i4o.uni.launcher.platform.LiveNavigationHost;
 /** Home window and Flutter bridge; shared integrations live in LauncherRuntime. */
 public final class MainActivity extends FlutterActivity {
     private static java.lang.ref.WeakReference<MainActivity> active=new java.lang.ref.WeakReference<>(null);
+    public static void refreshNavigationChrome(boolean systemNavHidden){
+        MainActivity a=active.get();
+        if(a!=null)a.runOnUiThread(()->{
+            if(a.chrome!=null)a.chrome.apply();
+            if(!systemNavHidden)a.recreate(); // Android 9 keeps the resized app bounds unless the activity is rebuilt.
+            a.publish();
+        });
+    }
     private LauncherRuntime rt;
     private xyz.i4o.uni.launcher.audio.SpectrumBridge spectrumBridge;
     private NavigationChrome chrome;
@@ -171,12 +179,12 @@ public final class MainActivity extends FlutterActivity {
             if(insets!=null&&insets.getStableInsetBottom()>0)reservedBottomPx=insets.getStableInsetBottom();
             if(content!=null&&content.getHeight()>0){
                 int usable=content.getHeight();
+                android.util.DisplayMetrics real=new android.util.DisplayMetrics();getWindowManager().getDefaultDisplay().getRealMetrics(real);
                 if(!rt.prefs().getBoolean("hideNavigation",false)&&!rt.prefs().getBoolean("systemNavigationHidden",false)
-                    &&decor.getHeight()>reservedBottomPx)
-                    usable=Math.min(usable,decor.getHeight()-reservedBottomPx);
+                    &&real.heightPixels>reservedBottomPx)
+                    usable=Math.min(usable,real.heightPixels-reservedBottomPx);
                 if(rt.prefs().getBoolean("globalDockEnabled",false)){
-                    android.util.DisplayMetrics real=new android.util.DisplayMetrics();getWindowManager().getDefaultDisplay().getRealMetrics(real);
-                    usable=Math.min(usable,real.heightPixels-Math.round(real.widthPixels*96f/1920f));
+                    usable=Math.min(usable,xyz.i4o.uni.launcher.overlay.WorkspacePolicy.dockTop(this,rt.prefs()));
                 }
                 state.put("contentHeightPx",content.getHeight()).put("viewportHeightPx",usable).put("reservedBottomPx",reservedBottomPx);
             }
@@ -264,7 +272,12 @@ public final class MainActivity extends FlutterActivity {
     private void toast(String text){Toast.makeText(this,text,Toast.LENGTH_SHORT).show();}
 
     @Override protected void onStart(){
-        super.onStart();rt.setHomeVisible(true);rt.addListener(this,this::publish);
+        super.onStart();
+        // Reconcile stale legacy UNI policy after upgrades even when the global
+        // dock is off; both switches keep their own persisted state.
+        SystemNavigationPolicy.setHidden(this,rt.prefs(),rt.prefs().getBoolean("systemNavigationHidden",false));
+        if(chrome!=null)chrome.apply();
+        rt.setHomeVisible(true);rt.addListener(this,this::publish);
         if(mapHost!=null)mapHost.setVisible(true);
         publish();
     }
