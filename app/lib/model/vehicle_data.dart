@@ -46,9 +46,14 @@ bool climateWritable(Map<String, dynamic> native, String key) {
       : const {};
   final capability =
       capabilities[key] is Map ? capabilities[key] as Map : const {};
+  final field = VehicleField.fromNative(native, key);
+  final powerOffFallback = key == 'power' &&
+      vehicle['connected'] == true &&
+      capability['supported'] == true &&
+      (native['climate'] is Map ? native['climate'] as Map : const {})['power'] == false;
   return !vehicleCommandPending(native) &&
       capability['writable'] == true &&
-      VehicleField.fromNative(native, key).valid;
+      (field.valid || powerOffFallback);
 }
 
 bool vehicleCommandPending(Map<String, dynamic> native) {
