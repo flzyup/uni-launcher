@@ -1,0 +1,92 @@
+{
+  "ambientLight": {
+    "before": {
+      "available": false,
+      "enabled": false,
+      "backend": "未接入",
+      "reason": "",
+      "lastRgb": -1,
+      "lastBrightness": -1,
+      "colorWrites": 0,
+      "brightnessWrites": 0,
+      "enableWrites": 0,
+      "resolved": false,
+      "unresolved": [
+        "SETTING_FUNC_AMBIENCE_LIGHT_MAINCOLOR",
+        "SETTING_FUNC_AMBIENCE_LIGHT_INTERACTIVE_EFFECT",
+        "SETTING_FUNC_AMBIENCE_LIGHT_COLOR_SET",
+        "SETTING_FUNC_AMBIENCE_LIGHT_BRIGHTNESS_DRIVING",
+        "SETTING_FUNC_AMBIENCE_LIGHT_BRIGHTNESS_STATIONARY",
+        "SETTING_FUNC_AMBIENCE_LIGHT_MAINZONES",
+        "SETTING_FUNC_AMBIENCE_LIGHT_TOPZONES",
+        "SETTING_FUNC_AMBIENCE_LIGHT_BOTZONES",
+        "SETTING_FUNC_AMBIENCE_LIGHT_EXPERIENCE",
+        "AMBIENCE_LIGHT_MAINCOLOR_SETCOLOR",
+        "AMBIENCE_LIGHT_EXPERIENCE_CUSTOM",
+        "BRIGHTNESS_DRIVING_HIGH",
+        "BRIGHTNESS_DRIVING_LOW",
+        "BRIGHTNESS_STATIONARY_HIGH",
+        "BRIGHTNESS_STATIONARY_LOW"
+      ],
+      "handlePresent": false,
+      "switchApplied": false,
+      "desiredEnabled": null,
+      "pendingBrightness": null,
+      "lastBrightnessStep": -1,
+      "resolvedIds": {},
+      "lastWrite": {
+        "op": "",
+        "function": 0,
+        "zone": -1,
+        "value": 0,
+        "ok": false,
+        "error": ""
+      }
+    },
+    "after": {
+      "available": false,
+      "enabled": false,
+      "backend": "未接入",
+      "reason": "车机车辆服务尚未就绪",
+      "lastRgb": -1,
+      "lastBrightness": -1,
+      "colorWrites": 1,
+      "brightnessWrites": 1,
+      "enableWrites": 2,
+      "resolved": false,
+      "unresolved": [
+        "SETTING_FUNC_AMBIENCE_LIGHT_MAINCOLOR",
+        "SETTING_FUNC_AMBIENCE_LIGHT_INTERACTIVE_EFFECT",
+        "SETTING_FUNC_AMBIENCE_LIGHT_COLOR_SET",
+        "SETTING_FUNC_AMBIENCE_LIGHT_BRIGHTNESS_DRIVING",
+        "SETTING_FUNC_AMBIENCE_LIGHT_BRIGHTNESS_STATIONARY",
+        "SETTING_FUNC_AMBIENCE_LIGHT_MAINZONES",
+        "SETTING_FUNC_AMBIENCE_LIGHT_TOPZONES",
+        "SETTING_FUNC_AMBIENCE_LIGHT_BOTZONES",
+        "SETTING_FUNC_AMBIENCE_LIGHT_EXPERIENCE",
+        "AMBIENCE_LIGHT_MAINCOLOR_SETCOLOR",
+        "AMBIENCE_LIGHT_EXPERIENCE_CUSTOM",
+        "BRIGHTNESS_DRIVING_HIGH",
+        "BRIGHTNESS_DRIVING_LOW",
+        "BRIGHTNESS_STATIONARY_HIGH",
+        "BRIGHTNESS_STATIONARY_LOW"
+      ],
+      "handlePresent": false,
+      "switchApplied": false,
+      "desiredEnabled": true,
+      "pendingBrightness": 100,
+      "lastBrightnessStep": -1,
+      "resolvedIds": {},
+      "lastWrite": {
+        "op": "",
+        "function": 0,
+        "zone": -1,
+        "value": 0,
+        "ok": false,
+        "error": ""
+      }
+    },
+    "colorWrites": 1
+  },
+  "screenshots": []
+}

@@ -4,14 +4,17 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import '../model/appearance.dart';
+import '../model/ambient_light.dart';
 import '../model/card_layout.dart';
 import '../model/card_reorder.dart';
 import '../platform/native_gateway.dart';
+import '../platform/ambient_light.dart';
 
 class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
   final NativeGateway gateway;
   final native = ValueNotifier<Map<String, dynamic>>({});
   Appearance appearance = const Appearance();
+  AmbientLightSettings ambientLight = const AmbientLightSettings();
   Map<String, String> appNames = {};
   List<LauncherCard> cards = defaultCards();
   LauncherCard? placementOrigin, placementTarget;
@@ -134,6 +137,8 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
           final data = jsonDecode(raw) as Map<String, dynamic>;
           appearance = Appearance.fromJson(
               Map<String, dynamic>.from(data['preferences'] ?? {}));
+          ambientLight = AmbientLightSettings.fromJson(
+              Map<String, dynamic>.from(data['ambientLight'] ?? {}));
           appNames = _decodeAppNames(state['appNames'] ?? data['appNames']);
           final parsed = (data['cards'] as List)
               .map((c) => LauncherCard.fromJson(Map<String, dynamic>.from(c)))
@@ -161,6 +166,7 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
     }
     if (_disposed) return;
     ready = true;
+    _syncAmbientLight();
     notifyListeners();
   }
 
@@ -324,6 +330,7 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
   String serialize() => jsonEncode({
         'version': 6,
         'preferences': appearance.toJson(),
+        'ambientLight': ambientLight.toJson(),
         'cards': cards.map((c) => c.toJson()).toList(),
         'pageCount': pageCount,
         'appNames': appNames
@@ -389,6 +396,31 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
     appearance = next;
     notifyListeners();
     if (save) persist();
+  }
+
+  /// Only the desktop engine drives the ambient strip. The global dock and
+  /// the global panel run in their own isolates, and a second writer would
+  /// race the first one for the same colour.
+  bool get drivesAmbientLight => !isGlobalDock;
+
+  /// Stores the ambient light settings and hands them to the head unit.
+  void setAmbientLight(AmbientLightSettings next) {
+    if (next == ambientLight) return;
+    ambientLight = next;
+    notifyListeners();
+    persist();
+    if (drivesAmbientLight) {
+      unawaited(AmbientLightService.shared.applySettings(next));
+    }
+  }
+
+  /// Pushes the stored settings to the head unit channel and reads its
+  /// capability back.
+  void _syncAmbientLight() {
+    if (!drivesAmbientLight) return;
+    final service = AmbientLightService.shared;
+    unawaited(service.applySettings(ambientLight));
+    unawaited(service.refreshStatus());
   }
 
   void home() {

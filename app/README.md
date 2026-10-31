@@ -31,6 +31,7 @@
 - 圆角 0–40，提供滑杆和数值输入，0 为直角。毛玻璃独立开关，默认关闭；关闭时移除所有 `BackdropFilter`，保留半透明材质。设置与卡片布局保存到 Android SharedPreferences。
 - 切换动效页可选无动画、淡入淡出、横向滑动，支持左右轻扫，底栏固定；默认无动画。实车启用原生地图时直接切页并保留容器，避免 Android 9 原生 Surface 参与 Flutter 翻页动画。
 - 音乐卡片、底栏和详情复用滚动歌词，有时间轴时按媒体进度同步，支持暂停与 seek；无歌词不沿用旧曲目。来源与边界见[歌词接入说明](../docs/MEDIA_LYRICS_AND_MOTION.md)。
+- 桌面设置新增「氛围灯」标签页：把正在播放的音乐频谱换算成颜色与明暗，下发到车机氛围灯通道（`SETTING_FUNC_AMBIENCE_LIGHT_*` 设置类功能号，按名反射解析）。颜色映射是 Dart 纯函数，写入在原生后台线程；车机亮度写用户的绝对值，音乐的强弱缩放进颜色；功能号、分区与亮度档位见[氛围灯说明](../docs/AMBIENT_LIGHT.md)。
 - 卡片长按编辑、网格移动、缩放、重命名、删除/撤销、取消/完成、添加与分页；尺寸按内容设最小值，最多 20 页。
 - 覆盖官方目录中的导航、媒体、天气、日历、账号、清理、胎压、可选空气质量；其他车型的出行服务保留目录记录但不出现在 IP753 卡片库。
 
@@ -71,6 +72,27 @@
 ## 构建
 
 本机验证工具链：Flutter 3.47.8 / Dart 3.13.7、Java 17、Android SDK 36。Android 最低 API 24，目标 API 28，维持当前车机行为；不用于商店发布。工程的签名配置使用仓库外的本地开发 keystore，与早期版本一致，便于覆盖安装。可用 `UNI_SIGNING_STORE` 覆盖路径，私钥不入库。
+
+### 实车包必须用 platform 证书单独签名
+
+`android.car.permission.CAR_VENDOR_EXTENSION` 的保护级别是 `signature|privileged`。**证书对不上就拿不到这个权限**，车控 SDK 不会被创建，句柄永远拿不到——车控通道、音乐律动氛围灯全部用不了，而且界面只会显示「此设备没有原车氛围灯接口」，看不出真正原因。
+
+所以有**两个包**，证书不同，不能互相覆盖：
+
+| 包 | 证书 | 用途 |
+| --- | --- | --- |
+| `app-arm64-v8a-release.apk` | 本地开发证书 | 模拟器、开发 |
+| `UNI-Launcher-<版本>-IP753.apk` | platform 证书（与原车 Launcher、cardesk 同一张，SHA256 `C8:A2:E9:BC:…`） | 实车 |
+
+实车包用仓库自带的脚本产出，它会重签、注入导航 inset 资源，并**校验证书指纹**：
+
+```sh
+python3 tools/sign_car_apk.py \
+  --input app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
+  --out app/build/app/outputs/flutter-apk/UNI-Launcher-0.6.18-IP753.apk
+```
+
+脚本默认读 `/data/tools/linkco-android/ip753-signing` 的 `platform.pk8` 与 `platform.x509.pem`；换机器时用 `--toolchain` / `--java` / `--apksigner` / `--sdk` 覆盖。密钥不入 Git。
 
 ```sh
 cd app
