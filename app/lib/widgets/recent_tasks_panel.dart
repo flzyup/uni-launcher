@@ -114,6 +114,7 @@ class _TaskStrip extends StatelessWidget {
             itemBuilder: (context, index) {
               final task = mapOf(tasks[index]);
               final id = (task['taskId'] as num?)?.toInt();
+              final locked = task['locked'] == true;
               return Center(
                   child: SizedBox(
                       width: width,
@@ -125,9 +126,8 @@ class _TaskStrip extends StatelessWidget {
                             DismissDirection.up: .28,
                             DismissDirection.down: .28,
                           },
-                          confirmDismiss: id == null
-                              ? null
-                              : (_) async {
+                          confirmDismiss: (_) async {
+                                  if (id == null || locked) return false;
                                   await controller.command('remove-recent-task',
                                       value: '$id');
                                   // Native recent-task state owns removal. Keep
@@ -135,9 +135,9 @@ class _TaskStrip extends StatelessWidget {
                                   // arrives so Dismissible is never orphaned.
                                   return false;
                                 },
-                          background: const _DismissBackground(up: false),
+                          background: _DismissBackground(up: false, locked: locked),
                           secondaryBackground:
-                              const _DismissBackground(up: true),
+                              _DismissBackground(up: true, locked: locked),
                           child:
                               _TaskCard(controller: controller, task: task))));
             });
@@ -151,7 +151,8 @@ class _TaskStrip extends StatelessWidget {
 
 class _DismissBackground extends StatelessWidget {
   final bool up;
-  const _DismissBackground({required this.up});
+  final bool locked;
+  const _DismissBackground({required this.up, required this.locked});
   @override
   Widget build(BuildContext context) {
     final s = SurfaceStyle.of(context);
@@ -162,7 +163,7 @@ class _DismissBackground extends StatelessWidget {
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               Icon(up ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
                   size: Design.px(34), color: s.accent),
-              Text('松开清除',
+              Text(locked ? '已锁定' : '松开清除',
                   style: TextStyle(fontSize: Design.px(18), color: s.muted)),
             ])));
   }
@@ -178,7 +179,8 @@ class _TaskCard extends StatelessWidget {
         id = (task['taskId'] as num?)?.toInt(),
         icon = task['iconBytes'],
         snapshot = task['snapshotBytes'],
-        label = controller.appName(task);
+        label = controller.appName(task),
+        locked = task['locked'] == true;
     return GlassSurface(
         key: ValueKey('recent-task-$id'),
         padding: EdgeInsets.zero,
@@ -217,8 +219,20 @@ class _TaskCard extends StatelessWidget {
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(fontSize: Design.px(23)))),
-                        Icon(Icons.swipe_vertical_rounded,
-                            size: Design.px(25), color: s.muted),
+                        IconAction(
+                            key: ValueKey('recent-task-lock-$id'),
+                            icon: locked
+                                ? Icons.lock_rounded
+                                : Icons.lock_open_rounded,
+                            label: locked ? '解锁最近任务' : '锁定最近任务',
+                            size: Design.px(44),
+                            iconSize: Design.px(25),
+                            framed: false,
+                            foregroundColor: locked ? s.accent : s.muted,
+                            onTap: id == null
+                                ? null
+                                : () => controller.command('toggle-recent-lock',
+                                    value: '$id')),
                       ])))
             ])));
   }

@@ -144,7 +144,7 @@ public final class GlobalDockService extends Service {
         if("clear-system-recents".equals(a)){
             if(active!=null&&"recents".equals(active.panel))active.clearRecentTasks();return true;
         }
-        if("open-recent-task".equals(a)||"remove-recent-task".equals(a)){
+        if("open-recent-task".equals(a)||"remove-recent-task".equals(a)||"toggle-recent-lock".equals(a)){
             if(active!=null&&"recents".equals(active.panel))active.handleRecentTask(a,r.optString("value"));return true;
         }
         if("show-home".equals(a)||"show-desktop-settings".equals(a)){
@@ -404,11 +404,25 @@ public final class GlobalDockService extends Service {
             if(!recentTasks.open(id)){toast(this,"该任务已经结束");refreshRecentTasks();return;}
             dismissPanel();return;
         }
+        if("toggle-recent-lock".equals(action)){
+            Boolean next=recentTasks.toggleLock(id);
+            if(next==null){toast(this,"该任务已经结束");refreshRecentTasks();return;}
+            for(int i=0;i<recentTaskItems.length();i++)try{
+                org.json.JSONObject item=recentTaskItems.getJSONObject(i);
+                if(item.optInt("taskId")==id)item.put("locked",next);
+            }catch(Exception ignored){}
+            // The panel stream detects recent-task changes by array identity.
+            // Publish a new array so a lock toggle is delivered immediately.
+            JSONArray updated=new JSONArray();
+            for(int i=0;i<recentTaskItems.length();i++)updated.put(recentTaskItems.opt(i));
+            recentTaskItems=updated;
+            publish();return;
+        }
         if(!recentTasks.remove(id))toast(this,"无法关闭该任务");
-        recentTasksReady=false;refreshRecentTasks();publish();
+        refreshRecentTasks();
     }
     private void clearRecentTasks(){
-        recentTasks.clear();recentTasksReady=false;refreshRecentTasks();publish();
+        recentTasks.clear();refreshRecentTasks();
     }
     /** Panel must follow the front task: record the top task at expansion and
      * collapse when a different external task replaces it (REAL_GET_TASKS is a
