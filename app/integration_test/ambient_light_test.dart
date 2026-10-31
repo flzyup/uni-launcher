@@ -61,7 +61,12 @@ void main() {
     final colorWritesBefore = (before['colorWrites'] as num?)?.toInt() ?? 0;
 
     await service.applySettings(const AmbientLightSettings(
-        enabled: true, mode: AmbientPalette.modeSpectrum));
+        enabled: true,
+        mode: AmbientPalette.modeSpectrum,
+        // The colour assertions below are the **legacy** semantics (HSV hue,
+        // brightness scaled 15..100). The V2 engine has its own semantics
+        // (OKLCH, the safe hue band), so this test pins the legacy engine.
+        engine: AmbientLightSettings.engineLegacy));
     await Future<void>.delayed(const Duration(milliseconds: 200));
 
     // A frame with energy in the middle of the spectrum.
@@ -158,7 +163,11 @@ void main() {
       spectrum.dispose();
     });
     await service.applySettings(const AmbientLightSettings(
-        enabled: true, mode: AmbientPalette.modeSpectrum));
+        enabled: true,
+        mode: AmbientPalette.modeSpectrum,
+        // The legacy semantics again: the hue is kept and the brightness
+        // falls back to the minimum of the legacy scale.
+        engine: AmbientLightSettings.engineLegacy));
     await Future<void>.delayed(const Duration(milliseconds: 200));
 
     final loud = List<double>.filled(24, 0.02);
@@ -197,6 +206,51 @@ void main() {
         reason: 'the hue is kept while the light fades');
     expect(silent.brightness, closeTo(15, 1),
         reason: 'silence falls back to the lowest brightness');
+  });
+
+  testWidgets('the new engine keeps the colour inside the safe hue band',
+      (t) async {
+    final spectrum = AudioSpectrumService(
+        methods: spectrumMethods, events: spectrumEvents);
+    final service = AmbientLightService(spectrum: spectrum);
+    addTearDown(() {
+      service.dispose();
+      spectrum.dispose();
+    });
+    // The V2 engine is the default.
+    await service.applySettings(const AmbientLightSettings(
+        enabled: true, mode: AmbientPalette.modeSpectrum));
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+
+    final bands = List<double>.filled(24, 0.02);
+    for (var i = 8; i < 14; i++) {
+      bands[i] = 0.85;
+    }
+    spectrum.accept({
+      'granted': true,
+      'available': true,
+      'status': 'listening',
+      'levels': bands,
+      'peakLevel': 0.85,
+    });
+    // The Delta E00 limiter ramps the colour up from the dark start, so the
+    // strip needs a moment to reach its target colour.
+    await Future<void>.delayed(const Duration(milliseconds: 1200));
+
+    final color = service.color.value;
+    expect(color, isNotNull);
+    // The colour is not black: the limiter has to let the light come up.
+    expect(color!.r + color.g + color.b, greaterThan(0));
+    // The perceptual lightness is the OKLCH L, so it is above the floor of
+    // the strip but never fully white.
+    expect(color.brightness, greaterThan(4));
+    expect(color.brightness, lessThanOrEqualTo(100));
+    // The hue stays in the safe band (cyan to blue to violet to magenta).
+    // The RGB hue is a few degrees off the OKLCH hue, so the band is
+    // checked with a tolerance.
+    final hue = _hueOf(color);
+    expect(hue, inInclusiveRange(150, 340),
+        reason: 'the hue $hue left the safe band');
   });
 
   testWidgets('switching the ambience off stops the capture', (t) async {
