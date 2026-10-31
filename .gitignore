@@ -12,4 +12,6 @@ __pycache__/
 
 /car-reports/
 
+# The emulator runs leave screenshots and reports behind.
+/verification/
 /app/verification/
