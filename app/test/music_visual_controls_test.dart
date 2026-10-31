@@ -107,14 +107,18 @@ void main() {
         };
     await t.pumpWidget(host(DockClimateButton(controller: c, native: n(true))));
     expect(find.text('AUTO'), findsOneWidget);
+    expect(find.byKey(const ValueKey('dock-fan-segment-7')), findsNothing);
     await t
         .pumpWidget(host(DockClimateButton(controller: c, native: n(false))));
     expect(find.text('AUTO'), findsNothing);
-    expect(find.text('4'), findsOneWidget);
+    expect(find.text('4'), findsNothing);
+    for (var index = 1; index <= 7; index++) {
+      expect(find.byKey(ValueKey('dock-fan-segment-$index')), findsOneWidget);
+    }
     await t.pumpWidget(
         host(DockClimateButton(controller: c, native: n(true, valid: false))));
     expect(find.text('AUTO'), findsNothing);
-    expect(find.text('—'), findsOneWidget);
+    expect(find.text('—'), findsNothing);
   });
 
   testWidgets(
