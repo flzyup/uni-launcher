@@ -7,6 +7,8 @@ import '../widgets/scene_background.dart';
 import '../theme/design_tokens.dart';
 import '../widgets/bottom_dock.dart';
 import 'settings_screen.dart';
+import '../ota/update_controller.dart';
+import '../ota/update_ui.dart';
 
 class LauncherShell extends StatefulWidget {
   final LauncherController controller;
@@ -19,6 +21,18 @@ class _LauncherShellState extends State<LauncherShell> {
   // Rebuilds used to report geometry on every controller notification; the
   // payload only changes when the layout, page or overlay state does.
   String? _sentViewport;
+  late final UpdateController update = UpdateController();
+  @override
+  void initState() {
+    super.initState();
+    if (widget.controller.gateway is AndroidGateway) {
+      update.onAvailable = () {
+        if (mounted) showUpdateDialog(context, update);
+      };
+      update.initialize();
+    }
+  }
+
   late final ValueNotifier<double> pagePosition =
       ValueNotifier(widget.controller.page.toDouble());
   LauncherController get controller => widget.controller;
@@ -33,6 +47,7 @@ class _LauncherShellState extends State<LauncherShell> {
 
   @override
   void dispose() {
+    update.dispose();
     pagePosition.dispose();
     super.dispose();
   }
@@ -111,7 +126,12 @@ class _LauncherShellState extends State<LauncherShell> {
                                                     controller: controller,
                                                     position: pagePosition)),
                                             controller.settings
-                                                ? SettingsScreen(controller: controller)
+                                                ? SettingsScreen(
+                                                    controller: controller,
+                                                    update: controller.gateway
+                                                            is AndroidGateway
+                                                        ? update
+                                                        : null)
                                                 : const SizedBox.shrink(),
                                           ])),
                                       if (!globalDockActive)

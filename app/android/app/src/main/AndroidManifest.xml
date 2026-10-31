@@ -42,6 +42,7 @@
     <activity android:name=".integration.OfficialWidgetActivity" android:exported="false" android:screenOrientation="landscape"/>
     <service android:name=".integration.MediaAccessService" android:label="UNI 媒体访问" android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" android:exported="true"><intent-filter><action android:name="android.service.notification.NotificationListenerService"/></intent-filter></service>
     <service android:name=".GlobalDockService" android:exported="false"/>
+    <provider android:name=".integration.OtaFileProvider" android:authorities="xyz.i4o.uni.launcher.ota" android:exported="false" android:grantUriPermissions="true"/>
     <provider android:name=".integration.TransferFileProvider" android:authorities="xyz.i4o.uni.launcher.transfer" android:exported="false" android:grantUriPermissions="true"/>
     <receiver android:name=".GlobalDockBootReceiver" android:exported="true">
       <intent-filter><action android:name="android.intent.action.BOOT_COMPLETED"/></intent-filter>

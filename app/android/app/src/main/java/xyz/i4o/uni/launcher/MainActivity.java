@@ -83,6 +83,25 @@ public final class MainActivity extends FlutterActivity {
                     // it before Dart has installed its method handler.
                     initialSettings=false;
                 }
+                else if("otaInfo".equals(call.method)){
+                    android.content.pm.PackageInfo info=getPackageManager().getPackageInfo(getPackageName(),0);
+                    File dir=new File(getFilesDir(),"ota"); if(!dir.isDirectory()&&!dir.mkdirs()) throw new IllegalStateException("ota directory");
+                    Map<String,Object> data=new HashMap<>();data.put("versionName",info.versionName);data.put("versionCode",(long)info.versionCode);data.put("sdk",android.os.Build.VERSION.SDK_INT);data.put("abis",java.util.Arrays.asList(android.os.Build.SUPPORTED_ABIS));data.put("directory",dir.getAbsolutePath());data.put("enabled",getPreferences(0).getBoolean("otaEnabled",true));data.put("dismissedVersion",getPreferences(0).getInt("otaDismissedVersion",0));data.put("dismissedAt",getPreferences(0).getLong("otaDismissedAt",0));result.success(data);
+                }
+                else if("otaDismiss".equals(call.method)){if(call.arguments instanceof Number)getPreferences(0).edit().putInt("otaDismissedVersion",((Number)call.arguments).intValue()).putLong("otaDismissedAt",System.currentTimeMillis()).apply();result.success(null);}
+                else if("otaEnabled".equals(call.method)){getPreferences(0).edit().putBoolean("otaEnabled",Boolean.TRUE.equals(call.arguments)).apply();result.success(null);}
+                else if("otaCanInstall".equals(call.method)){result.success(android.os.Build.VERSION.SDK_INT<26||getPackageManager().canRequestPackageInstalls());}
+                else if("otaInstall".equals(call.method)){
+                    File f=new File(new File(getFilesDir(),"ota"),"update.apk");
+                    android.content.pm.PackageInfo installed=getPackageManager().getPackageInfo(getPackageName(),PackageManager.GET_SIGNATURES);
+                    android.content.pm.PackageInfo candidate=getPackageManager().getPackageArchiveInfo(f.getAbsolutePath(),PackageManager.GET_SIGNATURES);
+                    if(candidate==null||!getPackageName().equals(candidate.packageName)||candidate.versionCode<=installed.versionCode||installed.signatures==null||candidate.signatures==null||!java.util.Arrays.equals(installed.signatures,candidate.signatures))throw new SecurityException("package identity");
+                    if(android.os.Build.VERSION.SDK_INT>=26&&!getPackageManager().canRequestPackageInstalls()){
+                        Intent settings=new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,Uri.parse("package:"+getPackageName()));startActivity(settings);result.success("permission");
+                    }else{
+                        Intent install=new Intent(Intent.ACTION_INSTALL_PACKAGE).setData(Uri.parse("content://xyz.i4o.uni.launcher.ota/update.apk"));install.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);startActivity(install);result.success("started");
+                    }
+                }
                 else if("saveDesign".equals(call.method))result.success(rt.saveDesign((String)call.arguments));
                 else if("pickWallpaper".equals(call.method)){
                     if(wallpaperResult!=null){result.error("busy","图片选择器已打开",null);return;}

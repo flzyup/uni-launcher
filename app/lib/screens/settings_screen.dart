@@ -15,10 +15,13 @@ import '../widgets/embedded_navigation.dart';
 import '../widgets/system_settings.dart';
 import '../widgets/setting_block.dart';
 import '../widgets/spectrum_painter.dart';
+import '../ota/update_controller.dart';
+import '../ota/update_ui.dart';
 
 class SettingsScreen extends StatelessWidget {
   final LauncherController controller;
-  const SettingsScreen({super.key, required this.controller});
+  final UpdateController? update;
+  const SettingsScreen({super.key, required this.controller, this.update});
   @override
   Widget build(BuildContext context) {
     final c = controller, s = SurfaceStyle.of(context);
@@ -69,7 +72,8 @@ class SettingsScreen extends StatelessWidget {
                         for (final tab in [
                           ('appearance', '外观主题'),
                           ('motion', '动画效果'),
-                          ('system', '系统设置')
+                          ('system', '系统设置'),
+                          if (update != null) ('about', '关于')
                         ])
                           _SettingsTab(controller: c, id: tab.$1, label: tab.$2)
                       ])),
@@ -85,6 +89,9 @@ class SettingsScreen extends StatelessWidget {
                                 child: AppearanceSettings(controller: c)))),
                     'motion' => PageMotionSettings(controller: c),
                     'system' => SystemSettingsPanel(controller: c),
+                    'about' => update == null
+                        ? const SizedBox.shrink()
+                        : AboutPanel(update: update!),
                     _ => SystemSettingsPanel(controller: c)
                   }),
                 ])));

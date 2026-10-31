@@ -119,3 +119,16 @@ python3 tools/flutter_task.py drive --driver=test_driver/driver.dart --target=in
 离线官方接口回归：`python3 ../tools/test_official_car.py`；网易云兼容回归：`python3 native-tests/tools/test-netease-adapter.py`。
 
 最终静态分析、状态/组件测试、Android 9 集成与 release 验证结果见[构建报告](verification/build-report.json)。实际 release [首页](verification/flutter-release-home.png)与[设置](verification/flutter-release-settings.png)截图单独保存；实时车控和性能仍待实车。
+
+### 更新服务配置（开发中）
+
+OTA 客户端通过构建参数配置服务，不将 COS 密钥写入 APK：
+
+```sh
+flutter build apk --release \
+  --dart-define=UNI_OTA_URL=https://ota.example.com \
+  --dart-define=UNI_OTA_DOWNLOAD_HOSTS=bucket-appid.cos.ap-guangzhou.myqcloud.com \
+  --dart-define=UNI_OTA_PLATFORM=ip753
+```
+
+`UNI_OTA_URL` 是 Go 更新服务 HTTPS 根地址；下载域名列表以逗号分隔、精确匹配。车型平台必须根据实际测试选择，默认 `unknown`，不会匹配 IP753 专用包。未配置服务地址时关于页面仍可显示版本和内置贡献者，手动检查显示“更新服务尚未配置”。构建参数不是密钥；COS 凭证只配置在独立服务端。完整方案见 [更新方案](../docs/UPDATE_SYSTEM_DESIGN.md)。更新需要 Android 安装权限，系统安装器仍要求用户确认；实际车机权限和签名需实测。
