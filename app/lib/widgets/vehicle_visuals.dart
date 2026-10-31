@@ -134,8 +134,9 @@ class VehicleBodyDiagram extends StatelessWidget {
   }
 }
 
-/// Vehicle status concept: the artwork is illustrative; the only indicators
-/// painted over it are independently verified, fresh opening signals.
+/// Vehicle telemetry uses a single fitted image rectangle. Every label lives
+/// around the vehicle silhouette, so changes in card size or open-door
+/// combinations cannot place text on the body or move the artwork.
 class VehicleStatusDiagram extends StatelessWidget {
   final Map<String, dynamic> native;
   final int? nowMs;
@@ -146,87 +147,117 @@ class VehicleStatusDiagram extends StatelessWidget {
     final doors = VehicleDoorSnapshot.fromNative(native, nowMs: nowMs);
     final surface = SurfaceStyle.of(context);
     return LayoutBuilder(builder: (context, box) {
-      final compact = box.maxHeight < Design.px(250);
-      final nodeWidth =
-          math.min(Design.px(compact ? 78 : 95), box.maxWidth * .23);
-      final nodeHeight =
-          math.min(Design.px(compact ? 44 : 60), box.maxHeight * .3);
-      Widget node(String label, String field) {
+      final compact = box.maxHeight < Design.px(300);
+      // Reserve fixed perimeter lanes even when every door is closed. The
+      // asset points front-left; far-side wheels sit left/above the body and
+      // near-side wheels sit below/right of it.
+      final scale =
+          math.min(1.0, math.min(box.maxWidth / 400, box.maxHeight / 220));
+      final gap = Design.px(8) * scale;
+      final pressureWidth = Design.px(82) * scale;
+      final pressureHeight = Design.px(48) * scale;
+      final markerHeight = Design.px(24) * scale;
+      final gutter = pressureWidth + gap;
+      final lane = pressureHeight + gap;
+      final imageHeight = math.max(
+          0.0,
+          math.min(
+              box.maxHeight - lane * 2, (box.maxWidth - gutter * 2) / 1.5));
+      final imageWidth = imageHeight * 1.5;
+      final markerWidth = math.min(Design.px(62) * scale, imageWidth * .22);
+      final imageRect = Rect.fromLTWH((box.maxWidth - imageWidth) / 2,
+          (box.maxHeight - imageHeight) / 2, imageWidth, imageHeight);
+
+      Rect centered(double x, double y, double width, double height) =>
+          Rect.fromLTWH(x - width / 2, y - height / 2, width, height);
+      Rect above(double x, double width, double height) => centered(
+          imageRect.left + imageWidth * x,
+          imageRect.top - gap - height / 2,
+          width,
+          height);
+      Rect below(double x, double width, double height) => centered(
+          imageRect.left + imageWidth * x,
+          imageRect.bottom + gap + height / 2,
+          width,
+          height);
+      Rect nearBody(double x, double y) => centered(
+          imageRect.left + imageWidth * x,
+          imageRect.top + imageHeight * y,
+          markerWidth,
+          math.min(markerHeight, imageHeight * .15));
+      Widget pressure(String label, String field, Rect rect) {
         final reading = VehicleField.fromNative(native, field, nowMs: nowMs);
-        return _VehiclePressureLabel(
-          key: ValueKey('tire-pressure-$field'),
-          label: label,
-          value: reading.display(decimals: 2),
-          available: reading.valid,
-          compact: compact,
-        );
+        return Positioned.fromRect(
+            rect: rect,
+            child: _VehiclePressureLabel(
+                key: ValueKey('tire-pressure-$field'),
+                label: label,
+                value: reading.display(decimals: 2),
+                available: reading.valid,
+                compact: compact));
       }
 
-      Widget place(String label, String field,
-              {required double x, required bool top}) =>
-          Positioned(
-              left: (box.maxWidth * x - nodeWidth / 2)
-                  .clamp(0.0, math.max(0.0, box.maxWidth - nodeWidth)),
-              top: top ? 0 : math.max(0.0, box.maxHeight - nodeHeight),
-              width: nodeWidth,
-              height: nodeHeight,
-              child: node(label, field));
+      Widget marker(String id, String label, Rect rect) => Positioned.fromRect(
+          rect: rect,
+          child: Center(
+              child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: _DoorMarker(
+                      key: ValueKey('vehicle-door-$id'),
+                      label: label,
+                      compact: compact))));
+
       return Semantics(
           label: '车辆状态与胎压示意，${doors.statusLabel}',
           child: Stack(fit: StackFit.expand, children: [
-            Positioned.fill(
-                left: nodeWidth * .72,
-                right: nodeWidth * .72,
-                top: nodeHeight + Design.px(2),
-                bottom: nodeHeight + Design.px(2),
+            Positioned.fromRect(
+                rect: imageRect,
                 child: RepaintBoundary(
-                    child: Center(
-                        child: AspectRatio(
-                            aspectRatio: 1.5,
-                            child: LayoutBuilder(builder: (context, imageBox) {
-                              Widget marker(String id, String label, double x,
-                                      double y) =>
-                                  Positioned(
-                                      left: imageBox.maxWidth * x,
-                                      top: imageBox.maxHeight * y,
-                                      child: FractionalTranslation(
-                                          translation: const Offset(-.5, -.5),
-                                          child: _DoorMarker(
-                                              key: ValueKey('vehicle-door-$id'),
-                                              label: label,
-                                              compact: compact)));
-                              return Stack(fit: StackFit.expand, children: [
-                                IgnorePointer(
-                                    child: CustomPaint(
-                                        painter: _VehicleAmbientPainter(
-                                            color: surface.accent,
-                                            dark: surface.dark))),
-                                Image.asset(
-                                    'assets/art/vehicle-status-front-left-transparent.png',
-                                    key: const ValueKey(
-                                        'vehicle-status-artwork'),
-                                    fit: BoxFit.contain,
-                                    filterQuality: FilterQuality.low,
-                                    semanticLabel: '车辆立体示意图'),
-                                if (doors.frontLeft == true)
-                                  marker('front-left', '左前门', .60, .47),
-                                if (doors.rearLeft == true)
-                                  marker('rear-left', '左后门', .76, .31),
-                                if (doors.frontRight == true)
-                                  marker('front-right', '右前门', .32, .31),
-                                if (doors.rearRight == true)
-                                  marker('rear-right', '右后门', .53, .16),
-                                if (doors.anyOpen)
-                                  const SizedBox(
-                                      key: ValueKey('vehicle-opening-alert')),
-                              ]);
-                            }))))),
-            // Looking towards the front-left of the screen, the vehicle's
-            // left side is the near side; the right wheels are occluded.
-            place('右前', 'pressureFrontRight', x: .25, top: true),
-            place('右后', 'pressureRearRight', x: .65, top: true),
-            place('左前', 'pressureFrontLeft', x: .55, top: false),
-            place('左后', 'pressureRearLeft', x: .82, top: false),
+                    child: Stack(fit: StackFit.expand, children: [
+                  IgnorePointer(
+                      child: CustomPaint(
+                          painter: _VehicleAmbientPainter(
+                              color: surface.accent, dark: surface.dark))),
+                  Image.asset(
+                      'assets/art/vehicle-status-front-left-transparent.png',
+                      key: const ValueKey('vehicle-status-artwork'),
+                      fit: BoxFit.contain,
+                      filterQuality: FilterQuality.low,
+                      semanticLabel: '车辆立体示意图'),
+                ]))),
+            pressure(
+                '右前',
+                'pressureFrontRight',
+                centered(
+                    imageRect.left - gap - pressureWidth / 2,
+                    imageRect.top + imageHeight * .46,
+                    pressureWidth,
+                    pressureHeight)),
+            pressure('右后', 'pressureRearRight',
+                above(.82, pressureWidth, pressureHeight)),
+            pressure('左前', 'pressureFrontLeft',
+                below(.40, pressureWidth, pressureHeight)),
+            pressure(
+                '左后',
+                'pressureRearLeft',
+                centered(
+                    imageRect.right + gap + pressureWidth / 2,
+                    imageRect.top + imageHeight * .65,
+                    pressureWidth,
+                    pressureHeight)),
+            if (doors.frontRight == true)
+              marker('front-right', '右前门', nearBody(.16, .16)),
+            if (doors.rearRight == true)
+              marker(
+                  'rear-right', '右后门', above(.52, markerWidth, markerHeight)),
+            if (doors.frontLeft == true)
+              marker('front-left', '左前门', nearBody(.66, .88)),
+            if (doors.rearLeft == true)
+              marker('rear-left', '左后门', nearBody(.90, .83)),
+            if (doors.tailgate == true)
+              marker('tailgate', '尾门', nearBody(1.04, .05)),
+            if (doors.anyOpen)
+              const SizedBox(key: ValueKey('vehicle-opening-alert')),
           ]));
     });
   }

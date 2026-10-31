@@ -6,18 +6,12 @@ class _BodyCard extends StatelessWidget {
   const _BodyCard({required this.card, required this.native});
   @override
   Widget build(BuildContext context) {
-    final snapshot = VehicleDoorSnapshot.fromNative(native);
-    final fields = mapOf(mapOf(native['vehicle'])['fields']);
-    final status = !snapshot.hasData && fields.containsKey('doorFrontLeft')
-        ? '车门状态待验证'
-        : snapshot.statusLabel;
     return _CardCanvas(
         minHeight: 300,
         child:
             Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           _Heading(card.title == '车门状态' ? '车况与胎压' : card.title, '', 'car'),
           Expanded(child: VehicleStatusDiagram(native: native)),
-          _StateLine(status, dot: true),
         ]));
   }
 }

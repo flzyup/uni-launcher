@@ -3,7 +3,7 @@ package xyz.i4o.uni.launcher.integration;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-/** PA samples stay diagnostic until open/closed enums and seat side are verified. */
+/** Read-only door candidates: only the IP753 driver door has been verified. */
 final class OfficialBodySignals {
     private OfficialBodySignals() {}
 
@@ -23,6 +23,17 @@ final class OfficialBodySignals {
                 for (String key : new String[]{"propertyId", "raw", "active", "halStatus", "availabilityRaw", "formatRaw", "statusRaw", "sourceTimestampNanos"})
                     if (source.has(key) && !source.isNull(key)) field.put(key, source.get(key));
                 if (source.has("reason")) field.put("reason", source.optString("reason"));
+                // The observed IP753 enum is 1=open, 2=closed. Other positions
+                // are provisional until individually checked on the car; 0 and
+                // any unexpected values remain unknown, never silently closed.
+                Object raw = source.opt("raw");
+                if (source.optBoolean("active", false) && source.optInt("halStatus", -1) == 0
+                        && raw instanceof Number && (((Number)raw).intValue() == 1 || ((Number)raw).intValue() == 2)) {
+                    boolean driverVerified = driverZone == 1 && indexes[i] == 0;
+                    field.put("valid", true).put("value", ((Number)raw).intValue() == 1)
+                            .put("verified", driverVerified)
+                            .put("reason", driverVerified ? "主驾门实车已核对" : "候选映射，待实车核对");
+                }
             }
             fields.put(names[i], field);
         }
