@@ -58,7 +58,7 @@ public class Context {
 'android/os/LocaleList.java': '''package android.os;public class LocaleList {private final String tags;public LocaleList(String t){tags=t;}public String toLanguageTags(){return tags;}}''',
 'android/net/Uri.java': '''package android.net;public class Uri {public static Uri parse(String s){return new Uri();}}''',
 'android/os/Build.java': '''package android.os;public class Build {public static class VERSION {public static int SDK_INT=28;}}''',
-'android/os/Handler.java': '''package android.os;public class Handler {public Handler(){}public Handler(Looper l){}}''',
+'android/os/Handler.java': '''package android.os;public class Handler {public static Runnable lastPending;public Handler(){}public Handler(Looper l){}public boolean postDelayed(Runnable r,long d){lastPending=r;return true;}public void removeCallbacks(Runnable r){if(lastPending==r)lastPending=null;}}''',
 'android/os/Looper.java': '''package android.os;public class Looper {public static Looper getMainLooper(){return new Looper();}}''',
 'android/os/SystemClock.java': '''package android.os;public class SystemClock {public static long elapsedRealtime(){return System.nanoTime()/1000000;}public static long uptimeMillis(){return elapsedRealtime();}}''',
 'android/os/Bundle.java': '''package android.os;import java.util.*;public class Bundle {private final Map<String,Object> values=new HashMap<>();public Object get(String k){return values.get(k);}public String getString(String k){return (String)get(k);}public int getInt(String k,int d){Object v=get(k);return v==null?d:(Integer)v;}public String[] getStringArray(String k){return (String[])get(k);}}''',

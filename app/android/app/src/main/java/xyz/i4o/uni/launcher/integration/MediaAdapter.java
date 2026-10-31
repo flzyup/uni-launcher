@@ -50,6 +50,31 @@ public final class MediaAdapter {
      *  without a launcher entry, and then the UI has no app row to read a label
      *  from. Cached so a position tick never costs an IPC. */
     private String labelPackage,labelValue="";
+    /** A transport callback can be accepted then ignored by a background player.
+     * Remember only a play request; pause cancels the wake check. */
+    private static final long PLAY_CONFIRM_MS=800;
+    private Object pendingPlayToken;
+    private String pendingPlaySource="";
+    private int pendingPlayStage;
+    private final Runnable playFallback=new Runnable(){
+        public void run(){
+            Object token=pendingPlayToken;if(token==null)return;
+            PlaybackState state=controller==null?null:controller.getPlaybackState();
+            if(state!=null&&state.getState()==PlaybackState.STATE_PLAYING){clearPlayFallback();return;}
+            // Buffering/connecting is genuine progress from a live receiver.
+            if(state!=null&&(state.getState()==6||state.getState()==8)){
+                handler.postDelayed(this,PLAY_CONFIRM_MS);return;
+            }
+            boolean sameSession=controller!=null&&token.equals(controller.getSessionToken())
+                    &&pendingPlaySource.equals(controller.getPackageName());
+            if(pendingPlayStage==0){
+                pendingPlayStage=1;launchSource(pendingPlaySource);
+                handler.postDelayed(this,PLAY_CONFIRM_MS);return;
+            }
+            clearPlayFallback();
+            if(sameSession)sendPlay(controller);
+        }
+    };
     private String sourceLabel(String pkg){
         if(pkg==null)return "";
         if(pkg.equals(labelPackage))return labelValue;
@@ -289,8 +314,23 @@ public final class MediaAdapter {
         return command(action,-1);
     }
     public boolean command(String action,long positionMs){
-        if(controller==null)return false;
-        if(NeteaseMediaAdapter.supports(controller))return netease.command(action,positionMs);
+        clearPlayFallback();
+        boolean wantsPlay="play".equals(action)||("toggle-play".equals(action)
+                &&(controller==null||controller.getPlaybackState()==null
+                    ||controller.getPlaybackState().getState()!=PlaybackState.STATE_PLAYING));
+        if(controller==null){
+            // A paused player may destroy its MediaSession while the launcher
+            // keeps the last track visible. Play is the one command that can
+            // restore the application; transport controls cannot target a
+            // disconnected session.
+            if("toggle-play".equals(action)||"play".equals(action))return launchSavedSource();
+            return false;
+        }
+        if(NeteaseMediaAdapter.supports(controller)){
+            boolean accepted=netease.command(action,positionMs);
+            if(accepted&&wantsPlay)schedulePlayFallback(controller);
+            return accepted;
+        }
         PlaybackState p=controller.getPlaybackState();if(p==null)return false;
         long actions=p.getActions();MediaController.TransportControls t=controller.getTransportControls();
         if("next".equals(action)&&(actions&PlaybackState.ACTION_SKIP_TO_NEXT)!=0)t.skipToNext();
@@ -303,8 +343,38 @@ public final class MediaAdapter {
             if(p.getState()==PlaybackState.STATE_PLAYING&&(actions&(PlaybackState.ACTION_PAUSE|PlaybackState.ACTION_PLAY_PAUSE))!=0)t.pause();
             else if(p.getState()!=PlaybackState.STATE_PLAYING&&(actions&(PlaybackState.ACTION_PLAY|PlaybackState.ACTION_PLAY_PAUSE))!=0)t.play();
             else return false;
-        }else return false;
+        }
+        else if("play".equals(action)&&(actions&(PlaybackState.ACTION_PLAY|PlaybackState.ACTION_PLAY_PAUSE))!=0)t.play();
+        else return false;
+        if(wantsPlay)schedulePlayFallback(controller);
         return true;
     }
-    public void stop(){try{manager.removeOnActiveSessionsChangedListener(sessions);}catch(Exception ignored){}officialBridge.stop();select(null);steeringSession.setActive(false);}
+    private void schedulePlayFallback(MediaController target){
+        pendingPlayToken=target.getSessionToken();pendingPlaySource=target.getPackageName();pendingPlayStage=0;
+        handler.removeCallbacks(playFallback);handler.postDelayed(playFallback,PLAY_CONFIRM_MS);
+    }
+    private void clearPlayFallback(){
+        handler.removeCallbacks(playFallback);pendingPlayToken=null;pendingPlaySource="";pendingPlayStage=0;
+    }
+    private boolean sendPlay(MediaController target){
+        if(target==null)return false;
+        if(NeteaseMediaAdapter.supports(target))return netease.command("play");
+        PlaybackState state=target.getPlaybackState();
+        if(state==null||(state.getActions()&(PlaybackState.ACTION_PLAY|PlaybackState.ACTION_PLAY_PAUSE))==0)return false;
+        target.getTransportControls().play();return true;
+    }
+    private boolean launchSavedSource(){
+        String saved=lastTrackPrefs.getString("source","");
+        return launchSource("auto".equals(preferred)||preferred.isEmpty()?saved:preferred);
+    }
+    private boolean launchSource(String source){
+        if(source==null||source.isEmpty())return false;
+        try{
+            Intent launch=context.getPackageManager().getLaunchIntentForPackage(source);
+            if(launch==null)return false;
+            context.startActivity(launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            return true;
+        }catch(RuntimeException e){return false;}
+    }
+    public void stop(){clearPlayFallback();try{manager.removeOnActiveSessionsChangedListener(sessions);}catch(Exception ignored){}officialBridge.stop();select(null);steeringSession.setActive(false);}
 }
