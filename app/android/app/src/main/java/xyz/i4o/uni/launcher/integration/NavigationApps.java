@@ -79,8 +79,19 @@ public final class NavigationApps {
             Class<?> type=stack.getClass();String[] names=(String[])type.getField("taskNames").get(stack);
             if(names==null||names.length!=1||names[0]==null||!names[0].startsWith(pkg+"/"))continue;
             int display=type.getField("displayId").getInt(stack);if(display==0)return;
+            int id=type.getField("stackId").getInt(stack);
             java.lang.reflect.Method move=manager.getClass().getMethod("moveStackToDisplay",int.class,int.class);move.setAccessible(true);
-            move.invoke(manager,type.getField("stackId").getInt(stack),0);return;
+            move.invoke(manager,id,0);
+            // Moving the stack does not stretch its Activity bounds. Resize it
+            // to the physical workspace before the fullscreen transition draws,
+            // then restore card bounds when LiveNavigationHost moves it back.
+            android.util.DisplayMetrics real=new android.util.DisplayMetrics();
+            ((android.view.WindowManager)context.getSystemService(Context.WINDOW_SERVICE)).getDefaultDisplay().getRealMetrics(real);
+            int top=xyz.i4o.uni.launcher.overlay.WorkspacePolicy.dockTop(context,prefs);
+            java.lang.reflect.Method resizeStack=manager.getClass().getMethod("resizeStack",int.class,android.graphics.Rect.class,boolean.class,boolean.class,boolean.class,int.class);
+            resizeStack.setAccessible(true);
+            resizeStack.invoke(manager,id,new android.graphics.Rect(0,0,real.widthPixels,top),true,true,false,-1);
+            return;
         }
     }
     public JSONObject snapshot(){

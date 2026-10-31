@@ -215,6 +215,12 @@ public final class LiveNavigationHost {
                     java.lang.reflect.Method move=manager.getClass().getMethod("moveStackToDisplay",int.class,int.class);move.setAccessible(true);
                     move.invoke(manager,type.getField("stackId").getInt(stack),display.getDisplay().getDisplayId());
                     taskMoves++;
+                    // AMap keeps full-screen Activity bounds after moving back.
+                    // Resize the stack before it draws, so the existing view tree
+                    // relayouts without clearing the live texture.
+                    java.lang.reflect.Method resizeStack=manager.getClass().getMethod("resizeStack",int.class,android.graphics.Rect.class,boolean.class,boolean.class,boolean.class,int.class);
+                    resizeStack.setAccessible(true);
+                    resizeStack.invoke(manager,type.getField("stackId").getInt(stack),new android.graphics.Rect(0,0,width,height),true,true,false,-1);
                 }
                 return ComponentName.unflattenFromString(names[0]);
             }return null;

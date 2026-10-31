@@ -18,14 +18,14 @@ STUBS = {
 'android/content/Context.java': '''package android.content;
 import android.content.pm.*;import android.content.res.*;import android.media.session.*;import java.util.*;
 public class Context {
- public static final String MEDIA_SESSION_SERVICE="media";public static final int MODE_PRIVATE=0;
+ public static final String MEDIA_SESSION_SERVICE="media",WINDOW_SERVICE="window";public static final int MODE_PRIVATE=0;
  public final Context app; public final PackageManager pm;public final SharedPreferences prefs;public final Resources resources;public final MediaSessionManager sessions;
  public int permission=0,registrations,launches;private final List<BroadcastReceiver> receivers=new ArrayList<>();private final List<IntentFilter> filters=new ArrayList<>();
  public Context(){app=this;pm=new PackageManager();prefs=new SharedPreferences();resources=new Resources();sessions=new MediaSessionManager();}
  public Context(Context a){app=a;pm=a.pm;prefs=a.prefs;resources=a.resources;sessions=a.sessions;}
  public Context getApplicationContext(){return app;}public PackageManager getPackageManager(){return pm;}public Resources getResources(){return resources;}
  public SharedPreferences getSharedPreferences(String n,int mode){return prefs;}public java.io.File getFilesDir(){return new java.io.File(System.getProperty("java.io.tmpdir"));}
- public int checkSelfPermission(String p){return app.permission;}public String getPackageName(){return "xyz.i4o.uni.launcher";}public Object getSystemService(String s){return sessions;}
+ public int checkSelfPermission(String p){return app.permission;}public String getPackageName(){return "xyz.i4o.uni.launcher";}public Object getSystemService(String s){return WINDOW_SERVICE.equals(s)?(Object)new android.view.WindowManager(){public android.view.Display getDefaultDisplay(){return new android.view.Display();}}:sessions;}
  public Intent registerReceiver(BroadcastReceiver r,IntentFilter f){registrations++;receivers.add(r);filters.add(f);return null;}
  public void broadcast(String action,String pkg){Intent i=new Intent(action);i.data=android.net.Uri.parse("package:"+pkg);for(int n=0;n<receivers.size();n++){IntentFilter f=filters.get(n);if(f.actions.contains(action)&&f.scheme.equals("package"))receivers.get(n).onReceive(this,i);}}
  public void startActivity(Intent i){launches++;}
@@ -63,6 +63,11 @@ public class Context {
 'android/os/SystemClock.java': '''package android.os;public class SystemClock {public static long elapsedRealtime(){return System.nanoTime()/1000000;}public static long uptimeMillis(){return elapsedRealtime();}}''',
 'android/os/Bundle.java': '''package android.os;import java.util.*;public class Bundle {private final Map<String,Object> values=new HashMap<>();public Object get(String k){return values.get(k);}public String getString(String k){return (String)get(k);}public int getInt(String k,int d){Object v=get(k);return v==null?d:(Integer)v;}public String[] getStringArray(String k){return (String[])get(k);}}''',
 'android/app/PendingIntent.java': '''package android.app;import android.content.*;public class PendingIntent {public static final int FLAG_UPDATE_CURRENT=1;public static PendingIntent getActivity(Context c,int code,Intent i,int f){return new PendingIntent();}}''',
+'android/graphics/Rect.java': '''package android.graphics;public class Rect {public final int left,top,right,bottom;public Rect(int l,int t,int r,int b){left=l;top=t;right=r;bottom=b;}@Override public boolean equals(Object o){return o instanceof Rect&&((Rect)o).left==left&&((Rect)o).top==top&&((Rect)o).right==right&&((Rect)o).bottom==bottom;}}''',
+'android/util/DisplayMetrics.java': '''package android.util;public class DisplayMetrics {public int widthPixels=1920,heightPixels=1080;}''',
+'android/view/WindowManager.java': '''package android.view;public interface WindowManager {Display getDefaultDisplay();}''',
+'android/view/Display.java': '''package android.view;public class Display {public void getRealMetrics(android.util.DisplayMetrics m){}}''',
+'xyz/i4o/uni/launcher/overlay/WorkspacePolicy.java': '''package xyz.i4o.uni.launcher.overlay;import android.content.*;public final class WorkspacePolicy {public static int dockTop(Context c,SharedPreferences p){return 888;}}''',
 'android/graphics/Bitmap.java': '''package android.graphics;import java.io.*;public class Bitmap {public enum CompressFormat {JPEG}public boolean isRecycled(){return false;}public int getWidth(){return 128;}public int getHeight(){return 128;}public static Bitmap createScaledBitmap(Bitmap b,int w,int h,boolean f){return b;}public boolean compress(CompressFormat f,int q,OutputStream out){return true;}public void recycle(){}}''',
 'android/util/Base64.java': '''package android.util;public class Base64 {public static final int NO_WRAP=2;public static String encodeToString(byte[] b,int flags){return java.util.Base64.getEncoder().encodeToString(b);}}''',
 'android/util/Log.java': '''package android.util;public class Log {public static int w(String t,String s,Throwable e){return 0;}public static int i(String t,String s,Throwable e){return 0;}}''',
