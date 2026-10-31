@@ -1,3 +1,0 @@
-Snapshot during sustained capture after 30 enable/disable + widget-recreation cycles
-USER           PID   TID  PPID     VSZ    RSS WCHAN            ADDR S CMD
-u0_a191      14173 14263  1698 12448016 194828 0                  0 S uni-audio-spect

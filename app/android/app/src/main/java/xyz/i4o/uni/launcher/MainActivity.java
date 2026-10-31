@@ -39,6 +39,7 @@ public final class MainActivity extends FlutterActivity {
     }
     private LauncherRuntime rt;
     private xyz.i4o.uni.launcher.audio.SpectrumBridge spectrumBridge;
+    private xyz.i4o.uni.launcher.ambient.AmbientLightBridge ambientBridge;
     private NavigationChrome chrome;
     private LiveNavigationHost mapHost;
     private String cached="{}";
@@ -72,6 +73,7 @@ public final class MainActivity extends FlutterActivity {
     @Override public void configureFlutterEngine(FlutterEngine engine){
         super.configureFlutterEngine(engine);
         spectrumBridge=xyz.i4o.uni.launcher.audio.SpectrumBridge.attach(this,engine);
+        ambientBridge=xyz.i4o.uni.launcher.ambient.AmbientLightBridge.attach(this,engine);
         if(rt==null)rt=LauncherRuntime.get(this);
         mapHost=new LiveNavigationHost(this,engine.getDartExecutor().getBinaryMessenger(),engine.getRenderer());
         channel=new MethodChannel(engine.getDartExecutor().getBinaryMessenger(),"xyz.i4o.uni.launcher/platform");
@@ -145,6 +147,8 @@ public final class MainActivity extends FlutterActivity {
         StartupTrace.began(traceStart);StartupTrace.runtime(StartupTrace.mark());
         initialSettings=isSettingsIntent(getIntent());
         super.onCreate(saved);getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        // 隐藏 API 豁免：频谱的次选路径要反射 audioSessionId（公开 SDK 里没有）。
+        android.util.Log.i("UniState","隐藏 API 豁免 "+xyz.i4o.uni.launcher.platform.HiddenApiCompat.tryExempt());
         // Android can create a separate HOME task after a regular app launch.
         // Keep one host/engine so hidden instances cannot retain map displays.
         MainActivity previous=active.get();active=new java.lang.ref.WeakReference<>(this);
@@ -280,6 +284,7 @@ public final class MainActivity extends FlutterActivity {
                 if(m!=null)for(String key:new String[]{"available","authorized","playing","source","preferredPackage","sessions","reason","canToggle","canNext","canPrevious","canSeek","controlSource","lyricsSource","durationMs","positionMs","steeringControlReady","instrumentMetadataReady"})safe.put(key,m.opt(key));
                 if(m!=null)safe.put("lyricsAvailable",!m.optString("lyrics").isEmpty()).put("artworkAvailable",!m.optString("artwork").isEmpty()).put("officialMedia",m.optJSONObject("officialMedia"));
                 report.put("audioSpectrum",new JSONObject(xyz.i4o.uni.launcher.audio.SpectrumBridge.diagnostics()));
+                if(ambientBridge!=null)report.put("ambientLight",new JSONObject(ambientBridge.status()));
                 report.put("media",safe).put("flutterViewport",flutterViewport).put("globalDock",GlobalDockService.snapshot(this)).put("systemSettings",full.opt("systemSettings"));
                 if(mapHost!=null)report.put("mapViews",mapHost.snapshot());
                 writer.println("UNI_STATE="+report.toString());
@@ -425,6 +430,7 @@ public final class MainActivity extends FlutterActivity {
         if(rt!=null)rt.removeListener(this);
         if(mapHost!=null)mapHost.close();
         if(spectrumBridge!=null){spectrumBridge.close();spectrumBridge=null;}
+        if(ambientBridge!=null){ambientBridge.close();ambientBridge=null;}
         if(channel!=null)channel.setMethodCallHandler(null);
         if(events!=null)events.setStreamHandler(null);
         sink=null;if(active.get()==this)active.clear();

@@ -44,6 +44,15 @@ android {
     }
     signingConfigs {
         create("uniLocal") {
+            // 开发／模拟器包用自己的证书。
+            //
+            // 实车包**不能**用这张证书：车机的
+            // android.car.permission.CAR_VENDOR_EXTENSION 是 signature|privileged，
+            // 只有与原车 Launcher 同一张证书（cardesk 实机验证用的 platform 证书）
+            // 才拿得到，否则车控 SDK 不会被创建，句柄永远拿不到，
+            // 车控通道与音乐律动氛围灯全都用不了。
+            //
+            // 实车包用 tools/sign_car_apk.py 单独签名，私钥不入库。
             storeFile = file(System.getenv("UNI_SIGNING_STORE") ?: "/data/tools/linkco-android/uni-debug.keystore")
             storePassword = "android"
             keyAlias = "uni-debug"
@@ -54,6 +63,7 @@ android {
         debug { signingConfig = signingConfigs.getByName("uniLocal") }
         release {
             // Local test distribution using the existing baseline development certificate.
+            // The IP753 car package is signed separately by tools/sign_car_apk.py.
             signingConfig = signingConfigs.getByName("uniLocal")
         }
     }

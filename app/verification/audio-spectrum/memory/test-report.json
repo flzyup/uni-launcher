@@ -1,8 +1,0 @@
-{
-  "cycles": 30,
-  "continuousCaptureSeconds": 180,
-  "actualToneDetected": true,
-  "stoppedSequenceStable": true,
-  "noOwnersAfterUnmount": true,
-  "scope": "API28 x86_64 profile, one FFT canvas, constant external AudioTrack; VM GC before memory checkpoints, not vehicle or full launcher"
-}

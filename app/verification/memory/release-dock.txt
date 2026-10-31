@@ -1,2 +1,0 @@
-No services match: xyz.i4o.uni.launcher/.GlobalDockService
-Use -h for help.

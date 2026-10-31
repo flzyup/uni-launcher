@@ -17,15 +17,22 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--input', required=True, type=Path)
 parser.add_argument('--out', required=True, type=Path)
 parser.add_argument('--toolchain', type=Path, default=Path('/data/tools/linkco-android/ip753-signing'))
+parser.add_argument('--java', type=Path, default=None,
+                    help='java launcher used to run apksigner')
+parser.add_argument('--apksigner', type=Path, default=None,
+                    help='apksigner.jar; taken from the SDK build-tools when omitted')
+parser.add_argument('--sdk', type=Path, default=None,
+                    help='Android SDK root used for apksigner and the nav insets')
 args = parser.parse_args()
 source = args.input.resolve()
 target = args.out.resolve()
 if source == target:
     parser.error('Choose a separate output APK; preserve the development artifact')
 toolchain = args.toolchain.resolve()
-java = Path('/data/tools/linkco-android/java-runtime/usr/lib/jvm/java-17-openjdk-amd64/bin/java')
+sdk = args.sdk.resolve() if args.sdk else Path('/data/tools/linkco-android/sdk')
+java = args.java.resolve() if args.java else Path('/data/tools/linkco-android/java-runtime/usr/lib/jvm/java-17-openjdk-amd64/bin/java')
 if not java.is_file(): java = toolchain / 'root/usr/lib/jvm/java-17-openjdk-amd64/bin/java'
-jar = Path('/data/tools/linkco-android/sdk/build-tools/36.0.0/lib/apksigner.jar')
+jar = args.apksigner.resolve() if args.apksigner else sdk / 'build-tools/36.0.0/lib/apksigner.jar'
 key = toolchain / 'platform.pk8'
 cert = toolchain / 'platform.x509.pem'
 for path in [source, java, jar, key, cert]:
@@ -40,7 +47,7 @@ with tempfile.TemporaryDirectory(prefix='uni-car-sign-') as temp:
     signing_source=source
     if launcher:
         resource=temp/'insets-unsigned.apk'
-        build_nav_insets(resource)
+        build_nav_insets(resource, sdk)
         signed_resource=temp/'insets.apk'
         subprocess.run([*signer,'sign','--key',str(key),'--cert',str(cert),
             '--v4-signing-enabled','false','--out',str(signed_resource),str(resource)],check=True)

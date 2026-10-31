@@ -17,6 +17,8 @@ import '../widgets/setting_block.dart';
 import '../widgets/spectrum_painter.dart';
 import '../ota/update_controller.dart';
 import '../ota/update_ui.dart';
+import '../widgets/ambient_light_settings.dart';
+import '../platform/ambient_light.dart';
 
 class SettingsScreen extends StatelessWidget {
   final LauncherController controller;
@@ -71,9 +73,9 @@ class SettingsScreen extends StatelessWidget {
                       child: Row(children: [
                         for (final tab in [
                           ('appearance', '外观主题'),
-                          ('motion', '动画效果'),
-                          ('system', '系统设置'),
-                          if (update != null) ('about', '关于')
+                          ('motion', '切换动效'),
+                          ('ambient', '氛围灯'),
+                          ('system', '系统设置')
                         ])
                           _SettingsTab(controller: c, id: tab.$1, label: tab.$2)
                       ])),
@@ -88,6 +90,7 @@ class SettingsScreen extends StatelessWidget {
                                     : box.maxHeight,
                                 child: AppearanceSettings(controller: c)))),
                     'motion' => PageMotionSettings(controller: c),
+                    'ambient' => AmbientLightSettingsTab(controller: c),
                     'system' => SystemSettingsPanel(controller: c),
                     'about' => update == null
                         ? const SizedBox.shrink()
@@ -182,6 +185,46 @@ class SpectrumSettings extends StatelessWidget {
               onChanged: (value) => c.setAppearance(
                   c.appearance.copyWith(dockMusicProgressBackground: value))),
         ]));
+  }
+}
+
+/// The ambient light tab. It listens to the shared service so the capability
+/// line stays current, but the live colour is delivered through its own
+/// notifier and never rebuilds this page.
+class AmbientLightSettingsTab extends StatefulWidget {
+  final LauncherController controller;
+  const AmbientLightSettingsTab({super.key, required this.controller});
+  @override
+  State<AmbientLightSettingsTab> createState() =>
+      _AmbientLightSettingsTabState();
+}
+
+class _AmbientLightSettingsTabState extends State<AmbientLightSettingsTab> {
+  @override
+  void initState() {
+    super.initState();
+    // The capability is read when the tab opens: the vehicle service may
+    // have connected after the app started.
+    AmbientLightService.shared.refreshStatus();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = widget.controller;
+    return ListenableBuilder(
+        listenable: AmbientLightService.shared,
+        builder: (context, _) => ListView(
+                key: const PageStorageKey('ambient-settings-scroll'),
+                padding: EdgeInsets.zero,
+                children: [
+                  SettingBlock(
+                      title: '音乐律动氛围灯',
+                      note: '按正在播放的音乐频谱换算颜色与亮度',
+                      child: AmbientLightSettingsPanel(
+                          settings: c.ambientLight,
+                          service: AmbientLightService.shared,
+                          onChanged: c.setAmbientLight)),
+                ]));
   }
 }
 

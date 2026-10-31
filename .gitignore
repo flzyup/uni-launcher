@@ -11,3 +11,5 @@ __pycache__/
 /archive/webview-android/node_modules/
 
 /car-reports/
+
+/app/verification/
