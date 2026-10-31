@@ -14,6 +14,7 @@ import '../model/weather_condition.dart';
 import 'weather_icon.dart';
 import 'desktop_name_dialog.dart';
 import 'system_status_row.dart';
+import 'file_transfer_popup.dart';
 import '../model/card_layout.dart';
 import 'card_content.dart';
 import 'uni_icon.dart';
@@ -78,7 +79,9 @@ class _HeaderState extends State<Header> {
                     select: (native) => [
                           native['demo'],
                           native['weather'],
-                          native['systemStatus']
+                          native['systemStatus'],
+                          native['transfer'] is Map &&
+                              (native['transfer'] as Map)['running'] == true
                         ],
                     builder: (context, native) =>
                         Row(mainAxisSize: MainAxisSize.min, children: [
@@ -90,6 +93,30 @@ class _HeaderState extends State<Header> {
                           ],
                           _HeaderWeather(native: native),
                           SizedBox(width: Design.px(28)),
+                          if (native['transfer'] is Map &&
+                              (native['transfer'] as Map)['running'] ==
+                                  true) ...[
+                            Tooltip(
+                                message: '文件服务运行中，打开传文件',
+                                child: Semantics(
+                                    button: true,
+                                    label: '文件服务运行中，打开传文件',
+                                    child: InkWell(
+                                        key: const ValueKey(
+                                            'status-file-transfer'),
+                                        onTap: () => showFileTransferPopup(
+                                            context, widget.controller),
+                                        borderRadius: BorderRadius.circular(
+                                            s.controlRadius),
+                                        child: Padding(
+                                            padding:
+                                                EdgeInsets.all(Design.px(6)),
+                                            child: Icon(
+                                                Icons.upload_file_outlined,
+                                                size: Design.px(24),
+                                                color: s.accent))))),
+                            SizedBox(width: Design.px(12)),
+                          ],
                           SystemStatusRow(
                               status: native['systemStatus'] is Map
                                   ? Map<String, dynamic>.from(
@@ -375,8 +402,7 @@ class _DesktopStaticLayers extends StatelessWidget {
                           position: position,
                           onPageRequested: (page) =>
                               unawaited(c.switchPage(page)),
-                          effect:
-                              c.editing ? 'none' : c.appearance.pageTransition,
+                          effect: c.appearance.pageTransition,
                           children: grids)),
                 ]))));
   }

@@ -66,6 +66,14 @@ class IntegrationSettings extends StatelessWidget {
                   value: nav['enabled'] != false,
                   onChanged: (v) =>
                       controller.command('embed-navigation', enabled: v)),
+              DesignSwitchTile(
+                  key: const ValueKey('map-texture-scale'),
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('嵌入地图缩放（优化帧率 但会模糊）'),
+                  subtitle: const Text('地图卡片降分辨率渲染，翻页更跟手，导航画面略软'),
+                  value: prefs['mapTextureScale'] == true,
+                  onChanged: (v) =>
+                      controller.command('map-texture-scale', enabled: v)),
               TextButton(
                   onPressed: () => controller.command('launch-navigation'),
                   child: const Text('打开导航应用')),
@@ -77,7 +85,16 @@ class IntegrationSettings extends StatelessWidget {
                 children: [
               picker('media-source', '关联的音乐播放器', 'select-player',
                   '${prefs['mediaPackage'] ?? 'auto'}'),
-              SizedBox(height: Design.px(16)),
+              SizedBox(height: Design.px(10)),
+              DesignSwitchTile(
+                  key: const ValueKey('auto-play-music'),
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('开机自动播放音乐'),
+                  subtitle: const Text('启动后恢复上次音源，播放器不会跳到前台'),
+                  value: prefs['autoPlayMusic'] == true,
+                  onChanged: (v) =>
+                      controller.command('auto-play-music', enabled: v)),
+              SizedBox(height: Design.px(10)),
               Text(
                   '选择网易云、QQ 音乐或原车音乐后，歌曲、封面、歌词和播放控制均跟随该应用。请先在播放器中播放一首歌曲并授权媒体访问。',
                   style: TextStyle(

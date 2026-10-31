@@ -365,12 +365,7 @@ class _EnergyFlowPainter extends CustomPainter {
             ..strokeWidth = Design.px(1));
       _drawEnergyGlyph(canvas, center, Design.px(12), glyph,
           c.withValues(alpha: active ? 1 : .55));
-      final text = TextPainter(
-          text: TextSpan(
-              text: label,
-              style: TextStyle(fontSize: Design.px(10.5), color: style.muted)),
-          textDirection: TextDirection.ltr)
-        ..layout();
+      final text = _labelPainter(label, style.muted);
       text.paint(canvas,
           Offset(center.dx - text.width / 2, center.dy + Design.px(20)));
     }
@@ -386,6 +381,22 @@ class _EnergyFlowPainter extends CustomPainter {
       oldDelegate.progress != progress ||
       oldDelegate.plan != plan ||
       oldDelegate.style != style;
+
+  // This painter repaints for as long as energy flows. Four labels were shaped on
+  // every frame; the glyph size is fixed, so only text and colour type the result.
+  static final Map<String, TextPainter> _labelCache = {};
+  static TextPainter _labelPainter(String label, Color color) {
+    final key = '$label|${color.toARGB32()}';
+    final cached = _labelCache[key];
+    if (cached != null) return cached;
+    if (_labelCache.length > 48) _labelCache.clear();
+    return _labelCache[key] = TextPainter(
+        text: TextSpan(
+            text: label,
+            style: TextStyle(fontSize: Design.px(10.5), color: color)),
+        textDirection: TextDirection.ltr)
+      ..layout();
+  }
 }
 
 enum _EnergyGlyph { engine, motor, battery, wheels }

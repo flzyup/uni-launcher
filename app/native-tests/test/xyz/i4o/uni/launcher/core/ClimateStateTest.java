@@ -136,6 +136,8 @@ public final class ClimateStateTest {
         check(MediaSourcePolicy.select("missing",new String[]{"system"},new boolean[]{true})==-1,"missing chosen session never falls back");
         check(MediaSourcePolicy.select("auto",new String[]{"system","qq"},new boolean[]{false,true})==1,"auto prefers playing source");
         check(MediaSourcePolicy.select("auto",new String[]{},new boolean[]{})==-1,"empty sessions");
+        check(MediaSourcePolicy.select("auto","qq",new String[]{"ecarx.xsf.mediacenter","qq"},new boolean[]{true,false})==1,"keep paused player over media center proxy");
+        check(MediaSourcePolicy.select("auto","qq",new String[]{"qq","netease"},new boolean[]{false,true})==1,"switch to newly playing player");
         check(VehicleValues.decode("left",45).doubleValue()==22.5,"temperature evidenced x2 conversion");
         check(VehicleValues.decode("left",65535)==null,"reject temperature sentinel");
         check(VehicleValues.decode("driverHeat",4)==null,"reject unknown seat status");

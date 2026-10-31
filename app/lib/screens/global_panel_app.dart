@@ -4,6 +4,7 @@ import '../platform/native_gateway.dart';
 import '../controller/launcher_controller.dart';
 import '../theme/launcher_theme.dart';
 import '../widgets/bottom_dock.dart';
+import '../widgets/file_transfer_popup.dart';
 import '../widgets/card_content.dart';
 import '../widgets/dock_window_scope.dart';
 import '../widgets/navigation_app_picker.dart';
@@ -84,6 +85,10 @@ class _GlobalPanelAppState extends State<GlobalPanelApp> {
           await showNavigationPicker(context, widget.controller);
         case 'music-picker':
           await showMusicPicker(context, widget.controller);
+        case 'uni-menu':
+          await showUniDockMenu(context, widget.controller);
+        case 'transfer':
+          await showFileTransferPopup(context, widget.controller);
         case 'apps':
           await showAppsPanel(context, widget.controller);
         default:

@@ -51,6 +51,7 @@ IconData cardIcon(String type) =>
       'member': Icons.person_outline,
       'cleanup': Icons.cleaning_services_outlined,
       'tpms': Icons.tire_repair_outlined,
+      'body': Icons.directions_car_outlined,
       'battery': Icons.battery_std_outlined,
       'air': Icons.air,
       'ride': Icons.local_taxi_outlined,
@@ -70,6 +71,7 @@ String cardSymbol(String type) =>
       'member': 'user',
       'cleanup': 'broom',
       'tpms': 'tire',
+      'body': 'car',
       'battery': 'battery',
       'air': 'air',
       'vehicle': 'car',
@@ -87,7 +89,12 @@ class CardContent extends StatelessWidget {
         select: (native) => [
           native['demo'],
           for (final key in switch (card.type) {
-            'nav' => ['navigation', 'apps', 'appNames'],
+            'nav' => [
+                'navigation',
+                'apps',
+                'appNames',
+                'integrationPreferences'
+              ],
             'trafficLight' => [
                 'trafficLights',
                 'navigation',
@@ -98,7 +105,9 @@ class CardContent extends StatelessWidget {
             'weather' || 'clockWeather' => ['weather'],
             'calendar' => ['calendar'],
             'member' => ['systemStatus'],
-            'battery' || 'air' || 'vehicle' || 'tpms' || 'ride' => ['vehicle'],
+            'battery' || 'air' || 'vehicle' || 'tpms' || 'body' || 'ride' => [
+                'vehicle'
+              ],
             'shortcuts' => ['apps', 'appNames'],
             _ => <String>[],
           })
@@ -151,6 +160,7 @@ class CardContent extends StatelessWidget {
               title: const ['车辆信息', '行驶信息'].contains(card.title)
                   ? '行车信息'
                   : card.title),
+          'body' => _BodyCard(card: card, native: native),
           'shortcuts' => _ShortcutCard(card: card, controller: controller),
           _ => _OemCard(
               card: card, controller: controller, demo: native['demo'] == true),

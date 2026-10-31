@@ -6,6 +6,7 @@ import 'package:uni_launcher/model/appearance.dart';
 import 'package:uni_launcher/screens/global_dock_app.dart';
 import 'package:uni_launcher/screens/global_panel_app.dart';
 import 'package:uni_launcher/theme/launcher_theme.dart';
+import 'package:uni_launcher/theme/technical_frame.dart';
 import 'package:uni_launcher/widgets/bottom_dock.dart';
 import 'package:uni_launcher/widgets/launcher_dialog.dart';
 import 'package:uni_launcher/widgets/glass_surface.dart';
@@ -15,6 +16,7 @@ import 'package:uni_launcher/widgets/lyrics_view.dart';
 import 'fake_gateway.dart';
 import 'package:uni_launcher/widgets/recent_tasks_panel.dart';
 import 'package:uni_launcher/widgets/uni_icon.dart';
+import 'package:uni_launcher/widgets/desktop.dart';
 
 void main() {
   Future<(LauncherController, FakeGateway)> setup(WidgetTester t,
@@ -62,6 +64,28 @@ void main() {
     });
     return (c, g);
   }
+
+  testWidgets('header transfer icon follows service and opens global popup',
+      (t) async {
+    final (c, g) = await setup(t, global: true);
+    await t.pumpWidget(MaterialApp(
+      theme: launcherTheme(SurfaceStyle.from(const Appearance(), true)),
+      home: Scaffold(body: Header(controller: c)),
+    ));
+    expect(find.byKey(const ValueKey('status-file-transfer')), findsNothing);
+    g.state['transfer'] = {'running': true};
+    g.stream.add(Map.of(g.state));
+    await t.pump();
+    expect(find.byKey(const ValueKey('status-file-transfer')), findsOneWidget);
+    await t.tap(find.byKey(const ValueKey('status-file-transfer')));
+    await t.pump();
+    expect(g.commands.last['action'], 'show-dock-panel');
+    expect(g.commands.last['value'], 'transfer');
+    g.state['transfer'] = {'running': false};
+    g.stream.add(Map.of(g.state));
+    await t.pump();
+    expect(find.byKey(const ValueKey('status-file-transfer')), findsNothing);
+  });
 
   testWidgets('custom recents renders task cards and native task actions',
       (t) async {
@@ -120,6 +144,7 @@ void main() {
     final ink = find.byKey(const ValueKey('app-icon-ink-test.player'));
     expect(frame, findsOneWidget);
     expect(ink, findsOneWidget);
+    expect(t.widget<Material>(frame).shape, isA<TechnicalFrameBorder>());
     expect(t.getSize(frame).width, t.getSize(frame).height);
     expect(t.getSize(frame).width, greaterThan(80));
     expect(t.getSize(ink), t.getSize(frame));
@@ -136,7 +161,10 @@ void main() {
         home: Scaffold(body: AppPanel(controller: c))));
     await t.pumpAndSettle();
     final gridBefore = t.widget<GridView>(find.byType(GridView));
-    c.native.value = {...c.native.value, 'vehicle': {'speed': 42}};
+    c.native.value = {
+      ...c.native.value,
+      'vehicle': {'speed': 42}
+    };
     await t.pump();
     expect(t.widget<GridView>(find.byType(GridView)), same(gridBefore));
     c.native.value = {
@@ -194,7 +222,7 @@ void main() {
       'play-pause',
       'next',
       'music-info',
-      'vehicle'
+      'uni-menu'
     ];
     for (var i = 1; i < order.length; i++) {
       expect(t.getCenter(find.byKey(ValueKey(order[i]))).dx,
@@ -207,18 +235,150 @@ void main() {
         matching: find.byType(UniIcon)));
     expect(cameraIcon.name, 'camera-360');
     final title = t.getCenter(find.byKey(const ValueKey('dock-track-title')));
-    expect(find.byKey(const ValueKey('audio-spectrum-paint')), findsOneWidget);
-    await t.drag(find.byKey(const ValueKey('dock-music-visual-pages')),
-        const Offset(-400, 0));
-    await t.pumpAndSettle();
-    final lyric = t.getCenter(find.byKey(const ValueKey('dock-lyrics')));
-    expect(lyric.dx, greaterThan(title.dx));
-    expect(lyric.dy, closeTo(title.dy, .1));
-    expect(find.text('当前句'), findsOneWidget);
+    expect(find.byKey(const ValueKey('dock-lyrics')).hitTestable(),
+        findsOneWidget);
+    expect(find.text('当前句').hitTestable(), findsOneWidget);
     final lyrics = t.widget<LyricsView>(find.byType(LyricsView));
     expect(lyrics.visibleLines, 1);
     expect(lyrics.currentLineMaxLines, 2);
+    final lyric = t.getCenter(find.byKey(const ValueKey('dock-lyrics')));
+    expect(lyric.dx, greaterThan(title.dx));
+    expect(lyric.dy, closeTo(title.dy, .1));
+    await t.drag(find.byKey(const ValueKey('dock-music-visual-pages')),
+        const Offset(-400, 0));
+    await t.pumpAndSettle();
+    expect(find.byKey(const ValueKey('audio-spectrum-paint')).hitTestable(),
+        findsOneWidget);
     expect(t.takeException(), isNull);
+  });
+
+  testWidgets('UNI dock menu opens vehicle details and desktop settings',
+      (t) async {
+    final (c, g) = await setup(t);
+    await t.pumpWidget(MaterialApp(
+        theme: launcherTheme(SurfaceStyle.from(const Appearance(), true)),
+        home: Scaffold(
+            body: Align(
+                alignment: Alignment.bottomCenter,
+                child: BottomDock(controller: c)))));
+    await t.pumpAndSettle();
+    await t.tap(find.byKey(const ValueKey('uni-menu')));
+    await t.pumpAndSettle();
+    expect(find.byKey(const ValueKey('uni-popup-panel')), findsOneWidget);
+    expect(find.text('车辆信息'), findsOneWidget);
+    expect(find.text('UNI桌面设置'), findsOneWidget);
+    await t.tap(find.byKey(const ValueKey('uni-menu-vehicle')));
+    await t.pumpAndSettle();
+    expect(find.byTooltip('关闭车辆信息'), findsOneWidget);
+    await t.tap(find.byTooltip('关闭车辆信息'));
+    await t.pumpAndSettle();
+    await t.tap(find.byKey(const ValueKey('uni-menu')));
+    await t.pumpAndSettle();
+    await t.tap(find.byKey(const ValueKey('uni-menu-settings')));
+    await t.pumpAndSettle();
+    expect(c.settings, isTrue);
+    expect(g.commands, isEmpty);
+    expect(t.takeException(), isNull);
+  });
+
+  testWidgets('UNI menu opens transfer panel with live address and controls',
+      (t) async {
+    final (c, g) = await setup(t);
+    g.state['transfer'] = {
+      'running': true,
+      'url': 'http://192.168.1.1:8080/',
+      'files': []
+    };
+    g.stream.add(Map.of(g.state));
+    await t.pumpWidget(MaterialApp(
+        theme: launcherTheme(SurfaceStyle.from(const Appearance(), true)),
+        home: Scaffold(
+            body: Align(
+                alignment: Alignment.bottomCenter,
+                child: BottomDock(controller: c)))));
+    await t.pumpAndSettle();
+    await t.tap(find.byKey(const ValueKey('uni-menu')));
+    await t.pumpAndSettle();
+    await t.tap(find.byKey(const ValueKey('uni-menu-transfer')));
+    await t.pumpAndSettle();
+    expect(find.byKey(const ValueKey('transfer-popup')), findsOneWidget);
+    expect(find.text('http://192.168.1.1:8080/'), findsOneWidget);
+    await t.tap(find.byKey(const ValueKey('transfer-switch')));
+    await t.pumpAndSettle();
+    expect(g.commands.last['action'], 'transfer-stop');
+    expect(t.takeException(), isNull);
+  });
+
+  testWidgets('global panel opens transfer and starts service', (t) async {
+    final (c, g) = await setup(t, host: 'global-panel', global: true);
+    await t.pumpWidget(GlobalPanelApp(controller: c));
+    await t.pumpAndSettle();
+    g.state['globalDock'] = {
+      'enabled': true,
+      'running': true,
+      'panel': 'uni-menu',
+      'panelRevision': 1
+    };
+    g.stream.add(Map.of(g.state));
+    await t.pumpAndSettle();
+    await t.tap(find.byKey(const ValueKey('uni-menu-transfer')));
+    await t.pumpAndSettle();
+    expect(find.byKey(const ValueKey('transfer-popup')), findsOneWidget);
+    await t.tap(find.byKey(const ValueKey('transfer-switch')));
+    await t.pumpAndSettle();
+    expect(
+        g.commands.any((entry) => entry['action'] == 'transfer-start'), isTrue);
+    expect(t.takeException(), isNull);
+  });
+
+  testWidgets('direct global transfer panel signals readiness and closes',
+      (t) async {
+    final (c, g) = await setup(t, host: 'global-panel', global: true);
+    await t.pumpWidget(GlobalPanelApp(controller: c));
+    await t.pumpAndSettle();
+    g.state['globalDock'] = {
+      'enabled': true,
+      'running': true,
+      'panel': 'transfer',
+      'panelRevision': 3
+    };
+    g.stream.add(Map.of(g.state));
+    await t.pumpAndSettle();
+    expect(find.byKey(const ValueKey('transfer-popup')), findsOneWidget);
+    expect(
+        g.commands.any((entry) =>
+            entry['action'] == 'panel-ready' && entry['value'] == '3'),
+        isTrue);
+    await t.tap(find.byTooltip('关闭传文件'));
+    await t.pumpAndSettle();
+    expect(g.commands.any((entry) => entry['action'] == 'dismiss-dock-panel'),
+        isTrue);
+    expect(t.takeException(), isNull);
+  });
+
+  testWidgets('global panel engine presents the UNI menu and settings action',
+      (t) async {
+    final (c, g) = await setup(t, host: 'global-panel', global: true);
+    await t.pumpWidget(GlobalPanelApp(controller: c));
+    await t.pumpAndSettle();
+    g.state['globalDock'] = {
+      'enabled': true,
+      'running': true,
+      'panel': 'uni-menu',
+      'panelRevision': 1
+    };
+    g.stream.add(Map.of(g.state));
+    await t.pumpAndSettle();
+    expect(find.byKey(const ValueKey('uni-popup-panel')), findsOneWidget);
+    expect(find.byKey(const ValueKey('uni-menu-vehicle')), findsOneWidget);
+    expect(find.byKey(const ValueKey('uni-menu-settings')), findsOneWidget);
+    await t.tap(find.byKey(const ValueKey('uni-menu-settings')));
+    await t.pumpAndSettle();
+    expect(
+        g.commands.any((action) => action['action'] == 'show-desktop-settings'),
+        isTrue);
+    expect(g.commands.last['action'], 'dismiss-dock-panel');
+    await t.pumpWidget(const SizedBox.shrink());
   });
 
   testWidgets(
@@ -357,10 +517,10 @@ void main() {
 
     panel('climate', 1);
     await t.pumpAndSettle();
-    expect(find.text('座舱舒适'), findsOneWidget);
+    expect(find.text('空调与座椅'), findsOneWidget);
     panel('media', 2);
     await t.pumpAndSettle();
-    expect(find.text('座舱舒适'), findsNothing);
+    expect(find.text('空调与座椅'), findsNothing);
     expect(find.text('正在播放'), findsOneWidget);
     expect(find.text('打开关联播放器'), findsNothing);
     expect(find.text('测试播放器'), findsOneWidget);

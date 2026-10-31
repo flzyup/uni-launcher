@@ -79,7 +79,11 @@ void main() {
               .resolve(TextDirection.ltr),
           BorderRadius.zero);
     }
-    final field = t.widget<TextField>(find.byKey(const ValueKey('hex-field')));
+    await t.ensureVisible(find.byKey(const ValueKey('custom-color')));
+    await t.tap(find.byKey(const ValueKey('custom-color')));
+    await t.pumpAndSettle();
+    final field =
+        t.widget<TextField>(find.byKey(const ValueKey('color-picker-hex')));
     final border = field.decoration?.border ??
         Theme.of(t.element(find.byType(DesktopPreview)))
             .inputDecorationTheme
@@ -216,7 +220,7 @@ void main() {
     }
     expect(find.text('副驾通风'), findsNothing);
     final sheet = t.widget<LauncherSheet>(find.byType(LauncherSheet));
-    expect(sheet.width, closeTo(933.333, .01));
+    expect(sheet.width, closeTo(1200, .01));
     expect(t.takeException(), null);
   });
   testWidgets(
@@ -231,7 +235,7 @@ void main() {
     await t.pumpAndSettle();
     for (final key in ['driverHeat', 'driverVent', 'passengerHeat']) {
       expect(find.byKey(ValueKey('seat-unknown-$key')), findsOneWidget);
-      for (int level = 0; level <= 3; level++)
+      for (int level = 1; level <= 3; level++)
         expect(
             t
                 .widget<OutlinedButton>(
@@ -239,6 +243,18 @@ void main() {
                 .onPressed,
             null);
     }
+    expect(
+        t
+            .widget<OutlinedButton>(
+                find.byKey(const ValueKey('seat-driver-off')))
+            .onPressed,
+        isNull);
+    expect(
+        t
+            .widget<OutlinedButton>(
+                find.byKey(const ValueKey('seat-passengerHeat-0')))
+            .onPressed,
+        isNull);
     expect(t.takeException(), null);
   });
 }

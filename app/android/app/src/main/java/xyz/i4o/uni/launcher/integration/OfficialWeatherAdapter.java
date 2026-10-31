@@ -25,7 +25,10 @@ public final class OfficialWeatherAdapter {
     private String reason="等待原车天气服务";
     private JSONObject data=new JSONObject();
     private JSONObject forecast=new JSONObject();
-    private final ExecutorService forecastWorker=Executors.newSingleThreadExecutor();
+    private ThreadPoolExecutor forecastWorker;
+    private Future<?> forecastTask;
+    private final ForecastRequestGate forecastGate=new ForecastRequestGate();
+    private boolean active;
     private String forecastCity="",forecastReason="";
     private boolean forecastLoading;
     private long forecastAttemptMs;
@@ -35,13 +38,14 @@ public final class OfficialWeatherAdapter {
             if(code==INTERFACE_TRANSACTION){if(out!=null)out.writeString(CALLBACK);return true;}
             if(code==1){
                 in.enforceInterface(CALLBACK);final String raw=in.readString();
-                if(raw!=null&&raw.length()<=8192)main.post(()->receive(raw));
+                if(raw!=null&&raw.length()<=8192)main.post(()->{if(active)receive(raw);});
                 if(out!=null)out.writeNoException();return true;
             }return super.onTransact(code,in,out,flags);
         }
     };
     private final ServiceConnection connection=new ServiceConnection(){
         public void onServiceConnected(ComponentName name,IBinder service){
+            if(!active)return;
             Parcel in=Parcel.obtain(),out=Parcel.obtain();
             try{
                 if(!SERVICE.equals(service.getInterfaceDescriptor()))throw new IllegalStateException("Weather service identity mismatch");
@@ -53,11 +57,12 @@ public final class OfficialWeatherAdapter {
             finally{in.recycle();out.recycle();}
             changed.run();
         }
-        public void onServiceDisconnected(ComponentName name){connected=false;reason="原车天气服务已断开";changed.run();}
+        public void onServiceDisconnected(ComponentName name){connected=false;reason="原车天气服务已断开";if(active)changed.run();}
     };
     public OfficialWeatherAdapter(Context context,Runnable changed){this.context=context;this.changed=changed;}
     public void start(){
-        if(bound)return;
+        if(active)return;
+        active=true;forecastGate.start();forecastWorker=new ThreadPoolExecutor(1,1,0L,TimeUnit.MILLISECONDS,new LinkedBlockingQueue<>());
         try{
             context.getPackageManager().getApplicationInfo("com.ecarx.smartcloud",0);
             Intent intent=new Intent("ecarx.intent.action.smartcloud.core.service")
@@ -65,6 +70,15 @@ public final class OfficialWeatherAdapter {
             bound=context.bindService(intent,connection,Context.BIND_AUTO_CREATE);
             if(!bound)reason="原车天气服务未就绪";
         }catch(Exception e){reason="此设备未提供原车天气服务";}
+    }
+    public void stop(){
+        if(!active)return;
+        active=false;forecastGate.stop();main.removeCallbacks(retryForecast);
+        if(forecastLoading)forecastAttemptMs=0;
+        forecastLoading=false;connected=false;
+        if(bound){try{context.unbindService(connection);}catch(IllegalArgumentException ignored){}bound=false;}
+        if(forecastTask!=null){forecastTask.cancel(true);forecastTask=null;}
+        if(forecastWorker!=null){forecastWorker.shutdownNow();forecastWorker=null;}
     }
     private void receive(String raw){
         try{
@@ -90,6 +104,7 @@ public final class OfficialWeatherAdapter {
         requestForecast(city,data.optString("region",""),true);
     }
     private void requestForecast(String city,String region,boolean force){
+        if(!active)return;
         long now=System.currentTimeMillis();
         if(city==null||city.trim().isEmpty())return;
         city=city.trim();
@@ -102,17 +117,19 @@ public final class OfficialWeatherAdapter {
         main.removeCallbacks(retryForecast);
         forecastCity=requestedCity;forecastAttemptMs=now;forecastLoading=true;forecastReason="正在获取未来天气";changed.run();
         final String area=city,requestedRegion=region;
-        forecastWorker.execute(()->{
+        final long request=forecastGate.next();
+        if(forecastTask!=null){forecastTask.cancel(true);forecastWorker.purge();}
+        forecastTask=forecastWorker.submit(()->{
             try{
                 JSONObject next=downloadForecast(area,requestedRegion);
                 main.post(()->{
-                    if(!requestedCity.equals(forecastCity))return;
+                    if(!forecastGate.accepts(request))return;
                     forecast=next;forecastLoading=false;forecastReason="";changed.run();
                 });
             }catch(Exception e){
                 android.util.Log.w("UniWeather","Unable to load forecast for "+requestedCity,e);
                 main.post(()->{
-                    if(!requestedCity.equals(forecastCity))return;
+                    if(!forecastGate.accepts(request))return;
                     forecastLoading=false;
                     forecastReason=forecast.optJSONArray("forecasts")!=null
                         ?"未来天气更新失败，正在显示上次数据"

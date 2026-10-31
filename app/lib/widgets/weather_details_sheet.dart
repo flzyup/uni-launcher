@@ -4,6 +4,7 @@ import '../controller/launcher_controller.dart';
 import '../model/weather_condition.dart';
 import '../theme/design_tokens.dart';
 import '../theme/launcher_theme.dart';
+import 'glass_surface.dart';
 import 'launcher_dialog.dart';
 import 'weather_icon.dart';
 
@@ -50,74 +51,75 @@ class WeatherDetailsContent extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = SurfaceStyle.of(context);
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Container(
-          key: const ValueKey('weather-current-detail'),
+      SizedBox(
           height: Design.px(220),
-          padding: EdgeInsets.symmetric(
-              horizontal: Design.px(30), vertical: Design.px(24)),
-          decoration: BoxDecoration(
-              color: s.soft,
-              border: Border.all(color: s.edge),
-              borderRadius: BorderRadius.circular(s.radius)),
-          child: Row(children: [
-            WeatherIcon(
-                condition: weather.condition,
-                night: weather.night,
-                size: Design.px(126),
-                color: s.accent),
-            SizedBox(width: Design.px(28)),
-            SizedBox(
-                width: Design.px(250),
-                child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(weather.city,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                              color: s.muted, fontSize: Design.px(22))),
-                      SizedBox(height: Design.px(8)),
-                      Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(_number(weather.temperature),
-                                style: TextStyle(
-                                    fontSize: Design.px(72),
-                                    height: .95,
-                                    fontWeight: FontWeight.w300)),
-                            Text('°', style: TextStyle(fontSize: Design.px(38)))
-                          ]),
-                      SizedBox(height: Design.px(8)),
-                      Text(weather.description,
-                          style: TextStyle(fontSize: Design.px(24)))
-                    ])),
-            Container(width: 1, height: Design.px(150), color: s.edge),
-            SizedBox(width: Design.px(34)),
-            Expanded(
-                child: Wrap(
-                    spacing: Design.px(18),
-                    runSpacing: Design.px(16),
-                    children: [
-                  _WeatherMetric(
-                      icon: Icons.thermostat_outlined,
-                      label: '体感温度',
-                      value: _number(weather.apparentTemperature, suffix: '°')),
-                  _WeatherMetric(
-                      icon: Icons.water_drop_outlined,
-                      label: '相对湿度',
-                      value: _number(weather.humidity, suffix: '%')),
-                  _WeatherMetric(
-                      icon: Icons.air,
-                      label: '风速',
-                      value:
-                          '${_windDirection(weather.windDirection)}${_number(weather.windSpeed, suffix: ' km/h')}'),
-                  _WeatherMetric(
-                      icon: Icons.update,
-                      label: '当前天气更新',
-                      value: _time(weather.syncedAtMs)),
-                ]))
-          ])),
+          child: GlassSurface(
+              key: const ValueKey('weather-current-detail'),
+              tone: SurfaceTone.soft,
+              shadow: false,
+              padding: EdgeInsets.symmetric(
+                  horizontal: Design.px(30), vertical: Design.px(24)),
+              child: Row(children: [
+                WeatherIcon(
+                    condition: weather.condition,
+                    night: weather.night,
+                    size: Design.px(126),
+                    color: s.accent),
+                SizedBox(width: Design.px(28)),
+                SizedBox(
+                    width: Design.px(250),
+                    child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(weather.city,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                  color: s.muted, fontSize: Design.px(22))),
+                          SizedBox(height: Design.px(8)),
+                          Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(_number(weather.temperature),
+                                    style: TextStyle(
+                                        fontSize: Design.px(72),
+                                        height: .95,
+                                        fontWeight: FontWeight.w300)),
+                                Text('°',
+                                    style: TextStyle(fontSize: Design.px(38)))
+                              ]),
+                          SizedBox(height: Design.px(8)),
+                          Text(weather.description,
+                              style: TextStyle(fontSize: Design.px(24)))
+                        ])),
+                Container(width: 1, height: Design.px(150), color: s.edge),
+                SizedBox(width: Design.px(34)),
+                Expanded(
+                    child: Wrap(
+                        spacing: Design.px(18),
+                        runSpacing: Design.px(16),
+                        children: [
+                      _WeatherMetric(
+                          icon: Icons.thermostat_outlined,
+                          label: '体感温度',
+                          value: _number(weather.apparentTemperature,
+                              suffix: '°')),
+                      _WeatherMetric(
+                          icon: Icons.water_drop_outlined,
+                          label: '相对湿度',
+                          value: _number(weather.humidity, suffix: '%')),
+                      _WeatherMetric(
+                          icon: Icons.air,
+                          label: '风速',
+                          value:
+                              '${_windDirection(weather.windDirection)}${_number(weather.windSpeed, suffix: ' km/h')}'),
+                      _WeatherMetric(
+                          icon: Icons.update,
+                          label: '当前天气更新',
+                          value: _time(weather.syncedAtMs)),
+                    ]))
+              ]))),
       SizedBox(height: Design.px(24)),
       Row(children: [
         Text('未来天气',
@@ -213,14 +215,13 @@ class _ForecastDay extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = SurfaceStyle.of(context);
-    return Container(
+    return GlassSurface(
         key: ValueKey('weather-forecast-$index'),
+        tone: SurfaceTone.soft,
+        shadow: false,
+        borderColor: index == 0 ? s.accent : null,
         padding: EdgeInsets.symmetric(
             horizontal: Design.px(12), vertical: Design.px(18)),
-        decoration: BoxDecoration(
-            color: s.soft,
-            border: Border.all(color: index == 0 ? s.accent : s.edge),
-            borderRadius: BorderRadius.circular(s.radius)),
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
           Text(_label(), style: TextStyle(fontSize: Design.px(20))),
           if (forecast.date != null) ...[
@@ -260,12 +261,10 @@ class _ForecastUnavailable extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = SurfaceStyle.of(context);
-    return Container(
+    return GlassSurface(
         key: const ValueKey('weather-forecast-unavailable'),
-        decoration: BoxDecoration(
-            color: s.soft,
-            border: Border.all(color: s.edge),
-            borderRadius: BorderRadius.circular(s.radius)),
+        tone: SurfaceTone.soft,
+        shadow: false,
         child: Center(
             child: Column(mainAxisSize: MainAxisSize.min, children: [
           Icon(Icons.cloud_sync_outlined, size: Design.px(50), color: s.muted),

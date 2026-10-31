@@ -91,7 +91,7 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> _saveTail = Future.value();
   // Budgets include both the UTF-16 source key and compressed image bytes.
   final _icons = _SnapshotImages(256, 4 * 1024 * 1024);
-  final _recentImages = _SnapshotImages(48, 12 * 1024 * 1024);
+  final _recentImages = _SnapshotImages(48, 6 * 1024 * 1024);
   bool _observingMemory = false;
   bool _disposed = false;
 
@@ -120,8 +120,8 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
     if (_disposed) return;
     if (!_observingMemory) {
       final imageCache = PaintingBinding.instance.imageCache;
-      imageCache.maximumSize = 128;
-      imageCache.maximumSizeBytes = 24 * 1024 * 1024;
+      imageCache.maximumSize = 64;
+      imageCache.maximumSizeBytes = 10 * 1024 * 1024;
       WidgetsBinding.instance.addObserver(this);
       _observingMemory = true;
     }
@@ -170,19 +170,55 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
-  void _receive(Map<String, dynamic> state) {
+  /// Payloads that Android sends on bootstrap and on change, never with every
+  /// telemetry tick. A partial packet omits them and the last copy is retained.
+  static const _carriedKeys = ['apps', 'recentTasks', 'savedDesign', 'appNames'];
+  static const _carriedMedia = ['artwork', 'lyrics'];
+
+  void _receive(Map<String, dynamic> incoming) {
+    final previous = native.value;
+    // A partial packet carries telemetry only: merge it over the last state so
+    // omitted payloads keep their instance (the icon/artwork caches, and every
+    // deep comparison in NativeSliceBuilder, depend on identical references).
+    final partial = incoming['partial'] == true;
+    Map<String, dynamic> state = incoming;
+    if (partial) {
+      state = <String, dynamic>{...incoming}..remove('partial');
+      for (final key in _carriedKeys) {
+        if (!state.containsKey(key) && previous.containsKey(key)) {
+          state[key] = previous[key];
+        }
+      }
+      final media = state['media'], previousMedia = previous['media'];
+      if (media is Map && previousMedia is Map) {
+        Map<String, dynamic>? merged;
+        for (final key in _carriedMedia) {
+          if (!media.containsKey(key) && previousMedia.containsKey(key)) {
+            merged ??= Map<String, dynamic>.from(media);
+            merged[key] = previousMedia[key];
+          }
+        }
+        if (merged != null) state['media'] = merged;
+      }
+    }
     // The settings catalog can contain hundreds of entries. Android sends it
     // on bootstrap/explicit refresh, rather than with every telemetry event.
     if (!state.containsKey('systemSettings') &&
-        native.value.containsKey('systemSettings')) {
-      state = {...state, 'systemSettings': native.value['systemSettings']};
+        previous.containsKey('systemSettings')) {
+      state = {...state, 'systemSettings': previous['systemSettings']};
     }
     if (_disposed) return;
-    _icons.begin(native.value['apps'], const ['icon']);
-    _recentImages
-        .begin(native.value['recentTasks'], const ['icon', 'snapshot']);
+    // Bookkeeping only for payloads this packet actually carries; running it on
+    // a packet that omits them would evict images that are still on screen.
+    final keepIcons = !(partial && !incoming.containsKey('apps'));
+    final keepRecents = !(partial && !incoming.containsKey('recentTasks'));
+    if (keepIcons) _icons.begin(previous['apps'], const ['icon']);
+    if (keepRecents) {
+      _recentImages
+          .begin(previous['recentTasks'], const ['icon', 'snapshot']);
+    }
     final apps = state['apps'];
-    if (apps is List) {
+    if (keepIcons && apps is List) {
       state = {
         ...state,
         'apps': [
@@ -196,7 +232,7 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
     // An explicit non-recents panel means its stale task payload is hidden.
     final recentsClosed =
         dock is Map && dock.containsKey('panel') && dock['panel'] != 'recents';
-    if (recentTasks is List) {
+    if (keepRecents && recentTasks is List) {
       state = {
         ...state,
         'recentTasks': recentsClosed
@@ -211,8 +247,8 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
               ]
       };
     }
-    _icons.finish();
-    _recentImages.finish();
+    if (keepIcons) _icons.finish();
+    if (keepRecents) _recentImages.finish();
     bool overlayThemeChanged = false;
     if ({'global-dock', 'global-panel'}.contains(state['hostMode']) &&
         state['savedDesign'] is String &&

@@ -106,16 +106,14 @@ class _TrafficLightCardState extends State<TrafficLightCard>
       final padding = Design.px(short ? 20 : 28);
       final content = Padding(
           padding: EdgeInsets.all(padding),
-          child: !live
-              ? Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                      _heading(s, small: short),
-                      Expanded(
-                          child: _waiting(
-                              s, data.reason == 'expired' || data.available)),
-                    ])
-              : _content(s, short, box.maxWidth - padding * 2));
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            _heading(s, small: short),
+            Expanded(
+                child: live
+                    ? _content(s, short, box.maxWidth - padding * 2)
+                    : _waiting(s, data.reason == 'expired' || data.available)),
+          ]));
       return Semantics(
           label: '${widget.title}，${data.demo ? '示例数据' : widget.sourceLabel}',
           child: content);
@@ -174,32 +172,17 @@ class _TrafficLightCardState extends State<TrafficLightCard>
   Widget _content(SurfaceStyle s, bool short, double width) {
     final data = widget.snapshot;
     final elapsed = data.demo ? 0 : this.elapsed;
-    if (data.lights.length == 1) {
-      return Row(children: [
-        Expanded(flex: 4, child: _heading(s, small: true, stacked: true)),
-        SizedBox(width: Design.px(20)),
-        Expanded(
-            flex: 6,
-            child: _SignalReading(
-                signal: data.lights.single, elapsedMs: elapsed, large: !short)),
-      ]);
-    }
     final lights = data.lights.take(3).toList(growable: false);
-    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      _heading(s, small: true),
-      Expanded(
-          child:
-              Row(key: const ValueKey('traffic-light-directions'), children: [
-        for (var i = 0; i < lights.length; i++) ...[
-          if (i > 0) SizedBox(width: Design.px(18)),
-          Expanded(
-              child: _SignalReading(
-                  signal: lights[i],
-                  elapsedMs: elapsed,
-                  large: !short,
-                  compact: lights.length == 3)),
-        ],
-      ])),
+    return Row(key: const ValueKey('traffic-light-directions'), children: [
+      for (var i = 0; i < lights.length; i++) ...[
+        if (i > 0) SizedBox(width: Design.px(18)),
+        Expanded(
+            child: _SignalReading(
+                signal: lights[i],
+                elapsedMs: elapsed,
+                large: !short,
+                compact: lights.length == 3)),
+      ],
     ]);
   }
 

@@ -111,13 +111,12 @@ class _EditableCardState extends State<EditableCard> {
                         onPanUpdate: (_) {},
                         child: Container(
                             decoration: BoxDecoration(
-                                color: s.accent,
+                                color: s.strong.withValues(alpha: .70),
                                 borderRadius: BorderRadius.only(
                                     topLeft: Radius.circular(s.controlRadius))),
                             child: Center(
                                 child: UniIcon('resize',
-                                    size: Design.px(24),
-                                    color: s.accentText))))),
+                                    size: Design.px(24), color: s.muted))))),
               ]
             ])));
   }

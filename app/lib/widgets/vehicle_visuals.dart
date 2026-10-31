@@ -8,8 +8,7 @@ import '../theme/launcher_theme.dart';
 
 /// Optional opening-state contract used by vehicle visuals.
 ///
-/// The current IP753 adapter does not publish these fields yet. A future native
-/// reader can add any subset to `vehicle.fields` without changing the widgets:
+/// Native readers can publish any verified subset in `vehicle.fields`:
 /// doorFrontLeft, doorFrontRight, doorRearLeft, doorRearRight, tailgateOpen and
 /// hoodOpen. Each field uses the standard {valid, value, updatedAtMs} envelope.
 @immutable
@@ -94,7 +93,12 @@ class VehicleDoorSnapshot {
       if (tailgate == true) '尾门',
       if (hood == true) '机舱盖',
     ];
-    return open.isEmpty ? '车门均已关闭' : '${open.join('、')}开启';
+    if (open.isNotEmpty) return '${open.join('、')}开启';
+    if ([frontLeft, frontRight, rearLeft, rearRight, tailgate, hood]
+        .any((value) => value == null)) {
+      return '部分车门状态未知';
+    }
+    return '车门均已关闭';
   }
 
   @override
@@ -110,6 +114,246 @@ class VehicleDoorSnapshot {
   @override
   int get hashCode =>
       Object.hash(frontLeft, frontRight, rearLeft, rearRight, tailgate, hood);
+}
+
+/// Dedicated body card, using the same source artwork and opening overlays as TPMS.
+class VehicleBodyDiagram extends StatelessWidget {
+  final Map<String, dynamic> native;
+  const VehicleBodyDiagram({super.key, this.native = const {}});
+
+  @override
+  Widget build(BuildContext context) {
+    final doors = VehicleDoorSnapshot.fromNative(native);
+    return Semantics(
+        label: '领克05车身示意，${doors.statusLabel}',
+        child: Center(
+            child: AspectRatio(
+                aspectRatio: 1826 / 833,
+                child: _Lynk05TopView(
+                    style: SurfaceStyle.of(context), doors: doors))));
+  }
+}
+
+/// Vehicle status concept: the artwork is illustrative; the only indicators
+/// painted over it are independently verified, fresh opening signals.
+class VehicleStatusDiagram extends StatelessWidget {
+  final Map<String, dynamic> native;
+  final int? nowMs;
+  const VehicleStatusDiagram({super.key, this.native = const {}, this.nowMs});
+
+  @override
+  Widget build(BuildContext context) {
+    final doors = VehicleDoorSnapshot.fromNative(native, nowMs: nowMs);
+    final surface = SurfaceStyle.of(context);
+    return LayoutBuilder(builder: (context, box) {
+      final compact = box.maxHeight < Design.px(250);
+      final nodeWidth =
+          math.min(Design.px(compact ? 78 : 95), box.maxWidth * .23);
+      final nodeHeight =
+          math.min(Design.px(compact ? 44 : 60), box.maxHeight * .3);
+      Widget node(String label, String field) {
+        final reading = VehicleField.fromNative(native, field, nowMs: nowMs);
+        return _VehiclePressureLabel(
+          key: ValueKey('tire-pressure-$field'),
+          label: label,
+          value: reading.display(decimals: 2),
+          available: reading.valid,
+          compact: compact,
+        );
+      }
+
+      Widget place(String label, String field,
+              {required double x, required bool top}) =>
+          Positioned(
+              left: (box.maxWidth * x - nodeWidth / 2)
+                  .clamp(0.0, math.max(0.0, box.maxWidth - nodeWidth)),
+              top: top ? 0 : math.max(0.0, box.maxHeight - nodeHeight),
+              width: nodeWidth,
+              height: nodeHeight,
+              child: node(label, field));
+      return Semantics(
+          label: '车辆状态与胎压示意，${doors.statusLabel}',
+          child: Stack(fit: StackFit.expand, children: [
+            Positioned.fill(
+                left: nodeWidth * .72,
+                right: nodeWidth * .72,
+                top: nodeHeight + Design.px(2),
+                bottom: nodeHeight + Design.px(2),
+                child: RepaintBoundary(
+                    child: Center(
+                        child: AspectRatio(
+                            aspectRatio: 1.5,
+                            child: LayoutBuilder(builder: (context, imageBox) {
+                              Widget marker(String id, String label, double x,
+                                      double y) =>
+                                  Positioned(
+                                      left: imageBox.maxWidth * x,
+                                      top: imageBox.maxHeight * y,
+                                      child: FractionalTranslation(
+                                          translation: const Offset(-.5, -.5),
+                                          child: _DoorMarker(
+                                              key: ValueKey('vehicle-door-$id'),
+                                              label: label,
+                                              compact: compact)));
+                              return Stack(fit: StackFit.expand, children: [
+                                IgnorePointer(
+                                    child: CustomPaint(
+                                        painter: _VehicleAmbientPainter(
+                                            color: surface.accent,
+                                            dark: surface.dark))),
+                                Image.asset(
+                                    'assets/art/vehicle-status-front-left-transparent.png',
+                                    key: const ValueKey(
+                                        'vehicle-status-artwork'),
+                                    fit: BoxFit.contain,
+                                    filterQuality: FilterQuality.low,
+                                    semanticLabel: '车辆立体示意图'),
+                                if (doors.frontLeft == true)
+                                  marker('front-left', '左前门', .60, .47),
+                                if (doors.rearLeft == true)
+                                  marker('rear-left', '左后门', .76, .31),
+                                if (doors.frontRight == true)
+                                  marker('front-right', '右前门', .32, .31),
+                                if (doors.rearRight == true)
+                                  marker('rear-right', '右后门', .53, .16),
+                                if (doors.anyOpen)
+                                  const SizedBox(
+                                      key: ValueKey('vehicle-opening-alert')),
+                              ]);
+                            }))))),
+            // Looking towards the front-left of the screen, the vehicle's
+            // left side is the near side; the right wheels are occluded.
+            place('右前', 'pressureFrontRight', x: .25, top: true),
+            place('右后', 'pressureRearRight', x: .65, top: true),
+            place('左前', 'pressureFrontLeft', x: .55, top: false),
+            place('左后', 'pressureRearLeft', x: .82, top: false),
+          ]));
+    });
+  }
+}
+
+class _VehiclePressureLabel extends StatelessWidget {
+  final String label, value;
+  final bool available, compact;
+  const _VehiclePressureLabel(
+      {super.key,
+      required this.label,
+      required this.value,
+      required this.available,
+      required this.compact});
+
+  @override
+  Widget build(BuildContext context) {
+    final s = SurfaceStyle.of(context);
+    return Semantics(
+        label: '$label胎压 ${available ? '$value bar' : '无数据'}',
+        child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Text(label,
+                  style: TextStyle(
+                      color: s.muted,
+                      fontSize: Design.px(compact ? 11 : 13),
+                      height: 1.1)),
+              SizedBox(height: Design.px(3)),
+              FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.baseline,
+                      textBaseline: TextBaseline.alphabetic,
+                      children: [
+                        Text(value,
+                            style: TextStyle(
+                                color: available ? s.text : s.muted,
+                                fontSize: Design.px(compact ? 20 : 25),
+                                height: 1,
+                                fontFeatures: const [
+                                  FontFeature.tabularFigures()
+                                ])),
+                        SizedBox(width: Design.px(4)),
+                        Text('bar',
+                            style: TextStyle(
+                                color: s.muted,
+                                fontSize: Design.px(compact ? 10 : 11))),
+                      ])),
+            ]));
+  }
+}
+
+/// A static, low-opacity pool of light under the transparent car gives it
+/// depth without a live blur, animation, or an opaque image background.
+class _VehicleAmbientPainter extends CustomPainter {
+  final Color color;
+  final bool dark;
+  const _VehicleAmbientPainter({required this.color, required this.dark});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.isEmpty) return;
+    final center = Offset(size.width * .52, size.height * .52);
+    canvas.save();
+    canvas.translate(center.dx, center.dy);
+    canvas.scale(size.width * .62, size.height * .54);
+    final light = Paint()
+      ..shader = RadialGradient(colors: [
+        color.withValues(alpha: dark ? .33 : .19),
+        color.withValues(alpha: dark ? .19 : .10),
+        color.withValues(alpha: 0),
+      ], stops: const [
+        0,
+        .45,
+        1
+      ]).createShader(Rect.fromCircle(center: Offset.zero, radius: 1));
+    canvas.drawCircle(Offset.zero, 1, light);
+    canvas.restore();
+    canvas.save();
+    canvas.translate(size.width * .53, size.height * .83);
+    canvas.scale(size.width * .37, size.height * .11);
+    final shadow = Paint()
+      ..shader = RadialGradient(colors: [
+        Colors.black.withValues(alpha: dark ? .28 : .16),
+        Colors.black.withValues(alpha: 0),
+      ]).createShader(Rect.fromCircle(center: Offset.zero, radius: 1));
+    canvas.drawCircle(Offset.zero, 1, shadow);
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant _VehicleAmbientPainter oldDelegate) =>
+      oldDelegate.color != color || oldDelegate.dark != dark;
+}
+
+class _DoorMarker extends StatelessWidget {
+  final String label;
+  final bool compact;
+  const _DoorMarker({super.key, required this.label, required this.compact});
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+      label: '$label开启',
+      child: Container(
+          padding: EdgeInsets.symmetric(
+              horizontal: Design.px(compact ? 5 : 7),
+              vertical: Design.px(compact ? 3 : 4)),
+          decoration: BoxDecoration(
+              color: const Color(0xeb392b29),
+              border: Border.all(color: const Color(0xffe5a575)),
+              borderRadius: BorderRadius.circular(Design.px(3))),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Container(
+                width: Design.px(5),
+                height: Design.px(5),
+                decoration: const BoxDecoration(
+                    color: Color(0xffffb983), shape: BoxShape.circle)),
+            SizedBox(width: Design.px(4)),
+            Text(label,
+                style: TextStyle(
+                    color: const Color(0xffffd8bc),
+                    fontSize: Design.px(compact ? 10 : 12),
+                    height: 1.1)),
+          ])));
 }
 
 /// Horizontal TPMS visual traced from the supplied Lynk & Co 05 top view.

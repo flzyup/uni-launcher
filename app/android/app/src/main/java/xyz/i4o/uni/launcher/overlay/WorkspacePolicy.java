@@ -17,6 +17,11 @@ import org.json.JSONObject;
  * Only visible fullscreen stacks on the physical display are adjusted. */
 public final class WorkspacePolicy {
     private static final String SAVED="uniWorkspaceBounds";
+    /** A reflective getAllStackInfos binder round trip on the main thread. It only
+     * has to notice a newly fullscreen task, which no event reports, so poll at 1s:
+     * fast enough that the reserved strip appears with the task transition, and 4x
+     * fewer main-thread binder calls than the previous 250ms loop. */
+    private static final long POLL_MS=1000;
     private final Context context;
     private final SharedPreferences prefs;
     private final Handler handler=new Handler(Looper.getMainLooper());
@@ -24,13 +29,18 @@ public final class WorkspacePolicy {
     private Method stacks,resize;
     private JSONObject originals;
     private boolean running,available;
+    private final boolean compatibilityOnly;
     private int resized;
     private final Runnable check=new Runnable(){public void run(){
         if(!running)return;
-        update();if(available)handler.postDelayed(this,250);
+        update();if(available)handler.postDelayed(this,POLL_MS);
     }};
     public WorkspacePolicy(Context context,SharedPreferences prefs){
+        this(context,prefs,false);
+    }
+    public WorkspacePolicy(Context context,SharedPreferences prefs,boolean compatibilityOnly){
         this.context=context;this.prefs=prefs;
+        this.compatibilityOnly=compatibilityOnly;
         try{originals=new JSONObject(prefs.getString(SAVED,"{}"));}catch(Exception e){originals=new JSONObject();}
         try{
             manager=Class.forName("android.app.ActivityManager").getMethod("getService").invoke(null);
@@ -51,10 +61,14 @@ public final class WorkspacePolicy {
             Rect target=new Rect(0,0,real.widthPixels,real.heightPixels-Math.round(real.widthPixels*96f/1920f));
             for(Object info:(List<?>)stacks.invoke(manager)){
                 Class<?> t=info.getClass();
-                if(t.getField("displayId").getInt(info)!=0||!t.getField("visible").getBoolean(info))continue;
+                if(t.getField("displayId").getInt(info)!=0)continue;
+                boolean visible=t.getField("visible").getBoolean(info);
                 String[] names=(String[])t.getField("taskNames").get(info);
-                if(names==null||names.length==0)continue;
                 int id=t.getField("stackId").getInt(info);if(id==0)continue;Rect bounds=(Rect)t.getField("bounds").get(info);
+                if(compatibilityOnly&&!WorkspaceCompatibilityPolicy.shouldResize(visible,names)){
+                    restoreOne(id,bounds);continue;
+                }
+                if(!visible||names==null||names.length==0)continue;
                 // OEM recents crashes in a delayed HomePresenter callback when
                 // stack resize recreates its Activity. Its task cards already
                 // fit above the bottom strip; retain its native fullscreen size.
@@ -68,7 +82,7 @@ public final class WorkspacePolicy {
                 if(bounds.equals(target))continue;
                 String key=""+id;
                 if(!originals.has(key)){
-                    originals.put(key,bounds.flattenToString());prefs.edit().putString(SAVED,originals.toString()).commit();
+                    originals.put(key,bounds.flattenToString());prefs.edit().putString(SAVED,originals.toString()).apply();
                 }
                 resize(id,target);resized++;
             }
@@ -78,7 +92,7 @@ public final class WorkspacePolicy {
         String key=""+id;if(!originals.has(key))return;
         Rect original=Rect.unflattenFromString(originals.optString(key));
         if(original!=null&&!original.equals(current))resize(id,original);
-        originals.remove(key);prefs.edit().putString(SAVED,originals.toString()).commit();
+        originals.remove(key);prefs.edit().putString(SAVED,originals.toString()).apply();
     }
     public void stopAndRestore(){
         running=false;handler.removeCallbacks(check);
@@ -89,6 +103,6 @@ public final class WorkspacePolicy {
                     restoreOne(t.getField("stackId").getInt(info),(Rect)t.getField("bounds").get(info));
             }
         }catch(Exception e){Log.w("UniWorkspace","Unable to restore task workspace",e);return;}
-        if(originals.length()==0)prefs.edit().remove(SAVED).commit();
+        if(originals.length()==0)prefs.edit().remove(SAVED).apply();
     }
 }

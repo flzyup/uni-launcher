@@ -76,6 +76,7 @@ void main() {
       'member',
       'cleanup',
       'tpms',
+      'body',
       'air',
       'ride',
       'clock',

@@ -4,7 +4,7 @@ import 'audio_spectrum.dart';
 import 'lyrics_view.dart';
 
 /// Remains mounted across media updates; horizontal gestures only change this
-/// region. Default page is real spectrum. Off-page FFT consumers are released.
+/// region. Default page is the current lyric. Off-page FFT consumers are released.
 class DockMusicVisual extends StatefulWidget {
   final Map<String, dynamic> media;
   final bool demo;
@@ -31,20 +31,11 @@ class _DockMusicVisualState extends State<DockMusicVisual> {
           onPageChanged: (value) => setState(() => index = value),
           children: [
             Semantics(
-                label: '音频频谱，向左滑动显示歌词',
-                child: Center(
-                    child: TickerMode(
-                        enabled: index == 0,
-                        child: AudioSpectrum(
-                            playing:
-                                !widget.demo && widget.media['playing'] == true,
-                            height: 48)))),
-            Semantics(
-                label: '歌词，向右滑动显示频谱',
+                label: '歌词，向左滑动显示频谱',
                 child: Center(
                     key: const ValueKey('dock-lyrics'),
                     child: TickerMode(
-                        enabled: index == 1,
+                        enabled: index == 0,
                         child: LyricsView(
                             media: widget.media,
                             visibleLines: 1,
@@ -52,5 +43,14 @@ class _DockMusicVisualState extends State<DockMusicVisual> {
                             lineHeight: 32,
                             fontSize: 26,
                             textAlign: TextAlign.center)))),
+            Semantics(
+                label: '音频频谱，向右滑动显示歌词',
+                child: Center(
+                    child: TickerMode(
+                        enabled: index == 1,
+                        child: AudioSpectrum(
+                            playing:
+                                !widget.demo && widget.media['playing'] == true,
+                            height: 48)))),
           ]));
 }

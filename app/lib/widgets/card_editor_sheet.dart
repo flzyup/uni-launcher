@@ -9,6 +9,7 @@ const _libraryDescriptions = {
   'member': '原车账号与登录状态',
   'cleanup': '原车清理信息与操作',
   'tpms': '原车四轮胎压信息',
+  'body': '四轮胎压与车门、尾门状态',
   'battery': '电量、混动与充电状态',
   'air': '车内 PM2.5 与独立 AQI 读数',
   'clock': '时间、日期与星期',
@@ -91,9 +92,11 @@ class _LibraryTile extends StatelessWidget {
     final s = SurfaceStyle.of(context);
     return Material(
         color: s.soft,
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(s.radius * .8),
-            side: BorderSide(color: s.edge)),
+        shape: s.technicalFrame
+            ? s.controlShape().copyWith(side: s.controlSide(false))
+            : RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(s.radius * .8),
+                side: BorderSide(color: s.edge)),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
             key: ValueKey('add-${spec.type}'),

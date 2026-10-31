@@ -65,6 +65,7 @@ class Appearance {
   final double radius;
   final double? wallpaperLuminance;
   final bool glass;
+  final bool dockMusicProgressBackground;
   const Appearance(
       {this.desktopName = defaultDesktopName,
       this.mode = 'system',
@@ -73,6 +74,7 @@ class Appearance {
       this.custom = '#38A4A0',
       this.radius = 0,
       this.glass = false,
+      this.dockMusicProgressBackground = true,
       this.pageTransition = 'slide',
       this.spectrumStyle = 'segments',
       this.wallpaper = 'gradient',
@@ -97,6 +99,9 @@ class Appearance {
             ? (json['radius'] as num).toDouble().clamp(0, 40)
             : 28,
         glass: json['glass'] == true,
+        dockMusicProgressBackground: json['dockMusicProgressBackground'] is bool
+            ? json['dockMusicProgressBackground'] as bool
+            : true,
         pageTransition: normalizePageEffect(json['pageTransition']),
         spectrumStyle: spectrumStyles.contains(json['spectrumStyle'])
             ? json['spectrumStyle']
@@ -121,6 +126,7 @@ class Appearance {
           String? custom,
           double? radius,
           bool? glass,
+          bool? dockMusicProgressBackground,
           String? pageTransition,
           String? spectrumStyle,
           String? wallpaper,
@@ -134,6 +140,8 @@ class Appearance {
           custom: custom ?? this.custom,
           radius: (radius ?? this.radius).clamp(0, 40),
           glass: glass ?? this.glass,
+          dockMusicProgressBackground:
+              dockMusicProgressBackground ?? this.dockMusicProgressBackground,
           pageTransition: pageTransition ?? this.pageTransition,
           spectrumStyle: spectrumStyles.contains(spectrumStyle)
               ? spectrumStyle!
@@ -149,6 +157,7 @@ class Appearance {
         'custom': custom,
         'radius': radius.round(),
         'glass': glass,
+        'dockMusicProgressBackground': dockMusicProgressBackground,
         'pageTransition': pageTransition,
         'spectrumStyle': spectrumStyle,
         'wallpaper': wallpaper,

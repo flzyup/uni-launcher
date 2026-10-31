@@ -234,12 +234,15 @@ void main() {
     final style = SurfaceStyle.of(t.element(home));
     expect((material(home).shape! as TechnicalFrameBorder).cornerColor,
         style.accent);
-    expect((material(play).shape! as TechnicalFrameBorder).cornerColor,
-        style.corner);
-    expect(material(play).color, style.soft);
+    expect(material(play).shape, isNull);
+    expect(material(play).color, Colors.transparent);
     final power = find.byKey(const ValueKey('climate-power'));
     expect(material(power).shape, isNull);
     expect(material(power).color, Colors.transparent);
+    final climateGroup = t
+        .widget<GlassSurface>(find.byKey(const ValueKey('dock-climate-frame')));
+    expect(climateGroup.tone, SurfaceTone.soft);
+    expect(climateGroup.shadow, false);
 
     final rect = t.getRect(play),
         dock = t.getRect(find.byKey(const ValueKey('bottom-dock')));
@@ -265,7 +268,7 @@ void main() {
         lessThan(t.getTopLeft(find.text('导航与音乐')).dy));
     expect(find.byKey(const ValueKey('demo-switch')), findsNothing);
     expect(find.byKey(const ValueKey('media-source')), findsOneWidget);
-    expect(find.byType(ExpansionTile), findsNothing);
+    expect(find.descendant(of: find.byKey(const ValueKey('system-app-controls')), matching: find.byType(ExpansionTile)), findsNothing);
     await t.scrollUntilVisible(find.byKey(const ValueKey('media-source')), 260,
         scrollable: find.byType(Scrollable).first);
     expect(find.byKey(const ValueKey('navigation-source')), findsOneWidget);
