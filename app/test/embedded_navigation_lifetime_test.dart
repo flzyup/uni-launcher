@@ -236,8 +236,23 @@ void main() {
     expect(t.takeException(), isNull);
   }, variant: TargetPlatformVariant.only(TargetPlatform.android));
 
-  testWidgets(
-      'map scale toggle sends reduced texture scale only when enabled',
+  testWidgets('card editing defers map resize until the final size is settled',
+      (t) async {
+    final h = LiveMapHarness(t);
+    await h.show();
+    h.controller.beginEdit();
+    await h.show(width: 550);
+    await h.show(width: 500);
+    expect(h.resizes, isEmpty);
+    h.controller.cancelEdit();
+    await h.show(width: 500);
+    expect(h.resizes, hasLength(1));
+    expect(h.creates, hasLength(1));
+    expect(h.disposed, isEmpty);
+    expect(t.takeException(), isNull);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.android));
+
+  testWidgets('map scale toggle sends reduced texture scale only when enabled',
       (t) async {
     final h = LiveMapHarness(t);
     // 开关默认关闭：按 1:1 下发，不缩放。

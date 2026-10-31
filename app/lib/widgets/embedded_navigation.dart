@@ -168,7 +168,13 @@ class _EmbeddedNavigationCardState extends State<EmbeddedNavigationCard> {
       final current = channel;
       if (current == null || epoch != generation) return;
       final size = desiredSize;
-      if (desiredVisible && size != null && size != sentSize) {
+      // During card editing the grid emits a series of transient sizes.
+      // Keep the same live texture and resize the virtual display only once
+      // after editing ends, avoiding repeated relayouts inside navigation.
+      if (desiredVisible &&
+          !widget.controller.editing &&
+          size != null &&
+          size != sentSize) {
         await current.invokeMethod<void>('resize', dimensions(size));
         if (!mounted || channel != current) return;
         sentSize = size;
@@ -190,7 +196,9 @@ class _EmbeddedNavigationCardState extends State<EmbeddedNavigationCard> {
           (epoch != generation ||
               (channel != null &&
                   (sentVisible != desiredVisible ||
-                      (desiredVisible && sentSize != desiredSize))))) {
+                      (desiredVisible &&
+                          !widget.controller.editing &&
+                          sentSize != desiredSize))))) {
         scheduleSync();
         WidgetsBinding.instance.ensureVisualUpdate();
       }
@@ -271,8 +279,7 @@ class _EmbeddedNavigationCardState extends State<EmbeddedNavigationCard> {
     final size = constraints.biggest;
     final scale = View.of(context).physicalSize.width / Design.canvasWidth;
     if (size.isFinite && !size.isEmpty && scale > 0) {
-      desiredSize = Size(
-          (size.width * scale).round().clamp(1, 1920).toDouble(),
+      desiredSize = Size((size.width * scale).round().clamp(1, 1920).toDouble(),
           (size.height * scale).round().clamp(1, 1080).toDouble());
       scheduleSync();
     }
