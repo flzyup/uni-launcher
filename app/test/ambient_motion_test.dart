@@ -1,377 +1,617 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:uni_launcher/model/ambient_color_space.dart';
 import 'package:uni_launcher/model/ambient_light.dart';
 import 'package:uni_launcher/model/ambient_motion.dart';
 
-/// The motion layer and the low frequency fallback.
+/// The **V2** motion layer.
 ///
-/// These are pure functions, so the whole curve is covered without a device
-/// or a running FFT.
+/// V2 has three things the legacy layer does not have, and each of them has
+/// an assertion here:
+///
+/// 1. the **second order** hue (a rate limit plus an *acceleration* limit);
+/// 2. the **adaptive** onset (a threshold that follows the slow envelope
+///    plus a minimum gap);
+/// 3. the **idle breathing** (a slow drift instead of a frozen colour).
 void main() {
-  group('AmbientMotion', () {
-    const motion = AmbientMotion();
+  /// The per frame colour difference cap, the same as the controller.
+  const maxDeltaE = 1.8;
 
-    test('the first frame lands on the target', () {
-      final state = motion.step(
-        prev: const AmbientMotionState(),
-        targetHue: 210,
-        targetLevel: 80,
-        bass: 0,
-        dtMs: 100,
+  AmbientMotion motion({
+    double hueTauMs = 260,
+    double hueMaxDegPerSec = 60,
+    double hueMaxAccelDegPerSec2 = 240,
+    double attackMs = 45,
+    double decayMs = 260,
+    double bassTauMs = 160,
+    double pulseTauMs = 170,
+    double pulseGain = 0.35,
+    double beatFloor = 0.12,
+    double beatRatio = 1.25,
+    int beatMinGapMs = 240,
+    double breathAmount = 0.10,
+  }) =>
+      AmbientMotion(
+        hueTauMs: hueTauMs,
+        hueMaxDegPerSec: hueMaxDegPerSec,
+        hueMaxAccelDegPerSec2: hueMaxAccelDegPerSec2,
+        attackMs: attackMs,
+        decayMs: decayMs,
+        bassTauMs: bassTauMs,
+        pulseTauMs: pulseTauMs,
+        pulseGain: pulseGain,
+        beatFloor: beatFloor,
+        beatRatio: beatRatio,
+        beatMinGapMs: beatMinGapMs,
+        breathAmount: breathAmount,
       );
-      expect(state.initialized, isTrue);
-      expect(state.hue, closeTo(210, .001));
-    });
 
-    test('the hue moves towards the target instead of jumping', () {
-      var state = motion.step(
-        prev: const AmbientMotionState(),
-        targetHue: 0,
-        targetLevel: 50,
-        bass: 0,
-        dtMs: 100,
-      );
-      state = motion.step(
-        prev: state,
-        targetHue: 180,
-        targetLevel: 50,
-        bass: 0,
-        dtMs: 100,
-      );
-      // One frame at 100 ms with a 320 ms time constant moves a long way
-      // towards the target, but it does not arrive there.
-      expect(state.hue, greaterThan(0));
-      expect(state.hue, lessThan(180));
-    });
-
-    test('the hue speed is limited', () {
-      var state = motion.step(
-        prev: const AmbientMotionState(),
-        targetHue: 0,
-        targetLevel: 50,
-        bass: 0,
-        dtMs: 100,
-      );
-      state = motion.step(
-        prev: state,
-        targetHue: 180,
-        targetLevel: 50,
-        bass: 0,
-        dtMs: 100,
-      );
-      // 90 degrees per second is 9 degrees per 100 ms frame.
-      expect(state.hue - 0, lessThanOrEqualTo(9.001));
-    });
-
+  group('AmbientMotion V2', () {
     test('the hue takes the short way round the circle', () {
       expect(AmbientMotion.shortestDelta(359, 1), closeTo(2, .001));
       expect(AmbientMotion.shortestDelta(1, 359), closeTo(-2, .001));
-      expect(AmbientMotion.shortestDelta(0, 180), closeTo(180, .001));
-      expect(AmbientMotion.shortestDelta(0, 181), closeTo(-179, .001));
+      expect(AmbientMotion.shortestDelta(0, 90), closeTo(90, .001));
     });
 
-    test('the hue travels across the zero point the short way', () {
-      var state = motion.step(
+    test('the hue is normalised into 0 to 360', () {
+      expect(AmbientMotion.normalizeHue(360), closeTo(0, .001));
+      expect(AmbientMotion.normalizeHue(-10), closeTo(350, .001));
+    });
+
+    test('the first frame lands on the target', () {
+      // The colour appears when the strip switches on, it is not swept in.
+      final state = motion().step(
         prev: const AmbientMotionState(),
-        targetHue: 355,
-        targetLevel: 50,
+        targetHue: 200,
+        targetLevel: .5,
+        targetChroma: 0,
         bass: 0,
-        dtMs: 100,
+        dtMs: 16,
+        nowMs: 10000,
       );
-      state = motion.step(
+      expect(state.hue, closeTo(200, .001));
+      expect(state.hueVel, closeTo(0, .001));
+      expect(state.initialized, isTrue);
+    });
+
+    test('one frame does not move the hue past the rate limit', () {
+      final m = motion(hueMaxDegPerSec: 60);
+      var state = m.step(
+        prev: const AmbientMotionState(),
+        targetHue: 0,
+        targetLevel: .5,
+        targetChroma: 0,
+        bass: 0,
+        dtMs: 16,
+        nowMs: 10000,
+      );
+      state = m.step(
         prev: state,
-        targetHue: 5,
-        targetLevel: 50,
+        targetHue: 180,
+        targetLevel: .5,
+        targetChroma: 0,
         bass: 0,
-        dtMs: 100,
+        dtMs: 16,
+        nowMs: 10016,
       );
-      // It went from 355 up over the zero point instead of backwards
-      // through the whole ring.
-      expect(state.hue, greaterThan(355));
-      expect(state.hue, lessThanOrEqualTo(360));
+      // 16 ms at 60 degrees per second is 0.96 degrees.
+      expect(state.hue, lessThanOrEqualTo(.961));
     });
 
-    test('the brightness rises fast and falls slowly', () {
-      var up = const AmbientMotionState();
-      for (var i = 0; i < 10; i++) {
-        up = motion.step(
-          prev: up,
-          targetHue: 0,
-          targetLevel: 100,
-          bass: 0,
-          dtMs: 100,
-        );
-      }
-      var down = up;
-      for (var i = 0; i < 10; i++) {
-        down = motion.step(
-          prev: down,
-          targetHue: 0,
-          targetLevel: 0,
-          bass: 0,
-          dtMs: 100,
-        );
-      }
-      // After a second the rise is nearly full, the fall is far from it.
-      expect(up.level, greaterThan(.95));
-      expect(down.level, lessThan(.2));
+    test('the acceleration limit slows the start down', () {
+      // This is the key difference to the legacy layer: a first order system
+      // can only bound the speed, so the strip whips across and stutters when
+      // it changes direction half way. The acceleration limit is the cure.
+      final m = motion(hueMaxDegPerSec: 60, hueMaxAccelDegPerSec2: 240);
+      var state = m.step(
+        prev: const AmbientMotionState(),
+        targetHue: 0,
+        targetLevel: .5,
+        targetChroma: 0,
+        bass: 0,
+        dtMs: 16,
+        nowMs: 10000,
+      );
+      state = m.step(
+        prev: state,
+        targetHue: 180,
+        targetLevel: .5,
+        targetChroma: 0,
+        bass: 0,
+        dtMs: 16,
+        nowMs: 10016,
+      );
+      final moved = (state.hue - 0).abs();
+      final speedLimitAllows = 60 * .016;
+      expect(moved, lessThan(speedLimitAllows * .5));
+      // 240 degrees per second squared over 16 ms is 3.84 degrees per second,
+      // so the first frame moves about 0.06 degrees.
+      expect(moved, lessThanOrEqualTo(.07));
     });
 
-    test('the brightness always stays between 0 and 1', () {
+    test('the velocity builds up and the target is still reached', () {
+      // The acceleration limit must not turn into "never arrives".
+      final m = motion();
       var state = const AmbientMotionState();
-      for (var i = 0; i < 50; i++) {
-        state = motion.step(
+      var now = 10000;
+      for (var i = 0; i < 200; i++) {
+        now += 16;
+        state = m.step(
           prev: state,
-          targetHue: 0,
-          targetLevel: 100,
-          bass: 1,
-          dtMs: 100,
-        );
-      }
-      expect(state.level, inInclusiveRange(0, 1));
-      expect(state.brightness, inInclusiveRange(0, 1));
-      for (var i = 0; i < 50; i++) {
-        state = motion.step(
-          prev: state,
-          targetHue: 0,
-          targetLevel: 0,
+          targetHue: 180,
+          targetLevel: .5,
+          targetChroma: 0,
           bass: 0,
-          dtMs: 100,
+          dtMs: 16,
+          nowMs: now,
         );
       }
-      expect(state.level, inInclusiveRange(0, 1));
-      expect(state.brightness, inInclusiveRange(0, 1));
+      expect((state.hue - 180).abs(), lessThan(2));
+    });
+
+    test('the hue catches up with a target it did not start on', () {
+      // The test above starts from the default state, and the first frame
+      // lands **on** the target — so the tracker is never measured at all.
+      // That is how a hue that crawled at a 64th of its intended speed
+      // survived: the gap was always zero.
+      //
+      // Here the first frame lands on 200 and the target then moves to 280.
+      // The hue has to cover 80 degrees, and with tau = 260 ms it has to be
+      // there within a second or two.
+      final m = motion();
+      var state = m.step(
+        prev: const AmbientMotionState(),
+        targetHue: 200,
+        targetLevel: .5,
+        targetChroma: 0,
+        bass: 0,
+        dtMs: 16,
+        nowMs: 10000,
+      );
+      expect(state.hue, closeTo(200, .001));
+      var now = 10000;
+      for (var i = 0; i < 120; i++) {
+        now += 16;
+        state = m.step(
+          prev: state,
+          targetHue: 280,
+          targetLevel: .5,
+          targetChroma: 0,
+          bass: 0,
+          dtMs: 16,
+          nowMs: now,
+        );
+      }
+      expect((state.hue - 280).abs(), lessThan(3),
+          reason: 'the hue only reached ${state.hue}');
+    });
+
+    test('the hue still filters out a target that jitters', () {
+      // The opposite requirement: the tracker has to be fast enough to
+      // follow the music but slow enough not to copy every 10 Hz frame.
+      // A target that flips between 0 and 30 degrees every frame must not
+      // move the hue by more than a degree per frame.
+      final m = motion();
+      var state = m.step(
+        prev: const AmbientMotionState(),
+        targetHue: 0,
+        targetLevel: .5,
+        targetChroma: 0,
+        bass: 0,
+        dtMs: 16,
+        nowMs: 10000,
+      );
+      var maxStep = 0.0;
+      for (var i = 0; i < 30; i++) {
+        final target = i % 2 == 0 ? 0.0 : 30.0;
+        final before = state.hue;
+        state = m.step(
+          prev: state,
+          targetHue: target,
+          targetLevel: .5,
+          targetChroma: 0,
+          bass: 0,
+          dtMs: 16,
+          nowMs: 10000 + (i + 1) * 16,
+        );
+        final moved = (state.hue - before).abs() % 360;
+        final step = moved > 180 ? 360 - moved : moved;
+        if (step > maxStep) maxStep = step;
+      }
+      expect(maxStep, lessThanOrEqualTo(.97));
     });
 
     test('the hue does not jitter along with the target', () {
       // The opposite of "stiff": the target flips between 0 and 30 degrees,
       // but the actual hue must barely move.
-      var state = motion.step(
+      final m = motion();
+      var state = m.step(
         prev: const AmbientMotionState(),
         targetHue: 0,
-        targetLevel: 80,
+        targetLevel: .5,
+        targetChroma: 0,
         bass: .3,
-        dtMs: 100,
+        dtMs: 16,
+        nowMs: 10000,
       );
       var maxStep = 0.0;
-      for (var i = 0; i < 20; i++) {
+      for (var i = 0; i < 30; i++) {
         final target = i % 2 == 0 ? 0.0 : 30.0;
         final before = state.hue;
-        state = motion.step(
+        state = m.step(
           prev: state,
           targetHue: target,
-          targetLevel: 80,
+          targetLevel: .5,
+          targetChroma: 0,
           bass: .3,
-          dtMs: 100,
+          dtMs: 16,
+          nowMs: 10000 + (i + 1) * 16,
         );
-        final moved =
-            (state.hue - before).abs() % 360;
+        final moved = (state.hue - before).abs() % 360;
         final step = moved > 180 ? 360 - moved : moved;
         if (step > maxStep) maxStep = step;
       }
-      // The rate limit is 9 degrees per 100 ms frame.
-      expect(maxStep, lessThanOrEqualTo(9.01));
-    });
-
-    test('a bass onset adds a pulse that fades', () {
-      var state = motion.step(
-        prev: const AmbientMotionState(),
-        targetHue: 0,
-        targetLevel: 50,
-        bass: 0,
-        dtMs: 100,
-      );
-      // Build the slow low frequency envelope up first, otherwise a single
-      // loud frame is not an onset but simply the envelope catching up.
-      for (var i = 0; i < 5; i++) {
-        state = motion.step(
-          prev: state,
-          targetHue: 0,
-          targetLevel: 50,
-          bass: .5,
-          dtMs: 100,
-        );
-      }
-      state = motion.step(
-        prev: state,
-        targetHue: 0,
-        targetLevel: 50,
-        bass: .95,
-        dtMs: 100,
-      );
-      expect(state.pulse, closeTo(1, .001));
-      // The onset has to be brighter than the plain level.
-      expect(state.brightness, greaterThan(state.level));
-      final withBeat = state.brightness;
-      // The low frequency falls back, so the pulse decays.
-      state = motion.step(
-        prev: state,
-        targetHue: 0,
-        targetLevel: 50,
-        bass: 0,
-        dtMs: 100,
-      );
-      expect(state.pulse, lessThan(1));
-      expect(state.pulse, greaterThan(0));
-      expect(state.brightness, lessThan(withBeat));
-    });
-
-    test('without an onset the brightness is the level itself', () {
-      const flat = AmbientMotion(pulseGain: 0);
-      var state = const AmbientMotionState();
-      for (var i = 0; i < 20; i++) {
-        state = flat.step(
-          prev: state,
-          targetHue: 0,
-          targetLevel: 80,
-          bass: .05,
-          dtMs: 100,
-        );
-      }
-      expect(state.pulse, lessThan(.01));
-      expect(state.brightness, closeTo(state.level, .001));
-    });
-
-    test('a quiet low band is not an onset', () {
-      var state = motion.step(
-        prev: const AmbientMotionState(),
-        targetHue: 0,
-        targetLevel: 40,
-        bass: 0,
-        dtMs: 100,
-      );
-      state = motion.step(
-        prev: state,
-        targetHue: 0,
-        targetLevel: 40,
-        bass: 0.05,
-        dtMs: 100,
-      );
-      expect(state.pulse, lessThan(1));
+      expect(maxStep, lessThanOrEqualTo(.97));
     });
 
     test('the elapsed time is clamped', () {
-      final state = motion.step(
+      final state = motion().step(
         prev: const AmbientMotionState(),
         targetHue: 0,
-        targetLevel: 100,
+        targetLevel: 1,
+        targetChroma: 0,
         bass: 0,
         // Coming back from the background after minutes.
         dtMs: 600000,
+        nowMs: 10000,
       );
-      // The clamp keeps the step at one second, so the level is still
-      // moving towards the target rather than jumping straight to it.
       expect(state.level, lessThan(1));
       expect(state.level, greaterThan(0));
     });
+
+    test('the lightness rises fast and falls slowly', () {
+      final m = motion();
+      var up = const AmbientMotionState();
+      for (var i = 0; i < 30; i++) {
+        up = m.step(
+          prev: up,
+          targetHue: 0,
+          targetLevel: 1,
+          targetChroma: 0,
+          bass: 0,
+          dtMs: 16,
+          nowMs: 10000 + i * 16,
+        );
+      }
+      var down = up;
+      for (var i = 0; i < 30; i++) {
+        down = m.step(
+          prev: down,
+          targetHue: 0,
+          targetLevel: 0,
+          targetChroma: 0,
+          bass: 0,
+          dtMs: 16,
+          nowMs: 10000 + (30 + i) * 16,
+        );
+      }
+      expect(up.level, greaterThan(.95));
+      expect(down.level, lessThan(.2));
+    });
+
+    test('the lightness always stays between 0 and 1', () {
+      final m = motion();
+      var state = const AmbientMotionState();
+      for (var i = 0; i < 200; i++) {
+        state = m.step(
+          prev: state,
+          targetHue: 0,
+          targetLevel: 1,
+          targetChroma: 0,
+          bass: 1,
+          dtMs: 16,
+          nowMs: 10000 + i * 16,
+        );
+      }
+      expect(state.level, inInclusiveRange(0, 1));
+      expect(state.brightness, inInclusiveRange(0, 1));
+    });
+
+    test('a kick reaches 90 percent within 120 ms', () {
+      // The acceptance criterion of the scheme document.
+      final m = motion(attackMs: 45);
+      var state = const AmbientMotionState();
+      var now = 10000;
+      var elapsed = 0;
+      while (state.level < .9 && elapsed < 500) {
+        now += 16;
+        elapsed += 16;
+        state = m.step(
+          prev: state,
+          targetHue: 0,
+          targetLevel: 1,
+          targetChroma: 0,
+          bass: 0,
+          dtMs: 16,
+          nowMs: now,
+        );
+      }
+      expect(elapsed, lessThanOrEqualTo(120));
+    });
+
+    test('a low frequency jump is an onset', () {
+      final m = motion();
+      var state = const AmbientMotionState();
+      var now = 10000;
+      // The baseline has to stay under the absolute floor, otherwise the very
+      // first frame would already be an onset.
+      for (var i = 0; i < 10; i++) {
+        now += 16;
+        state = m.step(
+          prev: state,
+          targetHue: 200,
+          targetLevel: .5,
+          targetChroma: 0,
+          bass: .05,
+          dtMs: 16,
+          nowMs: now,
+        );
+      }
+      now += 16;
+      state = m.step(
+        prev: state,
+        targetHue: 200,
+        targetLevel: .5,
+        targetChroma: 0,
+        bass: .95,
+        dtMs: 16,
+        nowMs: now,
+      );
+      expect(state.pulse, closeTo(1, .001));
+    });
+
+    test('the noise floor is not an onset', () {
+      final m = motion();
+      var state = const AmbientMotionState();
+      var now = 10000;
+      for (var i = 0; i < 20; i++) {
+        now += 16;
+        state = m.step(
+          prev: state,
+          targetHue: 200,
+          targetLevel: .5,
+          targetChroma: 0,
+          bass: .05,
+          dtMs: 16,
+          nowMs: now,
+        );
+      }
+      expect(state.pulse, closeTo(0, .001));
+    });
+
+    test('the minimum gap suppresses a second onset', () {
+      // 240 ms keeps the eighth notes of a 120 BPM track (about 250 ms
+      // apart) from counting as two onsets.
+      final m = motion();
+      var state = const AmbientMotionState();
+      var now = 10000;
+      for (var i = 0; i < 10; i++) {
+        now += 16;
+        state = m.step(
+          prev: state,
+          targetHue: 200,
+          targetLevel: .5,
+          targetChroma: 0,
+          bass: .05,
+          dtMs: 16,
+          nowMs: now,
+        );
+      }
+      now += 16;
+      state = m.step(
+        prev: state,
+        targetHue: 200,
+        targetLevel: .5,
+        targetChroma: 0,
+        bass: .95,
+        dtMs: 16,
+        nowMs: now,
+      );
+      expect(state.pulse, closeTo(1, .001));
+      now += 100;
+      state = m.step(
+        prev: state,
+        targetHue: 200,
+        targetLevel: .5,
+        targetChroma: 0,
+        bass: .95,
+        dtMs: 16,
+        nowMs: now,
+      );
+      expect(state.pulse, lessThan(1));
+    });
+
+    test('the pulse fades', () {
+      final m = motion();
+      var state = const AmbientMotionState();
+      var now = 10000;
+      for (var i = 0; i < 10; i++) {
+        now += 16;
+        state = m.step(
+          prev: state,
+          targetHue: 200,
+          targetLevel: .5,
+          targetChroma: 0,
+          bass: .05,
+          dtMs: 16,
+          nowMs: now,
+        );
+      }
+      now += 16;
+      state = m.step(
+        prev: state,
+        targetHue: 200,
+        targetLevel: .5,
+        targetChroma: 0,
+        bass: .95,
+        dtMs: 16,
+        nowMs: now,
+      );
+      expect(state.pulse, closeTo(1, .001));
+      state = m.step(
+        prev: state,
+        targetHue: 200,
+        targetLevel: .5,
+        targetChroma: 0,
+        bass: 0,
+        dtMs: 16,
+        nowMs: now + 16,
+      );
+      expect(state.pulse, lessThan(1));
+      expect(state.pulse, greaterThan(0));
+    });
+
+    test('an onset pushes the hue towards the warm end', () {
+      // The kick is visible, but not glaring: 14 degrees.
+      final m = motion();
+      var state = const AmbientMotionState();
+      var now = 10000;
+      for (var i = 0; i < 20; i++) {
+        now += 16;
+        state = m.step(
+          prev: state,
+          targetHue: 200,
+          targetLevel: .5,
+          targetChroma: 0,
+          bass: .05,
+          dtMs: 16,
+          nowMs: now,
+        );
+      }
+      final before = state.hue;
+      now += 16;
+      state = m.step(
+        prev: state,
+        targetHue: 200,
+        targetLevel: .5,
+        targetChroma: 0,
+        bass: .95,
+        dtMs: 16,
+        nowMs: now,
+      );
+      expect(state.hue, greaterThan(before));
+    });
+
+    test('the hue drifts slowly while nothing plays', () {
+      final m = motion();
+      var state = const AmbientMotionState();
+      var now = 10000;
+      for (var i = 0; i < 20; i++) {
+        now += 16;
+        state = m.step(
+          prev: state,
+          targetHue: 200,
+          targetLevel: .5,
+          targetChroma: 0,
+          bass: 0,
+          dtMs: 16,
+          nowMs: now,
+        );
+      }
+      final before = state.hue;
+      for (var i = 0; i < 125; i++) {
+        now += 16;
+        state = m.step(
+          prev: state,
+          targetHue: 200,
+          targetLevel: 0,
+          targetChroma: 0,
+          bass: 0,
+          dtMs: 16,
+          nowMs: now,
+          silent: true,
+        );
+      }
+      final drifted = (state.hue - before).abs();
+      // 2.2 degrees per second over two seconds is about 4.4 degrees.
+      expect(drifted, greaterThan(1));
+      expect(drifted, lessThan(15));
+    });
+
+    test('the idle state falls back to the breathing base light', () {
+      final m = motion(breathAmount: .10);
+      var state = const AmbientMotionState();
+      var now = 10000;
+      for (var i = 0; i < 60; i++) {
+        now += 16;
+        state = m.step(
+          prev: state,
+          targetHue: 200,
+          targetLevel: 1,
+          targetChroma: 0,
+          bass: 0,
+          dtMs: 16,
+          nowMs: now,
+        );
+      }
+      for (var i = 0; i < 300; i++) {
+        now += 16;
+        state = m.step(
+          prev: state,
+          targetHue: 200,
+          targetLevel: 0,
+          targetChroma: 0,
+          bass: 0,
+          dtMs: 16,
+          nowMs: now,
+          silent: true,
+        );
+      }
+      expect(state.level, greaterThan(0));
+      expect(state.level, lessThan(.2));
+    });
+
+    test('the chroma smooths slowly', () {
+      final m = motion();
+      var state = m.step(
+        prev: const AmbientMotionState(),
+        targetHue: 200,
+        targetLevel: .5,
+        targetChroma: 0,
+        bass: 0,
+        dtMs: 16,
+        nowMs: 10000,
+      );
+      state = m.step(
+        prev: state,
+        targetHue: 200,
+        targetLevel: .5,
+        targetChroma: .22,
+        bass: 0,
+        dtMs: 16,
+        nowMs: 10016,
+      );
+      expect(state.chroma, lessThan(.22));
+      expect(state.chroma, greaterThan(0));
+    });
   });
 
-  group('the low frequency fallback', () {
-    test('equal low bands mean the spectrum cannot resolve them', () {
-      final bands = List<double>.filled(24, 0.02);
-      for (var i = 0; i < 4; i++) {
-        bands[i] = 0.4;
-      }
-      expect(AmbientPalette.isBassUnresolvable(bands), isTrue);
-    });
-
-    test('different low bands mean the spectrum resolves them', () {
-      final bands = List<double>.filled(24, 0.02);
-      bands[0] = 0.4;
-      bands[1] = 0.2;
-      bands[2] = 0.6;
-      bands[3] = 0.1;
-      expect(AmbientPalette.isBassUnresolvable(bands), isFalse);
-    });
-
-    test('silence is not an unresolvable spectrum', () {
-      expect(AmbientPalette.isBassUnresolvable(List.filled(24, 0)), isFalse);
-    });
-
-    test('an unresolvable bass falls back to the intensity', () {
-      final bands = List<double>.filled(24, 0.02);
-      for (var i = 0; i < 4; i++) {
-        bands[i] = 0.6;
-      }
-      // Without the fallback the hue would be stuck at zero degrees, red.
-      final hue = AmbientPalette.bassHue(bands, 0);
-      expect(hue, closeTo(AmbientPalette.intensityHue(0.6), .001));
-      expect(hue, isNot(closeTo(0, .001)));
-    });
-
-    test('the intensity hue runs from cold to warm', () {
-      expect(AmbientPalette.intensityHue(0), closeTo(260, .001));
-      expect(AmbientPalette.intensityHue(1), closeTo(20, .001));
-      final middle = AmbientPalette.intensityHue(0.5);
-      expect(middle, greaterThan(20));
-      expect(middle, lessThan(260));
-    });
-
-    test('a resolvable bass keeps the band hue', () {
-      final bands = List<double>.filled(24, 0.02);
-      bands[1] = 0.6;
-      bands[2] = 0.1;
-      bands[3] = 0.2;
-      bands[0] = 0.05;
-      expect(AmbientPalette.bassHue(bands, 0),
-          closeTo(AmbientPalette.hueForBand(1, 24), .001));
-    });
-  });
-
-  group('the palette targets', () {
-    test('the target hue and level are split out of the colour', () {
-      final bands = List<double>.filled(24, 0.02);
-      for (var i = 4; i < 8; i++) {
-        bands[i] = 0.9;
-      }
-      final hue = AmbientPalette.targetHue(
-        bands: bands,
-        mode: AmbientPalette.modeSpectrum,
-        fixedHue: 210,
-      );
-      final level = AmbientPalette.targetLevel(
-        bands: bands,
-        level: 0.9,
-        mode: AmbientPalette.modeSpectrum,
-        sensitivity: 1.4,
-        minBrightness: 15,
-        maxBrightness: 100,
-      );
-      final color = AmbientPalette.colorOf(hue, level);
-      expect(color.brightness, level);
-      expect(color.hex, isNot('#000000'));
-    });
-
-    test('the bass mode takes its level from the bass energy', () {
-      final bands = List<double>.filled(24, 0.02);
-      for (var i = 0; i < 4; i++) {
-        bands[i] = 0.8;
-      }
-      final level = AmbientPalette.targetLevel(
-        bands: bands,
-        level: 0.1,
-        mode: AmbientPalette.modeBass,
-        sensitivity: 1.4,
-        minBrightness: 15,
-        maxBrightness: 100,
-      );
-      expect(level, greaterThan(50));
-    });
-  });
-
-  group('the motion layer against the direct mapping', () {
-    test('the motion layer jumps far less than the direct mapping', () {
+  group('the V2 chain against the legacy chain', () {
+    test('one frame changes far less than the legacy chain', () {
       // A synthetic kick: the loudest low band flips between two bands,
       // which is exactly what makes the strip jump in real music.
-      final bands = List<double>.filled(16, .05);
+      final bands = List<double>.filled(16, 0);
 
-      // The old chain: the spectrum goes straight to the colour.
+      // The legacy chain: the spectrum goes straight to the colour.
       var lastHue = 0.0;
       AmbientColor? previousOld;
-      var maxOld = 0;
-      // The new chain: target -> motion layer -> colour.
+      var maxOld = 0.0;
+      // The V2 chain: target -> motion layer -> OKLCH.
       var state = const AmbientMotionState();
-      AmbientColor? previousNew;
-      var maxNew = 0;
+      AmbientColor? previousLimited;
+      (double, double, double)? previousRawLab;
+      var maxNewRaw = 0.0;
+      var maxNewLimited = 0.0;
+      var now = 10000;
 
       for (var i = 0; i < 40; i++) {
         for (var b = 0; b < bands.length; b++) {
@@ -395,46 +635,70 @@ void main() {
         final before = previousOld;
         if (before != null) {
           final distance = AmbientPalette.colorDistance(before, old);
-          if (distance > maxOld) maxOld = distance;
+          if (distance > maxOld) maxOld = distance.toDouble();
         }
         previousOld = old;
 
-        final targetHue = AmbientPalette.targetHue(
-          bands: bands,
-          mode: AmbientPalette.modeBass,
-          fixedHue: 0,
-          fallbackHue: state.hue,
-        );
-        final targetLevel = AmbientPalette.targetLevel(
-          bands: bands,
-          level: .5,
-          mode: AmbientPalette.modeBass,
-          sensitivity: 1,
-          minBrightness: 0,
-          maxBrightness: 100,
-        );
-        state = const AmbientMotion().step(
-          prev: state,
-          targetHue: targetHue,
-          targetLevel: targetLevel,
-          bass: AmbientPalette.bassEnergy(bands),
-          dtMs: 100,
-        );
-        final next =
-            AmbientPalette.colorOf(state.hue, (state.brightness * 100).round());
-        final beforeNew = previousNew;
-        if (beforeNew != null) {
-          final distance = AmbientPalette.colorDistance(beforeNew, next);
-          if (distance > maxNew) maxNew = distance;
+        final targetHue = AmbientPalette.lowCentroidHue(bands, state.hue);
+        // 60 Hz: six render frames between two spectrum frames.
+        for (var _ = 0; _ < 6; _++) {
+          now += 16;
+          state = const AmbientMotion().step(
+            prev: state,
+            targetHue: targetHue,
+            targetLevel: .5,
+            targetChroma: .18,
+            bass: AmbientPalette.bassEnergy(bands),
+            dtMs: 16,
+            nowMs: now,
+          );
+          final raw = AmbientPalette.colorOfOklch(
+            state.hue,
+            AmbientPalette.perceptualLightness(state.level),
+            state.chroma,
+          );
+          final previous = previousLimited;
+          var limited = raw;
+          if (previous != null) {
+            final (r, g, b) = AmbientColorSpace.limitByDeltaE(
+              previous.r,
+              previous.g,
+              previous.b,
+              raw.r,
+              raw.g,
+              raw.b,
+              maxDeltaE,
+            );
+            limited = AmbientColor(r, g, b, raw.brightness);
+            final previousLab = AmbientColorSpace.rgbToLab(
+              previous.r,
+              previous.g,
+              previous.b,
+            );
+            final limitedLab =
+                AmbientColorSpace.rgbToLab(limited.r, limited.g, limited.b);
+            final de = AmbientColorSpace.deltaE00(previousLab, limitedLab);
+            if (de > maxNewLimited) maxNewLimited = de;
+          }
+          previousLimited = limited;
+
+          final rawLab = AmbientColorSpace.rgbToLab(raw.r, raw.g, raw.b);
+          final previousRaw = previousRawLab;
+          if (previousRaw != null) {
+            final de = AmbientColorSpace.deltaE00(previousRaw, rawLab);
+            if (de > maxNewRaw) maxNewRaw = de;
+          }
+          previousRawLab = rawLab;
         }
-        previousNew = next;
       }
 
-      // The direct mapping jumps between two band hues every frame, the
-      // motion layer only walks there.
-      expect(maxOld, greaterThan(maxNew * 3));
-      // It still moves, otherwise the strip would look frozen.
-      expect(maxNew, greaterThan(0));
+      // The legacy chain jumps between two band hues every frame, the V2
+      // chain only walks there.
+      expect(maxOld, greaterThan(maxNewLimited * 4));
+      // After the speed limit every frame stays within the cap.
+      expect(maxNewLimited, lessThanOrEqualTo(maxDeltaE + .05));
+      // And the limiter really did have to do something.
+      expect(maxNewRaw, greaterThan(maxDeltaE));
     });
   });
 }

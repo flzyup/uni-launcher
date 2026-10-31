@@ -25,7 +25,8 @@ import xyz.i4o.uni.launcher.integration.OfficialCarReader;
  *   <li>{@code status} - capability and last write state;</li>
  *   <li>{@code enable} - switches the strip on or off;</li>
  *   <li>{@code color} - writes one packed colour;</li>
- *   <li>{@code brightness} - sets the brightness, 0 to 100.</li>
+ *   <li>{@code brightness} - sets the brightness, 0 to 100;</li>
+ *   <li>{@code zone} - switches one zone (main / top / bottom) on or off.</li>
  * </ul>
  *
  * <p>The native side also pushes a {@code state} call when the capability or
@@ -93,6 +94,9 @@ public final class AmbientLightBridge {
                                 ? ((Number) call.arguments).intValue() : 0);
                         result.success(null);
                         break;
+                    case "zone":
+                        result.success(applyZone(call.arguments));
+                        break;
                     default:
                         result.notImplemented();
                         break;
@@ -128,6 +132,22 @@ public final class AmbientLightBridge {
 
     private static int number(Object value) {
         return value instanceof Number ? ((Number) value).intValue() : 0;
+    }
+
+    /**
+     * Switches one zone on or off.
+     *
+     * <p>The arguments are a map with {@code zone} (0 main, 1 top, 2 bottom)
+     * and {@code enabled}. Only the zone switches exist on this head unit, so
+     * the zone choreography can only be a hard edge; see
+     * {@link AmbientLightWriter#setZoneEnabled(int, boolean)}.
+     */
+    private boolean applyZone(Object arguments) {
+        if (!(arguments instanceof Map)) return false;
+        Map<?, ?> zone = (Map<?, ?>) arguments;
+        final int index = number(zone.get("zone"));
+        final boolean enabled = Boolean.TRUE.equals(zone.get("enabled"));
+        return writer.setZoneEnabled(index, enabled);
     }
 
     /** Capability and last write state, for the read-only diagnostics dump. */

@@ -29,13 +29,13 @@ import java.util.function.Supplier;
  * round trip and must never sit on the Flutter platform thread.
  *
  * <h3>Throttling</h3>
- * A spectrum frame arrives every 50 ms while music plays. Writing every
+ * A spectrum frame arrives every 100 ms while music plays. Writing every
  * frame would keep the head unit busy for no visible gain, so two gates apply:
  * a minimum interval between writes and a minimum colour distance. The first
  * write after a change always goes through.
  *
  * <h3>Only the latest frame is written</h3>
- * The spectrum arrives twenty times a second. If the vehicle is slow, queuing
+ * The spectrum arrives ten times a second. If the vehicle is slow, queuing
  * every frame makes the queue grow without bound: the writer falls further
  * behind, which makes it slower still. So only the newest colour is kept and
  * the frames in between are dropped. A colour describes what the strip should
@@ -60,9 +60,20 @@ public final class AmbientLightWriter {
     /**
      * Minimum time between two colour writes, in milliseconds.
      *
-     * <p>50 ms is 20 Hz, the frame rate of the spectrum. The motion layer
-     * produces a continuous change at that rate, so a slower write would
-     * cut the smoothing back into steps and the light would jump again.
+     * <p>This used to be 100 ms, which is 10 Hz, the frame rate of the spectrum.
+     * The V2 chain renders on its own 60 Hz clock, so the smoothing happens
+     * there, and a slower write would cut the smooth curve back into steps:
+     * the light would jump again.
+     *
+     * <p>50 ms is 20 Hz, the compromise between the vehicle IO load and a
+     * continuous look.
+     *
+     * <p><b>Careful:</b> every write is a synchronous Binder round trip. Raising
+     * the rate from 10 Hz to 20 Hz makes it easier to block the Flutter
+     * platform thread, so the three rules of the old P0 still hold: the
+     * writes run on the worker thread, only the latest frame is written
+     * (nothing is queued), and a failed write backs off for
+     * {@link #FAIL_BACKOFF_MS}.
      */
     public static final long MIN_INTERVAL_MS = 50L;
 
@@ -84,7 +95,7 @@ public final class AmbientLightWriter {
     /**
      * How long a failed write waits before the next attempt.
      *
-     * <p>The spectrum arrives twenty times a second. Retrying every frame would
+     * <p>The spectrum arrives ten times a second. Retrying every frame would
      * flood the vehicle IO with writes the head unit rejects.
      */
     public static final long FAIL_BACKOFF_MS = 1000L;
@@ -145,6 +156,19 @@ public final class AmbientLightWriter {
 
     /** The absolute brightness that still has to be written. */
     private volatile Integer pendingBrightness;
+
+    /**
+     * The zone switches the head unit accepted last, in main / top / bottom
+     * order.
+     *
+     * <p>Used to skip a write that would not change anything: the zone
+     * choreography is a slow action (a dwell of 800 ms and more), but a
+     * duplicated write is still a Binder round trip.
+     */
+    private final boolean[] writtenZones = new boolean[AmbientLightContract.ZONE_FUNCTIONS.length];
+
+    /** Whether the zone state is known at all (the first write has to go out). */
+    private volatile boolean zoneStateKnown;
 
     /** The last write, for the diagnostics dump. */
     private volatile String lastOp = "";
@@ -456,7 +480,7 @@ public final class AmbientLightWriter {
      * Writes one colour.
      *
      * <p>The gates come first, so a head unit that rejects the colour does
-     * not get a resolution attempt twenty times a second.
+     * not get a resolution attempt ten times a second.
      */
     private void applyRgb(int rgb) {
         colorWrites++;
@@ -571,6 +595,61 @@ public final class AmbientLightWriter {
             if (function == null) continue;
             write(functions, function, AmbientLightContract.ZONE, AmbientLightContract.ON);
         }
+        // The zones are all on now, so the cached state can be trusted.
+        java.util.Arrays.fill(writtenZones, true);
+        zoneStateKnown = true;
+    }
+
+    /**
+     * Switches **one** zone on or off (used by the zone choreography).
+     *
+     * <p>The three zones are three independent function ids and the value is
+     * only 1 or 0, so a zone can be lit or dark but nothing in between.
+     *
+     * <h3>The boundary: only zone switches, no zone colour</h3>
+     * The {@code 0x2A} segment (zone colour and zone brightness) is not
+     * implemented on this head unit, so the choreography can only be a hard
+     * edge: one zone lit, the others dark, one global colour.
+     *
+     * <p>A zone whose id does not resolve is skipped; its number is never
+     * taken from another zone.
+     *
+     * @param zone 0 main, 1 top, 2 bottom
+     * @param value true to light the zone, false to darken it
+     * @return whether the zone was written
+     */
+    public boolean setZoneEnabled(final int zone, final boolean value) {
+        if (zone < 0 || zone >= AmbientLightContract.ZONE_FUNCTIONS.length) return false;
+        final Object functions = functions();
+        if (functions == null) {
+            unavailable("氛围灯通道还没就绪");
+            pushStateIfChanged();
+            return false;
+        }
+        final String name = AmbientLightContract.ZONE_FUNCTIONS[zone];
+        final Integer function = resolver.resolve(name);
+        if (function == null) {
+            unavailable("氛围灯分区功能号按名解析不到");
+            pushStateIfChanged();
+            return false;
+        }
+        // The same state must not be written again: the choreography is
+        // slow, but a duplicated write is still a Binder round trip.
+        if (zoneStateKnown && writtenZones[zone] == value) return true;
+        final boolean ok = write(functions, function, AmbientLightContract.ZONE,
+                value ? AmbientLightContract.ON : AmbientLightContract.OFF);
+        if (ok) {
+            writtenZones[zone] = value;
+            zoneStateKnown = true;
+            available = true;
+            reason = "";
+            Log.i(TAG, "氛围灯分区开关已下发 zone=" + zone + " value=" + value);
+        } else {
+            reason = "氛围灯分区开关下发失败";
+            Log.w(TAG, "氛围灯分区开关下发失败 zone=" + zone + " value=" + value);
+        }
+        pushStateIfChanged();
+        return ok;
     }
 
     /**
@@ -677,7 +756,7 @@ public final class AmbientLightWriter {
      * Pushes the state to the listeners when the capability or the failure
      * reason changed.
      *
-     * <p>Only changes are pushed: a spectrum frame arrives twenty times a
+     * <p>Only changes are pushed: a spectrum frame arrives ten times a
      * second, and the UI only cares about "is it usable and why not".
      */
     private void pushStateIfChanged() {
