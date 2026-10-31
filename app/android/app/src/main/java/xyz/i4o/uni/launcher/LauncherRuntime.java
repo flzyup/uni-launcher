@@ -220,6 +220,7 @@ public final class LauncherRuntime {
                     if(Double.isNaN(luminance)||luminance<0||luminance>1)return false;
                 }
                 if(p.has("dockMusicProgressBackground")&&!(p.get("dockMusicProgressBackground") instanceof Boolean))return false;
+                if(!"small".equals(p.optString("dockSize","medium"))&&!"medium".equals(p.optString("dockSize"))&&!"large".equals(p.optString("dockSize")))return false;
                 if(!"mint".equals(palette)&&!"blue".equals(palette)&&!"violet".equals(palette)&&!"amber".equals(palette)&&!"rose".equals(palette)&&!"custom".equals(palette))return false;
                 int radius=p.getInt("radius"),pages=data.getInt("pageCount");
                 if(radius<0||radius>40||pages<1||pages>20)return false;

@@ -13,6 +13,7 @@ import '../widgets/uni_icon.dart';
 import '../widgets/launcher_dialog.dart';
 import '../widgets/embedded_navigation.dart';
 import '../widgets/system_settings.dart';
+import '../widgets/setting_block.dart';
 import '../widgets/spectrum_painter.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -118,43 +119,6 @@ class _SettingsTab extends StatelessWidget {
                         style: TextStyle(
                             fontSize: Design.px(24),
                             color: selected ? s.accent : s.muted))))));
-  }
-}
-
-class SettingBlock extends StatelessWidget {
-  final String title;
-  final String? note;
-  final Widget? trailing;
-  final Widget child;
-  final bool compact;
-  const SettingBlock(
-      {super.key,
-      required this.title,
-      this.note,
-      this.trailing,
-      required this.child,
-      this.compact = false});
-  @override
-  Widget build(BuildContext context) {
-    final s = SurfaceStyle.of(context);
-    return GlassSurface(
-        padding: EdgeInsets.symmetric(
-            horizontal: Design.px(30), vertical: Design.px(compact ? 16 : 22)),
-        child:
-            Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Row(children: [
-            Text(title,
-                style: TextStyle(
-                    fontSize: Design.px(26), fontWeight: FontWeight.w500)),
-            if (note != null || trailing != null) const Spacer(),
-            if (note != null)
-              Text(note!,
-                  style: TextStyle(color: s.muted, fontSize: Design.px(18))),
-            if (trailing != null) trailing!
-          ]),
-          SizedBox(height: Design.px(18)),
-          child
-        ]));
   }
 }
 

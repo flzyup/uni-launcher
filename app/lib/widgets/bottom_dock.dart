@@ -33,7 +33,12 @@ class BottomDock extends StatelessWidget {
             media = mapOf(native['media']),
             canPlay = demo || media['available'] == true,
             canToggle = demo || media['canToggle'] == true,
-            playing = media['playing'] == true;
+            playing = media['playing'] == true,
+            dockScale = switch (c.appearance.dockSize) {
+              'medium' => 1.14,
+              'large' => 1.3,
+              _ => 1.0,
+            };
         Widget gap() => SizedBox(width: Design.px(20));
         Widget separator() => SizedBox(
             height: Design.px(34),
@@ -51,7 +56,7 @@ class BottomDock extends StatelessWidget {
                 icon: icon,
                 label: label,
                 size: Design.px(width),
-                iconSize: Design.px(29),
+                iconSize: Design.px(29 * dockScale),
                 onTap: tap,
                 active: active,
                 framed: framed,
@@ -88,7 +93,8 @@ class BottomDock extends StatelessWidget {
                             ? '${(climate[id] as num? ?? 22.5).toStringAsFixed(1)}°'
                             : '${VehicleField.fromNative(native, id).display()}°',
                         maxLines: 1,
-                        style: TextStyle(fontSize: Design.px(30))))));
+                        style:
+                            TextStyle(fontSize: Design.px(30 * dockScale))))));
         final ac = climateFlag('ac'), recirc = climateFlag('recirc');
         Widget climateIndicator(
                 String id, String mode, Widget child, String label) =>
@@ -101,7 +107,7 @@ class BottomDock extends StatelessWidget {
                 onTap: climateWritable(native, mode)
                     ? () => c.command('climate-mode', value: mode)
                     : null,
-                child: child);
+                child: FittedBox(fit: BoxFit.scaleDown, child: child));
         return SizedBox(
             key: const ValueKey('bottom-dock'),
             height: Design.px(96),
@@ -124,7 +130,7 @@ class BottomDock extends StatelessWidget {
                             icon: Icons.home_outlined,
                             label: '首页，长按进入桌面设置',
                             size: Design.px(72),
-                            iconSize: Design.px(29),
+                            iconSize: Design.px(29 * dockScale),
                             active: c.isGlobalDock
                                 ? native['desktopSelected'] == true &&
                                     mapOf(native['globalDock'])['expanded'] !=
@@ -168,7 +174,7 @@ class BottomDock extends StatelessWidget {
                                 Text('A/C',
                                     maxLines: 1,
                                     style: TextStyle(
-                                        fontSize: Design.px(17),
+                                        fontSize: Design.px(17 * dockScale),
                                         fontWeight: FontWeight.w600,
                                         color:
                                             ac == true ? s.accent : s.muted)),
@@ -176,14 +182,17 @@ class BottomDock extends StatelessWidget {
                                     ? '空调制冷状态未知'
                                     : (ac ? '空调制冷开启' : '空调制冷关闭')),
                             zone('left', '主驾'),
-                            DockClimateButton(controller: c, native: native),
+                            DockClimateButton(
+                                controller: c,
+                                native: native,
+                                scale: dockScale),
                             climateIndicator(
                                 'dock-circulation-indicator',
                                 'recirc',
                                 CirculationIcon(
                                     recirculating: recirc,
                                     color: recirc == null ? s.muted : s.accent,
-                                    size: Design.px(28)),
+                                    size: Design.px(28 * dockScale)),
                                 recirc == null
                                     ? '空气循环状态未知'
                                     : (recirc ? '内循环' : '外循环')),
@@ -242,7 +251,8 @@ class BottomDock extends StatelessWidget {
                                                       : Icons.play_arrow,
                                                   label: playing ? '暂停' : '播放',
                                                   size: Design.px(58),
-                                                  iconSize: Design.px(29),
+                                                  iconSize:
+                                                      Design.px(29 * dockScale),
                                                   framed: false,
                                                   foregroundColor: s.accent,
                                                   onTap:
@@ -300,9 +310,9 @@ class BottomDock extends StatelessWidget {
                                                         Text(
                                                             '${media['title'] ?? '暂无播放'}',
                                                             style: TextStyle(
-                                                                fontSize:
-                                                                    Design.px(
-                                                                        23),
+                                                                fontSize: Design
+                                                                    .px(23 *
+                                                                        dockScale),
                                                                 fontWeight:
                                                                     FontWeight
                                                                         .w500),
@@ -316,9 +326,9 @@ class BottomDock extends StatelessWidget {
                                                         Text(
                                                             '${media['artist'] ?? '等待媒体会话'}',
                                                             style: TextStyle(
-                                                                fontSize:
-                                                                    Design.px(
-                                                                        16),
+                                                                fontSize: Design
+                                                                    .px(16 *
+                                                                        dockScale),
                                                                 color: s.muted),
                                                             maxLines: 1,
                                                             overflow:
@@ -342,7 +352,7 @@ class BottomDock extends StatelessWidget {
                       size: Design.px(64),
                       framed: false,
                       onTap: () => showUniDockMenu(context, c),
-                      child: UniAppIcon(size: Design.px(42)))
+                      child: UniAppIcon(size: Design.px(42 * dockScale)))
                 ])));
       });
 }

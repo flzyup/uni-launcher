@@ -44,6 +44,7 @@ const wallpaperPresets = <WallpaperPreset>[
 class Appearance {
   static const themeStyles = ['classic', 'blueGlass'];
   static const spectrumStyles = ['bars', 'segments', 'mirror', 'outline'];
+  static const dockSizes = ['small', 'medium', 'large'];
   static const defaultDesktopName = 'LYNK & CO / 05';
   static String normalizeDesktopName(Object? value) {
     final name =
@@ -62,6 +63,7 @@ class Appearance {
       desktopName,
       wallpaper,
       wallpaperPath;
+  final String dockSize;
   final double radius;
   final double? wallpaperLuminance;
   final bool glass;
@@ -79,6 +81,7 @@ class Appearance {
       this.spectrumStyle = 'segments',
       this.wallpaper = 'gradient',
       this.wallpaperPath = '',
+      this.dockSize = 'medium',
       this.wallpaperLuminance});
   factory Appearance.fromJson(Map<String, dynamic> json) => Appearance(
         desktopName: normalizeDesktopName(json['desktopName']),
@@ -114,6 +117,8 @@ class Appearance {
                 (json['wallpaperPath'] as String).length <= 1024
             ? json['wallpaperPath']
             : '',
+        dockSize:
+            dockSizes.contains(json['dockSize']) ? json['dockSize'] : 'medium',
         wallpaperLuminance: json['wallpaperLuminance'] is num
             ? (json['wallpaperLuminance'] as num).toDouble().clamp(0, 1)
             : null,
@@ -131,6 +136,7 @@ class Appearance {
           String? spectrumStyle,
           String? wallpaper,
           String? wallpaperPath,
+          String? dockSize,
           double? wallpaperLuminance}) =>
       Appearance(
           desktopName: normalizeDesktopName(desktopName ?? this.desktopName),
@@ -148,6 +154,7 @@ class Appearance {
               : this.spectrumStyle,
           wallpaper: wallpaper ?? this.wallpaper,
           wallpaperPath: wallpaperPath ?? this.wallpaperPath,
+          dockSize: dockSizes.contains(dockSize) ? dockSize! : this.dockSize,
           wallpaperLuminance: wallpaperLuminance ?? this.wallpaperLuminance);
   Map<String, dynamic> toJson() => {
         'desktopName': desktopName,
@@ -161,6 +168,7 @@ class Appearance {
         'pageTransition': pageTransition,
         'spectrumStyle': spectrumStyle,
         'wallpaper': wallpaper,
+        'dockSize': dockSize,
         if (wallpaperPath.isNotEmpty) 'wallpaperPath': wallpaperPath,
         if (wallpaperLuminance != null)
           'wallpaperLuminance': wallpaperLuminance,

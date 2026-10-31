@@ -7,6 +7,7 @@ import 'integration_settings.dart';
 import 'native_slice_builder.dart';
 import 'tire_diagnostics.dart';
 import 'body_diagnostics.dart';
+import 'dock_size_settings.dart';
 
 /// System-owned labels and available audio modes come from the native adapter.
 /// Never invent an enabled setting when this device cannot provide it.
@@ -99,6 +100,8 @@ class SystemSettingsPanel extends StatelessWidget {
                                   style: TextStyle(fontSize: Design.px(26)))),
                           RuntimeSettings(controller: controller),
                         ]),
+                    SizedBox(height: Design.px(22)),
+                    DockSizeSettings(controller: controller),
                     SizedBox(height: Design.px(22)),
                     GlassSurface(
                         child: Column(
