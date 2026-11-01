@@ -29,6 +29,7 @@ public final class OfficialWeatherAdapter {
     private Future<?> forecastTask;
     private final ForecastRequestGate forecastGate=new ForecastRequestGate();
     private boolean active;
+    private LegacyWeatherWidget legacyWidget;
     private String forecastCity="",forecastReason="";
     private boolean forecastLoading;
     private long forecastAttemptMs;
@@ -58,6 +59,29 @@ public final class OfficialWeatherAdapter {
             changed.run();
         }
         public void onServiceDisconnected(ComponentName name){connected=false;reason="原车天气服务已断开";if(active)changed.run();}
+        @Override public void onNullBinding(ComponentName name){
+            if(!active)return;
+            connected=false;reason="等待原车天气组件";
+            if(legacyWidget==null)legacyWidget=new LegacyWeatherWidget(context,new LegacyWeatherWidget.Listener(){
+                public void onWeather(String area,String condition,double temperature){
+                    if(!active)return;
+                    try{
+                        String[] places=area.trim().split("\\s+",2);
+                        String region=places.length>1?places[0]:"";
+                        String city=places.length>1?places[1]:places[0];
+                        data=new JSONObject().put("available",true).put("city",city).put("region",region)
+                            .put("temperature",temperature==Math.rint(temperature)?(Object)(int)temperature:temperature)
+                            .put("condition",condition.isEmpty()?"未知":condition)
+                            .put("description",condition.isEmpty()?"未知":condition)
+                            .put("source","原车天气").put("sourcePackage","com.ecarx.smartcloud")
+                            .put("syncedAtMs",System.currentTimeMillis());
+                        connected=true;reason="";changed.run();requestForecast(city,region,false);
+                    }catch(Exception e){android.util.Log.w("UniWeather","Legacy weather data unavailable",e);}
+                }
+                public void onUnavailable(String message){if(active){reason=message;changed.run();}}
+            });
+            legacyWidget.start();changed.run();
+        }
     };
     public OfficialWeatherAdapter(Context context,Runnable changed){this.context=context;this.changed=changed;}
     public void start(){
@@ -77,6 +101,7 @@ public final class OfficialWeatherAdapter {
         if(forecastLoading)forecastAttemptMs=0;
         forecastLoading=false;connected=false;
         if(bound){try{context.unbindService(connection);}catch(IllegalArgumentException ignored){}bound=false;}
+        if(legacyWidget!=null){legacyWidget.stop();legacyWidget=null;}
         if(forecastTask!=null){forecastTask.cancel(true);forecastTask=null;}
         if(forecastWorker!=null){forecastWorker.shutdownNow();forecastWorker=null;}
     }
