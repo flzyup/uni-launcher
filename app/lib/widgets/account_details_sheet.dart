@@ -14,6 +14,7 @@ Future<void> showAccountDetails(
       closeLabel: '关闭账号详情',
       width: Design.px(980),
       height: Design.px(650),
+      glowType: 'member',
       builder: (_) => ValueListenableBuilder<Map<String, dynamic>>(
           valueListenable: controller.native,
           builder: (context, native, __) {

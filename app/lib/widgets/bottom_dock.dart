@@ -533,6 +533,7 @@ Future<void> showVehiclePanel(
       closeLabel: '关闭车辆信息',
       width: Design.px(900),
       height: Design.px(780),
+      glowType: 'vehicle',
       builder: (context) => ValueListenableBuilder<Map<String, dynamic>>(
           valueListenable: c.native,
           builder: (context, n, _) =>

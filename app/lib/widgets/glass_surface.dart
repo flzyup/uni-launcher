@@ -25,6 +25,11 @@ class GlassSurface extends StatelessWidget {
   /// surface (the dock's media block), where the parent already carries the
   /// glass and a second white-alpha fill would read as a bright patch.
   final bool flat;
+
+  /// Nocturne only: floating panel (dialog sheet) rather than a desktop card.
+  /// Panels need an opaque base — desktop cards sit on the near-black canvas,
+  /// panels sit on other cards and would otherwise show them through.
+  final bool sheet;
   const GlassSurface(
       {super.key,
       required this.child,
@@ -35,7 +40,8 @@ class GlassSurface extends StatelessWidget {
       this.glow,
       this.shadow = true,
       this.dock = false,
-      this.flat = false});
+      this.flat = false,
+      this.sheet = false});
 
   @override
   Widget build(BuildContext context) {
@@ -117,8 +123,12 @@ class GlassSurface extends StatelessWidget {
           type: MaterialType.transparency,
           child: Padding(padding: padding, child: child));
     }
-    final isCard = !dock;
-    final fill = isCard
+    final isCard = !dock && !sheet;
+    // 卡片和浮层面板共用同一套玻璃，区别只有两处：面板背后是内容而不是
+    // 纯黑画布，所以必须给一个实底，否则会透出底下的卡片；光晕也要收敛，
+    // 同样强度的椭圆铺在整块面板上会糊成一片色雾。
+    final glass = isCard || sheet;
+    final fill = glass
         ? const LinearGradient(
             begin: Alignment(-.2, -.98),
             end: Alignment(.2, .98),
@@ -149,6 +159,14 @@ class GlassSurface extends StatelessWidget {
         child: ClipRRect(
             borderRadius: shape,
             child: Stack(fit: StackFit.passthrough, children: [
+              // 底色和渐变必须分两层：BoxDecoration 里 gradient 一旦存在，
+              // color 会被整段忽略，写在一起等于没给底色。
+              if (sheet)
+                Positioned.fill(
+                    child: DecoratedBox(
+                        decoration: BoxDecoration(
+                            color: const Color(0xFA131619),
+                            borderRadius: shape))),
               Positioned.fill(
                   child: DecoratedBox(
                       decoration: BoxDecoration(
@@ -156,9 +174,19 @@ class GlassSurface extends StatelessWidget {
                           borderRadius: shape,
                           border: Border.all(
                               color: borderColor ?? s.edge)))),
-              if (glow != null && isCard)
-                Positioned.fill(child: _glowLayer(glow!)),
-              if (isCard)
+              if (glow != null && glass)
+                sheet
+                    // 弹层只让光从底部三分之一升起：整块面板做椭圆会糊满。
+                    ? Positioned.fill(
+                        child: Align(
+                            alignment: Alignment.bottomCenter,
+                            child: FractionallySizedBox(
+                                heightFactor: .34,
+                                widthFactor: 1,
+                                child: _glowLayer(glow!, .75,
+                                    ryScale: 1.15))))
+                    : Positioned.fill(child: _glowLayer(glow!, 1)),
+              if (glass)
                 Positioned(
                     left: 0,
                     right: 0,
@@ -173,7 +201,7 @@ class GlassSurface extends StatelessWidget {
                           const Color(0x00000000),
                           Colors.black.withValues(alpha: .68)
                         ])))),
-              if (isCard)
+              if (glass)
                 Positioned(
                     top: 0,
                     left: 0,
@@ -195,17 +223,26 @@ class GlassSurface extends StatelessWidget {
   /// Bottom glow drawn as a true ellipse: same geometry as the design's
   /// `.card::before` (light centre 28 % below the card, rx 82 % / ry 94 % of
   /// the card, bright plateau to 22 %, fully faded at 76 %).
-  Widget _glowLayer(Color glow) =>
-      CustomPaint(painter: _NocturneGlowPainter(glow));
+  ///
+  /// [ryScale] 收窄垂直半径：弹层比卡片高得多，同一比例铺开会糊满整个面板。
+  Widget _glowLayer(Color glow, double alphaScale,
+          {double ryScale = 1}) =>
+      CustomPaint(
+          painter: _NocturneGlowPainter(
+              alphaScale == 1
+                  ? glow
+                  : glow.withValues(alpha: glow.a * alphaScale),
+              ryScale));
 }
 
 class _NocturneGlowPainter extends CustomPainter {
   final Color glow;
-  const _NocturneGlowPainter(this.glow);
+  final double ryScale;
+  const _NocturneGlowPainter(this.glow, this.ryScale);
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height * 1.28);
-    final rx = size.width * .82, ry = size.height * .94;
+    final rx = size.width * .82, ry = size.height * .94 * ryScale;
     canvas.save();
     canvas.translate(center.dx, center.dy);
     canvas.scale(rx, ry);

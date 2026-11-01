@@ -31,7 +31,9 @@ Future<void> showCardLibrary(BuildContext context, LauncherController c) =>
         subtitle: '原车卡片使用官方信息来源，统一为桌面样式',
         closeLabel: '关闭卡片库',
         width: Design.px(1560),
-        height: Design.px(850), builder: (context) {
+        height: Design.px(850),
+        glowType: 'shortcuts',
+        builder: (context) {
       final s = SurfaceStyle.of(context);
       return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Expanded(
@@ -189,6 +191,7 @@ Future<void> editCard(
         subtitle: '调整展示，保持官方信息来源',
         closeLabel: '关闭卡片设置',
         width: Design.px(780),
+        glowType: card.type,
         builder: (context) => _CardEditor(controller: c, card: card));
 
 class _CardEditor extends StatefulWidget {

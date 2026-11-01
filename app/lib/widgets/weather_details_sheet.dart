@@ -17,6 +17,7 @@ Future<void> showWeatherDetails(
       closeLabel: '关闭天气详情',
       width: Design.px(1320),
       height: Design.px(740),
+      glowType: 'weather',
       builder: (_) => ValueListenableBuilder<Map<String, dynamic>>(
           valueListenable: controller.native,
           builder: (context, native, __) => WeatherDetailsContent(

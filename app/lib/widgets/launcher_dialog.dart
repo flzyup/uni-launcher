@@ -15,6 +15,8 @@ Future<T?> showLauncherSheet<T>(
   String closeLabel = '关闭面板',
   required double width,
   double? height,
+  /// 暗夜主题下弹层的底部光晕取自哪张卡片（沿用一卡一色）。null 用强调色。
+  String? glowType,
   required WidgetBuilder builder,
 }) async {
   final dock = DockWindowScope.of(context);
@@ -44,6 +46,7 @@ Future<T?> showLauncherSheet<T>(
                 closeLabel: closeLabel,
                 width: width,
                 height: height,
+                glowType: glowType,
                 child: Builder(builder: builder))));
     if (dock?.onPresented != null) {
       await WidgetsBinding.instance.endOfFrame;
@@ -95,6 +98,7 @@ class LauncherSheet extends StatelessWidget {
   final Widget? titleWidget;
   final double width;
   final double? height;
+  final String? glowType;
   final Widget child;
   const LauncherSheet(
       {super.key,
@@ -104,6 +108,7 @@ class LauncherSheet extends StatelessWidget {
       required this.width,
       this.subtitle,
       this.height,
+      this.glowType,
       required this.child});
   @override
   Widget build(BuildContext context) {
@@ -148,6 +153,10 @@ class LauncherSheet extends StatelessWidget {
                                             height: height,
                                             child: GlassSurface(
                                                 tone: SurfaceTone.strong,
+                                                sheet: true,
+                                                // 弹层沿用来源卡片的一卡一色光晕，
+                                                // 暗夜下才有；其他主题返回 null。
+                                                glow: s.cardGlow(glowType ?? ''),
                                                 padding: EdgeInsets.symmetric(
                                                     horizontal: Design.px(40),
                                                     vertical: Design.px(34)),
