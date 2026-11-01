@@ -180,6 +180,16 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
   /// other styles keep one accent for the whole desktop.
   Color? cardGlow(String type) => nocturne ? Nocturne.glowOf(type) : null;
 
+  /// 不透明底板，只为「把卡片快照重新合成一次」而存在（拖动浮层把卡片
+  /// `RepaintBoundary.toImage()` 后画在画布之上）。
+  ///
+  /// 快照本身几乎是透明的：卡面就是一层 8% 白叠在画布上，离屏渲染时不带
+  /// 画布。经典主题的 `surface` 本身够实，直接抬到 alpha 1 就行；暗夜的
+  /// `0x14FFFFFF` 一旦抬到 alpha 1 就是**纯白**，于是整张浮起来的卡片变成
+  /// 一块白门板，内容全被冲淡。暗夜必须用画布色兜底。
+  Color get snapshotBase =>
+      nocturne ? background : surface.withValues(alpha: 1);
+
   BorderSide controlSide(bool selected) => BorderSide(
       color: selected
           ? (technicalFrame ? Color.lerp(edge, accent, .24)! : accent)
