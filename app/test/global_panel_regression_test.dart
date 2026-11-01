@@ -441,6 +441,11 @@ void main() {
             'launch-player');
       } else {
         expect(find.byKey(const ValueKey('music-card-lyrics')), findsOneWidget);
+        final lyricView = t.widget<LyricsView>(find.byType(LyricsView));
+        expect(lyricView.lineHeight, 44);
+        expect(lyricView.fontSize, 26);
+        expect(lyricView.textAlign, TextAlign.center);
+        expect(lyricView.visibleLines!.isOdd, isTrue);
         expect(find.byKey(const ValueKey('music-card-lyrics-fade')),
             findsOneWidget);
         expect(find.byType(AudioSpectrum), findsOneWidget);

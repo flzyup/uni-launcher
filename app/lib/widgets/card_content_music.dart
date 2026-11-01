@@ -154,7 +154,16 @@ class _MusicCard extends StatelessWidget {
                 SizedBox(height: Design.px(compact ? 10 : 16)),
               ]));
 
-    Widget lyricsView(int lines, double lineHeight, double fontSize) => Center(
+    const lyricRowHeight = 44.0;
+    const lyricFontSize = 26.0;
+    int lyricLines(double height, int maximum) {
+      var lines =
+          (height / Design.px(lyricRowHeight)).floor().clamp(1, maximum);
+      if (lines > 1 && lines.isEven) lines--;
+      return lines;
+    }
+
+    Widget lyricsView(int lines, double fontSize) => Center(
         key: const ValueKey('music-card-lyrics'),
         child: ShaderMask(
             key: const ValueKey('music-card-lyrics-fade'),
@@ -178,7 +187,7 @@ class _MusicCard extends StatelessWidget {
             child: LyricsView(
                 media: media,
                 visibleLines: lines,
-                lineHeight: lineHeight,
+                lineHeight: lyricRowHeight,
                 fontSize: fontSize,
                 textAlign: TextAlign.center)));
 
@@ -204,9 +213,8 @@ class _MusicCard extends StatelessWidget {
           ]),
           SizedBox(height: Design.px(6)),
           Expanded(child: LayoutBuilder(builder: (context, constraints) {
-            final lines =
-                (constraints.maxHeight / Design.px(35)).floor().clamp(1, 21);
-            return lyricsView(lines, 35, card.h >= 6 ? 24 : 21);
+            return lyricsView(
+                lyricLines(constraints.maxHeight, 21), lyricFontSize);
           })),
           SizedBox(height: Design.px(6)),
           spectrum,
@@ -232,11 +240,8 @@ class _MusicCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                 Expanded(child: LayoutBuilder(builder: (context, constraints) {
-                  var lines = (constraints.maxHeight / Design.px(35))
-                      .floor()
-                      .clamp(1, 11);
-                  if (lines > 1 && lines.isEven) lines--;
-                  return lyricsView(lines, 35, 20);
+                  return lyricsView(
+                      lyricLines(constraints.maxHeight, 11), lyricFontSize);
                 })),
                 SizedBox(height: Design.px(6)),
                 spectrum,
@@ -284,7 +289,7 @@ class _MusicCard extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Expanded(child: lyricsView(7, 48, 28)),
+                  Expanded(child: lyricsView(7, lyricFontSize)),
                   SizedBox(height: Design.px(12)),
                   spectrum,
                 ])),
