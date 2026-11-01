@@ -59,9 +59,24 @@ class _AboutPanelState extends State<AboutPanel> {
                 SwitchListTile(
                     contentPadding: EdgeInsets.zero,
                     title: const Text('自动检查更新'),
-                    subtitle: const Text('后台每 5 分钟检查一次'),
+                    subtitle: const Text('桌面启动时会静默检查一次'),
                     value: u.enabled,
                     onChanged: u.setEnabled),
+                if (u.enabled)
+                  Row(children: [
+                    const Text('检查周期'),
+                    SizedBox(width: Design.px(20)),
+                    DropdownButton<int>(
+                      value: u.intervalMinutes,
+                      items: const [
+                        DropdownMenuItem(value: 30, child: Text('30分钟')),
+                        DropdownMenuItem(value: 120, child: Text('2小时')),
+                        DropdownMenuItem(value: 720, child: Text('半天')),
+                        DropdownMenuItem(value: 1440, child: Text('1天')),
+                      ],
+                      onChanged: (value) { if (value != null) u.setInterval(value); },
+                    ),
+                  ]),
                 if (u.lastChecked != null)
                   Align(
                       alignment: Alignment.centerLeft,

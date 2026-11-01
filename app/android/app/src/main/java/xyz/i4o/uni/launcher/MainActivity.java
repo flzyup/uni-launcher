@@ -29,6 +29,10 @@ import xyz.i4o.uni.launcher.platform.LiveNavigationHost;
 /** Home window and Flutter bridge; shared integrations live in LauncherRuntime. */
 public final class MainActivity extends FlutterActivity {
     private static java.lang.ref.WeakReference<MainActivity> active=new java.lang.ref.WeakReference<>(null);
+    public static void requestBootUpdateCheck(){
+        MainActivity a=active.get();
+        if(a!=null)a.runOnUiThread(()->{if(a.otaEvents!=null)a.otaEvents.invokeMethod("boot-check",null);});
+    }
     public static void refreshNavigationChrome(boolean systemNavHidden){
         MainActivity a=active.get();
         if(a!=null)a.runOnUiThread(()->{
@@ -52,8 +56,26 @@ public final class MainActivity extends FlutterActivity {
     private EventChannel.EventSink sink;
     private EventChannel events;
     private MethodChannel channel;
+    private MethodChannel otaEvents;
     private MethodChannel.Result wallpaperResult;
     private static final int PICK_WALLPAPER=4206;
+
+    /** Called by the new version on startup, after Android has finished install. */
+    private void cleanupInstalledOta(File dir){
+        File apk=new File(dir,"update.apk");
+        if(!apk.isFile())return;
+        try{
+            android.content.pm.PackageInfo installed=getPackageManager().getPackageInfo(getPackageName(),PackageManager.GET_SIGNATURES);
+            android.content.pm.PackageInfo cached=getPackageManager().getPackageArchiveInfo(apk.getAbsolutePath(),PackageManager.GET_SIGNATURES);
+            if(cached!=null&&getPackageName().equals(cached.packageName)
+                &&cached.versionCode<=installed.versionCode&&cached.signatures!=null&&installed.signatures!=null
+                &&java.util.Arrays.equals(cached.signatures,installed.signatures)){
+                if(!apk.delete())android.util.Log.w("UniOta","Unable to remove installed update cache");
+            }
+        }catch(RuntimeException|PackageManager.NameNotFoundException e){
+            android.util.Log.w("UniOta","Unable to inspect update cache",e);
+        }
+    }
 
     @Override public FlutterEngine provideFlutterEngine(android.content.Context context){
         return LauncherEngines.create(context,"main",true);
@@ -77,6 +99,7 @@ public final class MainActivity extends FlutterActivity {
         if(rt==null)rt=LauncherRuntime.get(this);
         mapHost=new LiveNavigationHost(this,engine.getDartExecutor().getBinaryMessenger(),engine.getRenderer());
         channel=new MethodChannel(engine.getDartExecutor().getBinaryMessenger(),"xyz.i4o.uni.launcher/platform");
+        otaEvents=new MethodChannel(engine.getDartExecutor().getBinaryMessenger(),"xyz.i4o.uni.launcher/ota-events");
         channel.setMethodCallHandler((call,result)->{
             try{
                 if("snapshot".equals(call.method)){
@@ -88,10 +111,12 @@ public final class MainActivity extends FlutterActivity {
                 else if("otaInfo".equals(call.method)){
                     android.content.pm.PackageInfo info=getPackageManager().getPackageInfo(getPackageName(),0);
                     File dir=new File(getFilesDir(),"ota"); if(!dir.isDirectory()&&!dir.mkdirs()) throw new IllegalStateException("ota directory");
-                    Map<String,Object> data=new HashMap<>();data.put("versionName",info.versionName);data.put("versionCode",(long)info.versionCode);data.put("sdk",android.os.Build.VERSION.SDK_INT);data.put("abis",java.util.Arrays.asList(android.os.Build.SUPPORTED_ABIS));data.put("directory",dir.getAbsolutePath());data.put("enabled",getPreferences(0).getBoolean("otaEnabled",true));data.put("dismissedVersion",getPreferences(0).getInt("otaDismissedVersion",0));data.put("dismissedAt",getPreferences(0).getLong("otaDismissedAt",0));result.success(data);
+                    cleanupInstalledOta(dir);
+                    Map<String,Object> data=new HashMap<>();data.put("versionName",info.versionName);data.put("versionCode",(long)info.versionCode);data.put("sdk",android.os.Build.VERSION.SDK_INT);data.put("abis",java.util.Arrays.asList(android.os.Build.SUPPORTED_ABIS));data.put("directory",dir.getAbsolutePath());data.put("enabled",getPreferences(0).getBoolean("otaEnabledV2",false));data.put("intervalMinutes",getPreferences(0).getInt("otaIntervalMinutes",30));data.put("dismissedVersion",getPreferences(0).getInt("otaDismissedVersion",0));data.put("dismissedAt",getPreferences(0).getLong("otaDismissedAt",0));result.success(data);
                 }
                 else if("otaDismiss".equals(call.method)){if(call.arguments instanceof Number)getPreferences(0).edit().putInt("otaDismissedVersion",((Number)call.arguments).intValue()).putLong("otaDismissedAt",System.currentTimeMillis()).apply();result.success(null);}
-                else if("otaEnabled".equals(call.method)){getPreferences(0).edit().putBoolean("otaEnabled",Boolean.TRUE.equals(call.arguments)).apply();result.success(null);}
+                else if("otaEnabled".equals(call.method)){getPreferences(0).edit().putBoolean("otaEnabledV2",Boolean.TRUE.equals(call.arguments)).apply();result.success(null);}
+                else if("otaInterval".equals(call.method)){int minutes=call.arguments instanceof Number?((Number)call.arguments).intValue():30;if(minutes!=30&&minutes!=120&&minutes!=720&&minutes!=1440)throw new IllegalArgumentException("Invalid interval");getPreferences(0).edit().putInt("otaIntervalMinutes",minutes).apply();result.success(null);}
                 else if("otaCanInstall".equals(call.method)){result.success(android.os.Build.VERSION.SDK_INT<26||getPackageManager().canRequestPackageInstalls());}
                 else if("otaInstall".equals(call.method)){
                     File f=new File(new File(getFilesDir(),"ota"),"update.apk");
@@ -107,10 +132,9 @@ public final class MainActivity extends FlutterActivity {
                 else if("saveDesign".equals(call.method))result.success(rt.saveDesign((String)call.arguments));
                 else if("pickWallpaper".equals(call.method)){
                     if(wallpaperResult!=null){result.error("busy","图片选择器已打开",null);return;}
+                    Intent pick=new Intent(this,WallpaperPickerActivity.class);
                     wallpaperResult=result;
-                    Intent pick=new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE)
-                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION|Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
-                    startActivityForResult(pick,PICK_WALLPAPER);
+                    try{startActivityForResult(pick,PICK_WALLPAPER);}catch(RuntimeException e){wallpaperResult=null;throw e;}
                 }
                 else if("desktopPage".equals(call.method)){
                     int page=call.arguments instanceof Number?((Number)call.arguments).intValue():0;
@@ -309,6 +333,7 @@ public final class MainActivity extends FlutterActivity {
     @Override protected void onResume(){
         LauncherVisibility.set(true);
         super.onResume();if(chrome!=null)chrome.apply();
+        OtaBootReceiver.scheduleLauncherBroadcasts(this);
         GlobalDockService.ensureStarted(this);publish();
     }
 
@@ -334,14 +359,16 @@ public final class MainActivity extends FlutterActivity {
         if(requestCode!=PICK_WALLPAPER)return;
         MethodChannel.Result pending=wallpaperResult;wallpaperResult=null;
         if(pending==null)return;
-        if(resultCode!=Activity.RESULT_OK||data==null||data.getData()==null){pending.success(null);return;}
-        final Uri uri=data.getData();
+        if(resultCode!=Activity.RESULT_OK||data==null){pending.success(null);return;}
+        String path=data.getStringExtra("wallpaperPath");
+        final Uri uri=path==null?data.getData():Uri.fromFile(new File(path));
+        if(uri==null){pending.success(null);return;}
         // 解码/缩放/压缩/亮度全部移出主线程，避免大图导入阻塞第一帧或界面。
         new Thread(()->{
             try{
                 Map<String,Object> result=importWallpaper(uri);
                 runOnUiThread(()->{try{pending.success(result);}catch(Exception ignored){}});
-            }catch(Exception e){
+            }catch(Exception|OutOfMemoryError e){
                 android.util.Log.w("UniWallpaper","Image import failed",e);
                 runOnUiThread(()->{try{pending.error("invalid-image","无法读取这张图片",null);}catch(Exception ignored){}});
             }
@@ -432,6 +459,7 @@ public final class MainActivity extends FlutterActivity {
         if(spectrumBridge!=null){spectrumBridge.close();spectrumBridge=null;}
         if(ambientBridge!=null){ambientBridge.close();ambientBridge=null;}
         if(channel!=null)channel.setMethodCallHandler(null);
+        otaEvents=null;
         if(events!=null)events.setStreamHandler(null);
         sink=null;if(active.get()==this)active.clear();
         super.onDestroy();

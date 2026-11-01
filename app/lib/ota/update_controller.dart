@@ -12,6 +12,10 @@ const otaHttpHosts = String.fromEnvironment('UNI_OTA_HTTP_DOWNLOAD_HOSTS');
 const otaPlatform =
     String.fromEnvironment('UNI_OTA_PLATFORM', defaultValue: 'unknown');
 const _bridge = MethodChannel('xyz.i4o.uni.launcher/platform');
+const _otaEvents = MethodChannel('xyz.i4o.uni.launcher/ota-events');
+const _maxUpdateBytes = 512 * 1024 * 1024;
+const _partialMaxAge = Duration(days: 7);
+const _completedMaxAge = Duration(days: 30);
 const defaultContributors = ['卢AI玩', 'Felix', '十一', 'ChainStrong'];
 
 @visibleForTesting
@@ -32,7 +36,10 @@ class UpdateController extends ChangeNotifier with WidgetsBindingObserver {
   List<String> contributors = List.of(defaultContributors);
   String state = 'idle', error = '';
   double progress = 0;
-  bool enabled = true, cancelled = false, foreground = true, dialogOpen = false;
+  bool enabled = false, cancelled = false, foreground = true, dialogOpen = false;
+  int intervalMinutes = 30;
+  bool _ready = false, _bootRequested = false, _startupChecked = false;
+  bool _silentResult = false;
   DateTime? lastChecked, dismissedAt, lastAttempt, lastContributorsRefresh;
   bool _disposed = false;
   int? dismissedVersion;
@@ -54,11 +61,21 @@ class UpdateController extends ChangeNotifier with WidgetsBindingObserver {
       _base.resolve(path).replace(queryParameters: q);
   Future<void> initialize() async {
     WidgetsBinding.instance.addObserver(this);
+    _otaEvents.setMethodCallHandler((call) async {
+      if (call.method == 'boot-check') {
+        _bootRequested = true;
+        if (_ready) _startupCheck();
+      }
+    });
     try {
       info = Map<String, dynamic>.from(
           await _bridge.invokeMapMethod<String, dynamic>('otaInfo') ?? {});
       if (_disposed) return;
-      enabled = info['enabled'] != false;
+      await _pruneStalePartial();
+      enabled = info['enabled'] == true;
+      final savedInterval = (info['intervalMinutes'] as num?)?.toInt();
+      intervalMinutes = const [30, 120, 720, 1440].contains(savedInterval)
+          ? savedInterval! : 30;
       final dismissedMs = (info['dismissedAt'] as num?)?.toInt() ?? 0;
       dismissedVersion = (info['dismissedVersion'] as num?)?.toInt();
       if (dismissedMs > 0)
@@ -72,17 +89,31 @@ class UpdateController extends ChangeNotifier with WidgetsBindingObserver {
       } catch (_) {/* Keep bundled contributors on corrupt cache. */}
       if (_disposed) return;
       notifyListeners();
-      timer = Timer.periodic(const Duration(minutes: 5), (_) {
-        if (enabled) check();
-      });
-      if (enabled)
-        startupTimer = Timer(const Duration(seconds: 30), () {
-          if (enabled) check();
-        });
+      _ready = true;
+      _schedulePeriodic();
+      if (_bootRequested) {
+        _startupCheck();
+      } else {
+        startupTimer = Timer(const Duration(seconds: 30), _startupCheck);
+      }
     } catch (_) {
       error = '无法读取应用版本';
       notifyListeners();
     }
+  }
+
+  void _startupCheck() {
+    if (_disposed || !_ready || _startupChecked) return;
+    _startupChecked = true;
+    startupTimer?.cancel();
+    check(silent: true);
+  }
+
+  void _schedulePeriodic() {
+    timer?.cancel();
+    timer = enabled ? Timer.periodic(Duration(minutes: intervalMinutes), (_) {
+      check();
+    }) : null;
   }
 
   bool get _mayPrompt {
@@ -106,13 +137,8 @@ class UpdateController extends ChangeNotifier with WidgetsBindingObserver {
     foreground =
         s == AppLifecycleState.resumed || s == AppLifecycleState.inactive;
     if (foreground && state == 'permission') _resumeInstallIfAllowed();
-    if (foreground && state == 'found' && !dialogOpen && _mayPrompt)
+    if (foreground && state == 'found' && !_silentResult && !dialogOpen && _mayPrompt)
       onAvailable?.call();
-    if (foreground &&
-        enabled &&
-        (lastAttempt == null ||
-            DateTime.now().difference(lastAttempt!) >=
-                const Duration(minutes: 5))) check();
   }
 
   Future<void> _resumeInstallIfAllowed() async {
@@ -129,8 +155,17 @@ class UpdateController extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> setEnabled(bool v) async {
     enabled = v;
+    _schedulePeriodic();
     notifyListeners();
     await _bridge.invokeMethod<void>('otaEnabled', v);
+  }
+
+  Future<void> setInterval(int minutes) async {
+    if (!const [30, 120, 720, 1440].contains(minutes)) return;
+    intervalMinutes = minutes;
+    _schedulePeriodic();
+    notifyListeners();
+    await _bridge.invokeMethod<void>('otaInterval', minutes);
   }
 
   Future<Map<String, dynamic>> _get(Uri uri) async {
@@ -155,12 +190,13 @@ class UpdateController extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  Future<void> check({bool manual = false}) async {
+  Future<void> check({bool manual = false, bool silent = false}) async {
     if (_disposed ||
         _checking ||
         state == 'downloading' ||
         state == 'verifying') return;
     _checking = true;
+    _silentResult = silent;
     lastAttempt = DateTime.now();
     if (manual) {
       state = 'checking';
@@ -188,12 +224,12 @@ class UpdateController extends ChangeNotifier with WidgetsBindingObserver {
             (a['abi'] != 'universal' &&
                 !(info['abis'] as List).contains(a['abi'])) ||
             size <= 0 ||
-            size > 512 * 1024 * 1024 ||
+            size > _maxUpdateBytes ||
             !RegExp(r'^[a-fA-F0-9]{64}$').hasMatch('${a['sha256']}'))
           throw const FormatException('更新信息无效');
         release = r;
         state = 'found';
-        if (!_disposed && !manual && foreground && !dialogOpen && _mayPrompt)
+        if (!_disposed && !manual && !silent && foreground && !dialogOpen && _mayPrompt)
           onAvailable?.call();
       } else {
         release = null;
@@ -258,7 +294,36 @@ class UpdateController extends ChangeNotifier with WidgetsBindingObserver {
           .catchError((Object _) {});
   }
 
+  Future<void> _pruneStalePartial() async {
+    final dir = info['directory'];
+    if (dir is! String || dir.isEmpty) return;
+    final partial = File('$dir/update.part');
+    final identity = File('$dir/update.identity');
+    final target = File('$dir/update.apk');
+    try {
+      if (await target.exists() &&
+          (await target.length() > _maxUpdateBytes ||
+              DateTime.now().difference(await target.lastModified()) >
+                  _completedMaxAge)) {
+        await target.delete();
+      }
+      if (!await partial.exists()) {
+        if (await identity.exists()) await identity.delete();
+      } else if (await target.exists() ||
+          !await identity.exists() ||
+          await partial.length() > _maxUpdateBytes ||
+          DateTime.now().difference(await partial.lastModified()) >
+              _partialMaxAge) {
+        await partial.delete();
+        if (await identity.exists()) await identity.delete();
+      }
+    } on FileSystemException {
+      // Retry cleanup on the next launch or download.
+    }
+  }
+
   Future<void> download({bool refreshed = false}) async {
+    if (state == 'downloading' || state == 'verifying') return;
     final r = release;
     if (r == null) return;
     cancelled = false;
@@ -268,6 +333,37 @@ class UpdateController extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
     try {
       final a = Map<String, dynamic>.from(r['artifact'] as Map);
+      final expected = '${a['sha256']}'.toLowerCase(),
+          size = (a['size_bytes'] as num).toInt();
+      if (size <= 0 ||
+          size > _maxUpdateBytes ||
+          !RegExp(r'^[a-f0-9]{64}$').hasMatch(expected)) {
+        throw const FormatException('更新信息无效');
+      }
+      final dir = Directory('${info['directory']}');
+      await dir.create(recursive: true);
+      final partial = File('${dir.path}/update.part'),
+          identity = File('${dir.path}/update.identity'),
+          target = File('${dir.path}/update.apk');
+      if (await target.exists()) {
+        state = 'verifying';
+        notifyListeners();
+        final valid = await target.length() == size &&
+            (await sha256.bind(target.openRead()).first).toString() == expected;
+        if (cancelled) throw StateError('cancelled');
+        if (valid) {
+          if (await partial.exists()) await partial.delete();
+          if (await identity.exists()) await identity.delete();
+          progress = 1;
+          state = 'install';
+          notifyListeners();
+          await install();
+          return;
+        }
+        await target.delete();
+        state = 'downloading';
+        notifyListeners();
+      }
       final uri = Uri.parse('${a['url']}');
       final allowed = hostsForTesting ??
           otaHosts
@@ -284,12 +380,6 @@ class UpdateController extends ChangeNotifier with WidgetsBindingObserver {
               .toSet();
       if (!isTrustedDownload(uri, allowed, httpAllowed))
         throw const FormatException('下载地址不受信任');
-      final expected = '${a['sha256']}'.toLowerCase(),
-          size = (a['size_bytes'] as num).toInt();
-      final dir = Directory('${info['directory']}');
-      await dir.create(recursive: true);
-      final partial = File('${dir.path}/update.part'),
-          identity = File('${dir.path}/update.identity');
       if (!await identity.exists() ||
           await identity.readAsString() != '$expected:$size') {
         if (await partial.exists()) await partial.delete();
@@ -361,7 +451,6 @@ class UpdateController extends ChangeNotifier with WidgetsBindingObserver {
         await partial.delete();
         throw const FormatException('安装包校验失败');
       }
-      final target = File('${dir.path}/update.apk');
       if (await target.exists()) await target.delete();
       await partial.rename(target.path);
       if (await identity.exists()) await identity.delete();
@@ -421,6 +510,7 @@ class UpdateController extends ChangeNotifier with WidgetsBindingObserver {
     _disposed = true;
     timer?.cancel();
     startupTimer?.cancel();
+    _otaEvents.setMethodCallHandler(null);
     _downloadClient?.close(force: true);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();

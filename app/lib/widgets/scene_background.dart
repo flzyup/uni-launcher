@@ -66,17 +66,13 @@ class SceneBackground extends StatelessWidget {
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
               stops: const [0, .63, 1],
-              colors: s.dark
-                  ? const [
-                      Color(0x590A151C),
-                      Color(0x331D3038),
-                      Color(0x420E2029)
-                    ]
-                  : const [
-                      Color(0x29E1ECE7),
-                      Color(0x24D4E1E0),
-                      Color(0x2DE9EEF0)
-                    ])));
+              colors: [
+                Color.lerp(s.background, s.seed, s.dark ? .42 : .32)!
+                    .withValues(alpha: s.dark ? .52 : .38),
+                s.background.withValues(alpha: s.dark ? .25 : .18),
+                Color.lerp(s.background, s.seed, s.dark ? .28 : .22)!
+                    .withValues(alpha: s.dark ? .42 : .30),
+              ])));
 
   Widget _classicBackdrop(SurfaceStyle s, bool hasWallpaper) => DecoratedBox(
       decoration: BoxDecoration(
