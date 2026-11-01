@@ -128,9 +128,13 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
       Theme.of(c).extension<SurfaceStyle>()!;
 
   /// Nocturne keeps a fixed dark canvas: the skin is built around #050607 and
-  /// has no light variant, so `mode` is intentionally ignored here. The card
-  /// radius is the design's 34 canvas units; the settings slider can still
-  /// override it, and its untouched default (0) means "use the design value".
+  /// has no light variant, so `mode` is intentionally ignored here.
+  ///
+  /// The radius is taken from the settings slider verbatim — one unit on the
+  /// slider is one design unit on screen, so 0 really means square corners.
+  /// The design's 34 is only a starting value, written by the theme picker and
+  /// the preview entry point when they switch a profile to Nocturne; mapping
+  /// 0 → 34 here would make the left end of the slider a dead zone.
   factory SurfaceStyle._nocturne(Appearance a) {
     final accent = a.accent(true);
     return SurfaceStyle(
@@ -138,7 +142,7 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
         dark: true,
         glass: a.glass,
         spectrumStyle: a.spectrumStyle,
-        radius: Design.dz(a.radius == 0 ? 34 : a.radius),
+        radius: Design.dz(a.radius),
         accent: accent,
         accentText: Color.lerp(accent, Colors.black, .84)!,
         seed: a.seed(),

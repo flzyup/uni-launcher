@@ -119,9 +119,14 @@ class GlassSurface extends StatelessWidget {
   /// for the 820A GPU — no backdrop-filter, no floating lights).
   Widget _nocturne(SurfaceStyle s, BorderRadius shape) {
     if (flat) {
-      return Material(
-          type: MaterialType.transparency,
-          child: Padding(padding: padding, child: child));
+      // 不画表面，但**仍然裁剪**：底栏音乐块的播放进度是直接 fillRect 的
+      // 直角矩形，少了这层 ClipRRect 就会在胶囊里亮出一个方框（用户反馈
+      // 「音乐外面那个框」）。其他主题靠外层统一裁剪，暗夜不能例外。
+      return ClipRRect(
+          borderRadius: shape,
+          child: Material(
+              type: MaterialType.transparency,
+              child: Padding(padding: padding, child: child)));
     }
     final isCard = !dock && !sheet;
     // 卡片和浮层面板共用同一套玻璃，区别只有两处：面板背后是内容而不是
