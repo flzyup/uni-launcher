@@ -128,7 +128,7 @@ def verify(global_on, hidden):
             raise AssertionError('inline desktop did not use correct height: ' + str(s))
         run('exec-out','screencap','-p','/sdcard/uni-inline-dock.png')
     policy = shell('settings','get','global','policy_control')
-    if hidden != ('immersive.full=*,-com.ecarx.parking' in policy):
+    if hidden != ('immersive.full=*,-com.ecarx.parking,-com.android.packageinstaller' in policy):
         raise AssertionError('unexpected policy: ' + policy)
     print(f'PASS global={global_on} system_hidden={hidden} nav={nav} viewport={s["viewportHeightPx"]} dock_y={dock.get("y")}', flush=True)
 

@@ -42,18 +42,24 @@ public final class SystemNavigationPolicy {
         if(value==null)return null;
         StringBuilder result=new StringBuilder();
         for(String part:value.split(":")){
-            if(part.isEmpty()||"immersive.full=*,-com.ecarx.parking".equals(part))continue;
+            if(part.isEmpty()||"immersive.full=*,-com.ecarx.parking".equals(part)
+                ||"immersive.status=*,-com.ecarx.parking".equals(part)
+                ||OWNED_RULE.equals(part))continue;
             if(result.length()>0)result.append(':');result.append(part);
         }
         return result.length()==0?null:result.toString();
     }
+    private static final String OWNED_RULE="immersive.full=*,-com.ecarx.parking,-com.android.packageinstaller";
     private static String merge(String current){
         StringBuilder result=new StringBuilder();
-        // XCSystemUI's CarNavigationBar only reacts to immersive.full;
-        // immersive.navigation clears the inset but keeps drawing the bar.
+        // Keep the OEM navigation bar fully hidden: some builds (IP744) still
+        // surface it when only the status policy is hidden. Exempt the package
+        // installer so its confirmation controls keep the real bottom inset and
+        // remain above the UNI dock.
         if(current!=null)for(String part:current.split(":"))if(!part.isEmpty()&&!part.startsWith("immersive.")){
             if(result.length()>0)result.append(':');result.append(part);
         }
-        if(result.length()>0)result.append(':');return result.append("immersive.full=*,-com.ecarx.parking").toString();
+        if(result.length()>0)result.append(':');
+        return result.append(OWNED_RULE).toString();
     }
 }

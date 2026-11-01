@@ -100,7 +100,7 @@ try:
     options()
     switch('隐藏系统原有导航栏', True)
     native=state().get('nativeNavigationInsets')
-    expected='immersive.full=*,-com.ecarx.parking'
+    expected='immersive.full=*,-com.ecarx.parking,-com.android.packageinstaller'
     check('system navigation rule excludes OEM camera', expected in sh('settings', 'get', 'global', 'policy_control'))
     shot('release-global-settings.png')
     sh('am', 'start', '-a', 'android.settings.SETTINGS')
