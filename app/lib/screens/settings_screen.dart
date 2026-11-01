@@ -241,16 +241,15 @@ class AppearanceSettings extends StatelessWidget {
                         title: '主题样式',
                         note: '材质与控件外观',
                         child: Row(children: [
-                          for (final style in [
+                          for (final (index, style) in [
                             ('blueGlass', '深蓝玻璃'),
+                            ('nocturne', '暗夜'),
                             ('classic', '经典')
-                          ])
+                          ].indexed)
                             Expanded(
                                 child: Padding(
                                     padding: EdgeInsets.only(
-                                        right: style.$1 == 'blueGlass'
-                                            ? Design.px(14)
-                                            : 0),
+                                        right: index < 2 ? Design.px(14) : 0),
                                     child: OutlinedButton(
                                         key:
                                             ValueKey('theme-style-${style.$1}'),
@@ -268,14 +267,24 @@ class AppearanceSettings extends StatelessWidget {
                                                     : s.soft,
                                             side: s.controlSide(
                                                 a.themeStyle == style.$1)),
-                                        onPressed: () => c.setAppearance(a.copyWith(themeStyle: style.$1)),
+                                        // 暗夜默认圆角取 Nocturne.defaultRadius；
+                                        // 用户已经调过就保留。
+                                        onPressed: () => c.setAppearance(a.copyWith(
+                                            themeStyle: style.$1,
+                                            radius:
+                                                style.$1 == 'nocturne' &&
+                                                        a.radius == 0
+                                                    ? Nocturne.defaultRadius
+                                                    : a.radius)),
                                         child: Text(style.$2))))
                         ])),
                     SizedBox(height: Design.px(16)),
                     SettingBlock(
                         compact: box.maxHeight < Design.px(650),
                         title: '主题风格',
-                        note: '智能调色会匹配壁纸明暗',
+                        note: a.themeStyle == 'nocturne'
+                            ? '暗夜固定深色，不跟随明暗'
+                            : '智能调色会匹配壁纸明暗',
                         child: Row(children: [
                           for (final mode in [
                             ('smart', Icons.auto_awesome_outlined, '智能调色'),

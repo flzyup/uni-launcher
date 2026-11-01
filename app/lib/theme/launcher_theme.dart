@@ -3,8 +3,53 @@ import '../model/appearance.dart';
 import 'design_tokens.dart';
 import 'technical_frame.dart';
 
+/// Nocturne (暗夜) palette, copied 1:1 from `design/desktop-lynk05.html`.
+///
+/// The skin's identity is "one colour per card": every card owns a single hue
+/// that lives only in its bottom glow, so six hues can coexist on one desktop
+/// without fighting the selected accent colour.
+abstract final class Nocturne {
+  static const mint = Color(0xFF3BE2C0);
+  static const blue = Color(0xFF4E8CF8);
+  static const violet = Color(0xFF8E6CFF);
+  static const pink = Color(0xFFFF5FA8);
+  static const amber = Color(0xFFFFB057);
+  static const cyan = Color(0xFF6FD3FF);
+
+  /// Canvas behind everything: near-black, never pure #000, so the 80 px grid
+  /// and the card shadows still read.
+  static const background = Color(0xFF050607);
+
+  /// 切到暗夜时写进「圆角」的初始值。设计稿是 34，按实机观感收到 25：
+  /// 34 在 1600 画布上是 1:1 单位，比经典主题的换算值大一圈。
+  static const defaultRadius = 25.0;
+
+  /// Alpha is tuned per card type, not shared: a 4x2 card needs more glow than
+  /// an 8x6 one to read as the same intensity (measured on the design canvas).
+  static const _glow = <String, Color>{
+    'nav': Color(0x4D3BE2C0),
+    'trafficLight': Color(0x473BE2C0),
+    'music': Color(0x4DFF5FA8),
+    'shortcuts': Color(0x428E6CFF),
+    'weather': Color(0x526FD3FF),
+    'air': Color(0x576FD3FF),
+    'cleanup': Color(0x476FD3FF),
+    'battery': Color(0x573BE2C0),
+    'tpms': Color(0x574E8CF8),
+    'body': Color(0x574E8CF8),
+    'clock': Color(0x578E6CFF),
+    'clockWeather': Color(0x4D8E6CFF),
+    'calendar': Color(0x478E6CFF),
+    'vehicle': Color(0x52FFB057),
+    'ride': Color(0x4DFFB057),
+    'member': Color(0x42FF5FA8),
+  };
+
+  static Color glowOf(String type) => _glow[type] ?? const Color(0x4D3BE2C0);
+}
+
 class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
-  final bool dark, glass, technicalFrame;
+  final bool dark, glass, technicalFrame, nocturne;
   final double radius;
   final String spectrumStyle;
   final Color accent,
@@ -21,6 +66,7 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
   const SurfaceStyle(
       {required this.dark,
       this.technicalFrame = false,
+      this.nocturne = false,
       this.spectrumStyle = 'bars',
       required this.glass,
       required this.radius,
@@ -37,6 +83,7 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
       required this.shadow});
   factory SurfaceStyle.from(Appearance a, bool systemDark,
       {bool adaptToWallpaper = false}) {
+    if (a.themeStyle == 'nocturne') return SurfaceStyle._nocturne(a);
     final dark = adaptToWallpaper && a.mode == 'smart'
         ? a.backgroundIsDark(systemDark)
         : a.isDark(systemDark);
@@ -62,6 +109,7 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
           edge: dark ? const Color(0xFF31475E) : const Color(0xFFCAD6E4),
           shadow: dark ? const Color(0x18000000) : const Color(0x0C263E58));
     }
+    if (a.themeStyle == 'nocturne') return SurfaceStyle._nocturne(a);
     return SurfaceStyle(
         dark: dark,
         spectrumStyle: a.spectrumStyle,
@@ -82,14 +130,66 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
   }
   static SurfaceStyle of(BuildContext c) =>
       Theme.of(c).extension<SurfaceStyle>()!;
-  bool get liveBlur => glass && !technicalFrame;
+
+  /// Nocturne keeps a fixed dark canvas: the skin is built around #050607 and
+  /// has no light variant, so `mode` is intentionally ignored here.
+  ///
+  /// The radius is taken from the settings slider verbatim — one unit on the
+  /// slider is one design unit on screen, so 0 really means square corners.
+  /// [Nocturne.defaultRadius] is only a starting value, written by the theme
+  /// picker and the preview entry point when they switch a profile to
+  /// Nocturne; mapping 0 → 25 here would make the left end of the slider a
+  /// dead zone.
+  factory SurfaceStyle._nocturne(Appearance a) {
+    final accent = a.accent(true);
+    return SurfaceStyle(
+        nocturne: true,
+        dark: true,
+        glass: a.glass,
+        spectrumStyle: a.spectrumStyle,
+        radius: Design.dz(a.radius),
+        accent: accent,
+        accentText: Color.lerp(accent, Colors.black, .84)!,
+        seed: a.seed(),
+        text: const Color(0xFFEFF4F6),
+        muted: const Color(0x8CE9F1F5),
+        disabled: const Color(0x5E676B70),
+        surface: const Color(0x14FFFFFF),
+        strong: const Color(0xFF131619),
+        soft: const Color(0x0FFFFFFF),
+        edge: const Color(0x16FFFFFF),
+        shadow: const Color(0xE6000000));
+  }
+
+  /// 820A 上逐帧离屏高斯会直接吃掉帧预算，暗夜按设计稿只用静态色阶，
+  /// 不开实时模糊（设计稿 820A Budget 一节）。
+  bool get liveBlur => glass && !technicalFrame && !nocturne;
   double get controlRadius =>
       technicalFrame ? (radius * .5).clamp(0, Design.px(16)) : radius * .64;
   Color get corner => dark ? const Color(0xFF829AB2) : const Color(0xFF738DA8);
-  Color get dock => dark ? const Color(0xFF0C1929) : const Color(0xFFF5F8FC);
-  Color get background => technicalFrame
-      ? (dark ? const Color(0xFF07111F) : const Color(0xFFE8EEF5))
-      : (dark ? const Color(0xFF0E1920) : const Color(0xFFE1ECE7));
+  Color get dock => nocturne
+      ? const Color(0xFF0B0D0E)
+      : (dark ? const Color(0xFF0C1929) : const Color(0xFFF5F8FC));
+  Color get background => nocturne
+      ? Nocturne.background
+      : technicalFrame
+          ? (dark ? const Color(0xFF07111F) : const Color(0xFFE8EEF5))
+          : (dark ? const Color(0xFF0E1920) : const Color(0xFFE1ECE7));
+
+  /// Bottom glow tint for a card type. Only meaningful when [nocturne] is on;
+  /// other styles keep one accent for the whole desktop.
+  Color? cardGlow(String type) => nocturne ? Nocturne.glowOf(type) : null;
+
+  /// 不透明底板，只为「把卡片快照重新合成一次」而存在（拖动浮层把卡片
+  /// `RepaintBoundary.toImage()` 后画在画布之上）。
+  ///
+  /// 快照本身几乎是透明的：卡面就是一层 8% 白叠在画布上，离屏渲染时不带
+  /// 画布。经典主题的 `surface` 本身够实，直接抬到 alpha 1 就行；暗夜的
+  /// `0x14FFFFFF` 一旦抬到 alpha 1 就是**纯白**，于是整张浮起来的卡片变成
+  /// 一块白门板，内容全被冲淡。暗夜必须用画布色兜底。
+  Color get snapshotBase =>
+      nocturne ? background : surface.withValues(alpha: 1);
+
   BorderSide controlSide(bool selected) => BorderSide(
       color: selected
           ? (technicalFrame ? Color.lerp(edge, accent, .24)! : accent)
@@ -138,6 +238,7 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
       other.dark == dark &&
       other.glass == glass &&
       other.technicalFrame == technicalFrame &&
+      other.nocturne == nocturne &&
       other.radius == radius &&
       other.spectrumStyle == spectrumStyle &&
       other.accent == accent &&
@@ -152,7 +253,7 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
       other.edge == edge &&
       other.shadow == shadow;
   @override
-  int get hashCode => Object.hash(dark, glass, technicalFrame, radius,
+  int get hashCode => Object.hash(dark, glass, technicalFrame, nocturne, radius,
       spectrumStyle, accent, accentText, seed, text, muted, disabled, surface,
       strong, soft, edge, shadow);
 }

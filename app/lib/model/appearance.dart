@@ -42,7 +42,7 @@ const wallpaperPresets = <WallpaperPreset>[
 ];
 
 class Appearance {
-  static const themeStyles = ['classic', 'blueGlass'];
+  static const themeStyles = ['classic', 'blueGlass', 'nocturne'];
   static const spectrumStyles = ['bars', 'segments', 'mirror', 'outline'];
   static const dockSizes = ['small', 'medium', 'large'];
   static const defaultDesktopName = 'LYNK & CO / 05';
@@ -189,8 +189,11 @@ class Appearance {
 
   bool get usesBackdropBlur => glass && themeStyle != 'blueGlass';
 
+  /// 暗夜是纯深色体系，不跟随明暗与壁纸亮度；否则浅色壁纸会把卡片拉成亮面。
   bool isDark(bool systemDark) =>
-      mode == 'dark' || ({'smart', 'system'}.contains(mode) && systemDark);
+      themeStyle == 'nocturne' ||
+      mode == 'dark' ||
+      ({'smart', 'system'}.contains(mode) && systemDark);
   bool backgroundIsDark(bool systemDark) {
     if (wallpaper == 'gradient') return isDark(systemDark);
     if (wallpaper == 'custom') {
