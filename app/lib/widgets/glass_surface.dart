@@ -1,4 +1,4 @@
-import 'dart:ui';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import '../theme/launcher_theme.dart';
 import '../theme/design_tokens.dart';
@@ -14,10 +14,17 @@ class GlassSurface extends StatelessWidget {
   final SurfaceTone tone;
   final Color? borderColor;
 
-  /// 暗夜卡片底部光晕色（一卡一色）。零滤镜的径向渐变，外溢用 box-shadow。
+  /// Nocturne only: bottom glow tint owned by the card type. Leave null for
+  /// dialogs and settings blocks — the design gives the glow to desktop cards
+  /// alone, everything else stays plain glass.
   final Color? glow;
   final bool shadow;
   final bool dock;
+
+  /// Nocturne only: draw no surface at all — for frames nested inside another
+  /// surface (the dock's media block), where the parent already carries the
+  /// glass and a second white-alpha fill would read as a bright patch.
+  final bool flat;
   const GlassSurface(
       {super.key,
       required this.child,
@@ -27,65 +34,25 @@ class GlassSurface extends StatelessWidget {
       this.borderColor,
       this.glow,
       this.shadow = true,
-      this.dock = false});
-  /// 只向卡片内扩散的底部色光：设计稿是 radial-gradient 三段 stop，零滤镜。
-  /// 820A 上不能为了这个光晕开离屏层或高斯。
-  /// 范围锁在卡片下方 60%、强度再降到设计稿的六成：设计稿的卡底比这里亮，
-  /// 同样的 alpha 压在近黑卡上会糊成一片色雾。
-  Widget _glowLayer(Color glow) {
-    final tint = glow.withValues(alpha: glow.a * .6);
-    return Positioned.fill(
-        child: IgnorePointer(
-            child: Align(
-                alignment: Alignment.bottomCenter,
-                child: FractionallySizedBox(
-                    heightFactor: .6,
-                    widthFactor: 1,
-                    child: Transform.scale(
-                        // 设计稿的渐变是 66%×130% 的椭圆，这里横向拉开模拟，
-                        // 溢出部分由外层 ClipRRect 裁掉，纯矩阵变换不产生滤镜。
-                        scaleX: 1.6,
-                        child: DecoratedBox(
-                            decoration: BoxDecoration(
-                                gradient: RadialGradient(
-                                    center: const Alignment(0, 1.15),
-                                    radius: .62,
-                                    stops: const [0, .22, .76],
-                                    colors: [
-                          tint,
-                          tint,
-                          tint.withValues(alpha: 0)
-                        ]))))))));
-  }
+      this.dock = false,
+      this.flat = false});
 
   @override
   Widget build(BuildContext context) {
     final s = SurfaceStyle.of(context),
         shape = BorderRadius.circular(radius ?? s.radius);
-    final glowColor = s.nocturne && !dock ? glow : null;
-    final color = dock && (s.technicalFrame || s.nocturne)
+    if (s.nocturne) return _nocturne(s, shape);
+    final color = dock && s.technicalFrame
         ? s.dock
         : switch (tone) {
             SurfaceTone.normal => s.surface,
             SurfaceTone.strong => s.strong,
             SurfaceTone.soft => s.soft,
           };
-    final body = Padding(padding: padding, child: child);
     final content = DecoratedBox(
         decoration: BoxDecoration(
             color: color,
-            gradient: s.nocturne
-                // 暗夜玻璃：顶亮底暗的四段白叠加，取自设计稿 .card。
-                ? LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    stops: const [0, .42, .74, 1],
-                    colors: [
-                        for (final alpha in const [.085, .032, .014, .038])
-                          Color.alphaBlend(
-                              Colors.white.withValues(alpha: alpha), color)
-                      ])
-                : s.technicalFrame && s.glass
+            gradient: s.technicalFrame && s.glass
                 ? LinearGradient(
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
@@ -99,28 +66,10 @@ class GlassSurface extends StatelessWidget {
             borderRadius: shape,
             border: s.technicalFrame
                 ? (dock ? Border(top: BorderSide(color: s.edge)) : null)
-                : Border.all(
-                    color: borderColor ??
-                        (s.nocturne
-                            ? const Color(0x13FFFFFF)
-                            : s.edge))),
+                : Border.all(color: borderColor ?? s.edge)),
         child: Material(
             type: MaterialType.transparency,
-            child: s.nocturne
-                ? Stack(fit: StackFit.passthrough, children: [
-                    if (glowColor != null) _glowLayer(glowColor),
-                    // 顶部内高光：inset 0 1px rgba(255,255,255,.14)
-                    Positioned(
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        child: IgnorePointer(
-                            child: Container(
-                                height: 1,
-                                color: Colors.white.withValues(alpha: .14)))),
-                    body,
-                  ])
-                : body));
+            child: Padding(padding: padding, child: child)));
     final framed = s.technicalFrame && !dock
         ? DecoratedBox(
             position: DecorationPosition.foreground,
@@ -146,14 +95,7 @@ class GlassSurface extends StatelessWidget {
                     BoxShadow(
                         color: s.shadow,
                         offset: Offset(0, Design.px(s.technicalFrame ? 5 : 10)),
-                        blurRadius: Design.px(s.technicalFrame ? 12 : 20)),
-                    // 设计稿 0 0 90px -34px var(--glow)：光只往卡外散一圈。
-                    if (glowColor != null)
-                      BoxShadow(
-                          color: glowColor.withValues(
-                              alpha: glowColor.a * .55),
-                          blurRadius: Design.px(90),
-                          spreadRadius: -Design.px(34))
+                        blurRadius: Design.px(s.technicalFrame ? 12 : 20))
                   ]
                 : null),
         child: ClipRRect(
@@ -161,10 +103,144 @@ class GlassSurface extends StatelessWidget {
             child: s.liveBlur
                 ? BackdropFilter.grouped(
                     key: const ValueKey('glass-filter'),
-                    filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                    filter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
                     child: framed)
                 : framed));
   }
+
+  /// Nocturne surface: a hairline white-alpha gradient over the near-black
+  /// canvas, an optional bottom glow, and no blur at all (the design is built
+  /// for the 820A GPU — no backdrop-filter, no floating lights).
+  Widget _nocturne(SurfaceStyle s, BorderRadius shape) {
+    if (flat) {
+      return Material(
+          type: MaterialType.transparency,
+          child: Padding(padding: padding, child: child));
+    }
+    final isCard = !dock;
+    final fill = isCard
+        ? const LinearGradient(
+            begin: Alignment(-.2, -.98),
+            end: Alignment(.2, .98),
+            stops: [0, .42, .74, 1],
+            colors: [
+              Color(0x16FFFFFF),
+              Color(0x08FFFFFF),
+              Color(0x04FFFFFF),
+              Color(0x0AFFFFFF)
+            ])
+        : const LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFF1A1E20), Color(0xFF0B0D0E)]);
+    return DecoratedBox(
+        decoration: BoxDecoration(
+            borderRadius: shape,
+            boxShadow: shadow
+                ? [
+                    // 0 26px 54px -26px rgba(0,0,0,.9) on the design board.
+                    const BoxShadow(
+                        color: Color(0xE6000000),
+                        offset: Offset(0, 26),
+                        blurRadius: 54,
+                        spreadRadius: -26),
+                  ]
+                : null),
+        child: ClipRRect(
+            borderRadius: shape,
+            child: Stack(fit: StackFit.passthrough, children: [
+              Positioned.fill(
+                  child: DecoratedBox(
+                      decoration: BoxDecoration(
+                          gradient: fill,
+                          borderRadius: shape,
+                          border: Border.all(
+                              color: borderColor ?? s.edge)))),
+              if (glow != null && isCard)
+                Positioned.fill(child: _glowLayer(glow!)),
+              if (isCard)
+                Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    height: Design.dz(66),
+                    child: DecoratedBox(
+                        decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                          const Color(0x00000000),
+                          Colors.black.withValues(alpha: .68)
+                        ])))),
+              if (isCard)
+                Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    height: 1.4,
+                    child: DecoratedBox(
+                        decoration: BoxDecoration(
+                            gradient: LinearGradient(colors: [
+                          const Color(0x00FFFFFF),
+                          Colors.white.withValues(alpha: .16),
+                          const Color(0x00FFFFFF)
+                        ])))),
+              Material(
+                  type: MaterialType.transparency,
+                  child: Padding(padding: padding, child: child)),
+            ])));
+  }
+
+  /// Bottom glow drawn as a true ellipse: same geometry as the design's
+  /// `.card::before` (light centre 28 % below the card, rx 82 % / ry 94 % of
+  /// the card, bright plateau to 22 %, fully faded at 76 %).
+  Widget _glowLayer(Color glow) =>
+      CustomPaint(painter: _NocturneGlowPainter(glow));
+}
+
+class _NocturneGlowPainter extends CustomPainter {
+  final Color glow;
+  const _NocturneGlowPainter(this.glow);
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(size.width / 2, size.height * 1.28);
+    final rx = size.width * .82, ry = size.height * .94;
+    canvas.save();
+    canvas.translate(center.dx, center.dy);
+    canvas.scale(rx, ry);
+    final halo = Paint()
+      ..shader = ui.Gradient.radial(Offset.zero, 1, [
+        glow,
+        glow,
+        glow.withValues(alpha: 0)
+      ], [
+        0.0,
+        0.22,
+        0.76
+      ], ui.TileMode.clamp);
+    canvas.drawCircle(Offset.zero, 1, halo);
+    // Spill light beyond the card edge: the CSS design relies on an outer
+    // box-shadow for this, but Flutter's BoxShadow floods the whole
+    // semi-transparent surface, so the spill is drawn here instead.
+    canvas.scale(1.35, 1.35);
+    canvas.drawCircle(
+        Offset.zero,
+        1,
+        Paint()
+          ..shader = ui.Gradient.radial(Offset.zero, 1, [
+            glow.withValues(alpha: .38),
+            glow.withValues(alpha: 0)
+          ], [
+            0.0,
+            1.0
+          ], ui.TileMode.clamp));
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant _NocturneGlowPainter oldDelegate) =>
+      oldDelegate.glow != glow;
 }
 
 class IconAction extends StatelessWidget {

@@ -3,6 +3,47 @@ import '../model/appearance.dart';
 import 'design_tokens.dart';
 import 'technical_frame.dart';
 
+/// Nocturne (暗夜) palette, copied 1:1 from `design/desktop-lynk05.html`.
+///
+/// The skin's identity is "one colour per card": every card owns a single hue
+/// that lives only in its bottom glow, so six hues can coexist on one desktop
+/// without fighting the selected accent colour.
+abstract final class Nocturne {
+  static const mint = Color(0xFF3BE2C0);
+  static const blue = Color(0xFF4E8CF8);
+  static const violet = Color(0xFF8E6CFF);
+  static const pink = Color(0xFFFF5FA8);
+  static const amber = Color(0xFFFFB057);
+  static const cyan = Color(0xFF6FD3FF);
+
+  /// Canvas behind everything: near-black, never pure #000, so the 80 px grid
+  /// and the card shadows still read.
+  static const background = Color(0xFF050607);
+
+  /// Alpha is tuned per card type, not shared: a 4x2 card needs more glow than
+  /// an 8x6 one to read as the same intensity (measured on the design canvas).
+  static const _glow = <String, Color>{
+    'nav': Color(0x4D3BE2C0),
+    'trafficLight': Color(0x473BE2C0),
+    'music': Color(0x4DFF5FA8),
+    'shortcuts': Color(0x42FF5FA8),
+    'weather': Color(0x526FD3FF),
+    'air': Color(0x576FD3FF),
+    'cleanup': Color(0x476FD3FF),
+    'battery': Color(0x573BE2C0),
+    'tpms': Color(0x574E8CF8),
+    'body': Color(0x574E8CF8),
+    'clock': Color(0x578E6CFF),
+    'clockWeather': Color(0x4D8E6CFF),
+    'calendar': Color(0x478E6CFF),
+    'vehicle': Color(0x52FFB057),
+    'ride': Color(0x4DFFB057),
+    'member': Color(0x42FF5FA8),
+  };
+
+  static Color glowOf(String type) => _glow[type] ?? const Color(0x4D3BE2C0);
+}
+
 class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
   final bool dark, glass, technicalFrame, nocturne;
   final double radius;
@@ -38,6 +79,7 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
       required this.shadow});
   factory SurfaceStyle.from(Appearance a, bool systemDark,
       {bool adaptToWallpaper = false}) {
+    if (a.themeStyle == 'nocturne') return SurfaceStyle._nocturne(a);
     final dark = adaptToWallpaper && a.mode == 'smart'
         ? a.backgroundIsDark(systemDark)
         : a.isDark(systemDark);
@@ -63,30 +105,7 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
           edge: dark ? const Color(0xFF31475E) : const Color(0xFFCAD6E4),
           shadow: dark ? const Color(0x18000000) : const Color(0x0C263E58));
     }
-    if (a.themeStyle == 'nocturne') {
-      // 暗夜：纯黑画布 + 一卡一色玻璃。色值取自 design/desktop-lynk05.html
-      // 的 Nocturne 色板（--bg #050607、--ink #EFF4F6、--mint #3BE2C0、
-      // --hair rgba(255,255,255,.08)），固定深色，不跟随明暗与壁纸亮度。
-      final mint = a.palette == 'mint';
-      return SurfaceStyle(
-          dark: true,
-          nocturne: true,
-          glass: a.glass,
-          technicalFrame: false,
-          spectrumStyle: a.spectrumStyle,
-          radius: Design.px(a.radius),
-          accent: mint ? const Color(0xFF3BE2C0) : a.accent(true),
-          accentText: const Color(0xFF04110E),
-          seed: mint ? const Color(0xFF3BE2C0) : a.seed(),
-          text: const Color(0xFFEFF4F6),
-          muted: const Color(0xFF98A1A4),
-          disabled: const Color(0xFF60686B),
-          surface: const Color(0xE60F1112),
-          strong: const Color(0xF5141617),
-          soft: const Color(0x12FFFFFF),
-          edge: const Color(0x17FFFFFF),
-          shadow: const Color(0x66000000));
-    }
+    if (a.themeStyle == 'nocturne') return SurfaceStyle._nocturne(a);
     return SurfaceStyle(
         dark: dark,
         spectrumStyle: a.spectrumStyle,
@@ -107,6 +126,32 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
   }
   static SurfaceStyle of(BuildContext c) =>
       Theme.of(c).extension<SurfaceStyle>()!;
+
+  /// Nocturne keeps a fixed dark canvas: the skin is built around #050607 and
+  /// has no light variant, so `mode` is intentionally ignored here. The card
+  /// radius is the design's 34 canvas units; the settings slider can still
+  /// override it, and its untouched default (0) means "use the design value".
+  factory SurfaceStyle._nocturne(Appearance a) {
+    final accent = a.accent(true);
+    return SurfaceStyle(
+        nocturne: true,
+        dark: true,
+        glass: a.glass,
+        spectrumStyle: a.spectrumStyle,
+        radius: Design.dz(a.radius == 0 ? 34 : a.radius),
+        accent: accent,
+        accentText: Color.lerp(accent, Colors.black, .84)!,
+        seed: a.seed(),
+        text: const Color(0xFFEFF4F6),
+        muted: const Color(0x8CE9F1F5),
+        disabled: const Color(0x5E676B70),
+        surface: const Color(0x14FFFFFF),
+        strong: const Color(0xFF131619),
+        soft: const Color(0x0FFFFFFF),
+        edge: const Color(0x16FFFFFF),
+        shadow: const Color(0xE6000000));
+  }
+
   /// 820A 上逐帧离屏高斯会直接吃掉帧预算，暗夜按设计稿只用静态色阶，
   /// 不开实时模糊（设计稿 820A Budget 一节）。
   bool get liveBlur => glass && !technicalFrame && !nocturne;
@@ -114,14 +159,18 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
       technicalFrame ? (radius * .5).clamp(0, Design.px(16)) : radius * .64;
   Color get corner => dark ? const Color(0xFF829AB2) : const Color(0xFF738DA8);
   Color get dock => nocturne
-      // 设计稿底栏是 97.5% 不透明的纯渐变背板，不做背景模糊。
-      ? const Color(0xFA0A0B0C)
+      ? const Color(0xFF0B0D0E)
       : (dark ? const Color(0xFF0C1929) : const Color(0xFFF5F8FC));
   Color get background => nocturne
-      ? const Color(0xFF050607)
+      ? Nocturne.background
       : technicalFrame
           ? (dark ? const Color(0xFF07111F) : const Color(0xFFE8EEF5))
           : (dark ? const Color(0xFF0E1920) : const Color(0xFFE1ECE7));
+
+  /// Bottom glow tint for a card type. Only meaningful when [nocturne] is on;
+  /// other styles keep one accent for the whole desktop.
+  Color? cardGlow(String type) => nocturne ? Nocturne.glowOf(type) : null;
+
   BorderSide controlSide(bool selected) => BorderSide(
       color: selected
           ? (technicalFrame ? Color.lerp(edge, accent, .24)! : accent)
@@ -189,27 +238,6 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
       spectrumStyle, accent, accentText, seed, text, muted, disabled, surface,
       strong, soft, edge, shadow);
 }
-
-/// 暗夜主题「一卡一色」的底部光晕：颜色取自设计稿色板，alpha 22–34。
-/// 同屏最多 5 色是设计稿的约束，按卡片类型固定后自然满足。
-Color nocturneGlow(String type) => switch (type) {
-      'nav' => const Color(0x4D3BE2C0),
-      'trafficLight' => const Color(0x4DFFB057),
-      'music' => const Color(0x4DFF5FA8),
-      'weather' => const Color(0x526FD3FF),
-      'calendar' => const Color(0x4D8E6CFF),
-      'member' => const Color(0x424E8CF8),
-      'cleanup' => const Color(0x4D6FD3FF),
-      'tpms' => const Color(0x573BE2C0),
-      'body' => const Color(0x573BE2C0),
-      'battery' => const Color(0x574E8CF8),
-      'air' => const Color(0x576FD3FF),
-      'clock' => const Color(0x52FFB057),
-      'clockWeather' => const Color(0x576FD3FF),
-      'shortcuts' => const Color(0x428E6CFF),
-      'vehicle' => const Color(0x578E6CFF),
-      _ => const Color(0x4D3BE2C0),
-    };
 
 SurfaceStyle? _cachedStyle;
 ThemeData? _cachedTheme;
