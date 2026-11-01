@@ -127,7 +127,7 @@ void main() {
     // Preset mode explains the mood in one sentence: no numbers, no
     // second 自定义 button (the chip in the row is the only way in).
     expect(find.byKey(const ValueKey('ambient-preset-customize')), findsNothing);
-    expect(find.textContaining('默认观感'), findsOneWidget);
+    expect(find.textContaining('颜色跟着频谱缓慢换'), findsOneWidget);
     expect(find.textContaining('亮度包络'), findsNothing);
 
     await tap(t, find.byKey(const ValueKey('ambient-preset-custom')));
@@ -279,6 +279,23 @@ void main() {
         'ambient-beat-gap']) {
       expect(find.byKey(ValueKey(key)), findsOneWidget,
           reason: 'the slider $key is missing');
+    }
+  });
+
+  test('every preset summary describes the effect, not what to use it for',
+      () {
+    // The preset page is a choice of look, so the copy must say what the light
+    // does, not where or when the driver should use it.
+    const adviceWords = ['适合', '建议', '别开', '最稳', '最舒服', '推荐', '日常'];
+    for (final preset in AmbientPresets.all) {
+      final summary = preset.summary;
+      expect(summary, isNotEmpty, reason: '${preset.name} has no summary');
+      expect(summary.contains('：'), isFalse,
+          reason: '${preset.name} still has a colon-led pitch: $summary');
+      for (final word in adviceWords) {
+        expect(summary.contains(word), isFalse,
+            reason: '${preset.name} gives advice ("$word"): $summary');
+      }
     }
   });
 }
