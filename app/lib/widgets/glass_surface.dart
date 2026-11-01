@@ -13,6 +13,9 @@ class GlassSurface extends StatelessWidget {
   final double? radius;
   final SurfaceTone tone;
   final Color? borderColor;
+
+  /// 暗夜卡片底部光晕色（一卡一色）。零滤镜的径向渐变，外溢用 box-shadow。
+  final Color? glow;
   final bool shadow;
   final bool dock;
   const GlassSurface(
@@ -22,19 +25,52 @@ class GlassSurface extends StatelessWidget {
       this.radius,
       this.tone = SurfaceTone.normal,
       this.borderColor,
+      this.glow,
       this.shadow = true,
       this.dock = false});
+  /// 只向卡片内扩散的底部色光：设计稿是 radial-gradient 三段 stop，零滤镜。
+  /// 820A 上不能为了这个光晕开离屏层或高斯。
+  /// 范围锁在卡片下方 60%、强度再降到设计稿的六成：设计稿的卡底比这里亮，
+  /// 同样的 alpha 压在近黑卡上会糊成一片色雾。
+  Widget _glowLayer(Color glow) {
+    final tint = glow.withValues(alpha: glow.a * .6);
+    return Positioned.fill(
+        child: IgnorePointer(
+            child: Align(
+                alignment: Alignment.bottomCenter,
+                child: FractionallySizedBox(
+                    heightFactor: .6,
+                    widthFactor: 1,
+                    child: Transform.scale(
+                        // 设计稿的渐变是 66%×130% 的椭圆，这里横向拉开模拟，
+                        // 溢出部分由外层 ClipRRect 裁掉，纯矩阵变换不产生滤镜。
+                        scaleX: 1.6,
+                        child: DecoratedBox(
+                            decoration: BoxDecoration(
+                                gradient: RadialGradient(
+                                    center: const Alignment(0, 1.15),
+                                    radius: .62,
+                                    stops: const [0, .22, .76],
+                                    colors: [
+                          tint,
+                          tint,
+                          tint.withValues(alpha: 0)
+                        ]))))))));
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = SurfaceStyle.of(context),
         shape = BorderRadius.circular(radius ?? s.radius);
-    final color = dock && s.technicalFrame
+    final glowColor = s.nocturne && !dock ? glow : null;
+    final color = dock && (s.technicalFrame || s.nocturne)
         ? s.dock
         : switch (tone) {
             SurfaceTone.normal => s.surface,
             SurfaceTone.strong => s.strong,
             SurfaceTone.soft => s.soft,
           };
+    final body = Padding(padding: padding, child: child);
     final content = DecoratedBox(
         decoration: BoxDecoration(
             color: color,
@@ -63,10 +99,28 @@ class GlassSurface extends StatelessWidget {
             borderRadius: shape,
             border: s.technicalFrame
                 ? (dock ? Border(top: BorderSide(color: s.edge)) : null)
-                : Border.all(color: borderColor ?? s.edge)),
+                : Border.all(
+                    color: borderColor ??
+                        (s.nocturne
+                            ? const Color(0x13FFFFFF)
+                            : s.edge))),
         child: Material(
             type: MaterialType.transparency,
-            child: Padding(padding: padding, child: child)));
+            child: s.nocturne
+                ? Stack(fit: StackFit.passthrough, children: [
+                    if (glowColor != null) _glowLayer(glowColor),
+                    // 顶部内高光：inset 0 1px rgba(255,255,255,.14)
+                    Positioned(
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        child: IgnorePointer(
+                            child: Container(
+                                height: 1,
+                                color: Colors.white.withValues(alpha: .14)))),
+                    body,
+                  ])
+                : body));
     final framed = s.technicalFrame && !dock
         ? DecoratedBox(
             position: DecorationPosition.foreground,
@@ -92,7 +146,14 @@ class GlassSurface extends StatelessWidget {
                     BoxShadow(
                         color: s.shadow,
                         offset: Offset(0, Design.px(s.technicalFrame ? 5 : 10)),
-                        blurRadius: Design.px(s.technicalFrame ? 12 : 20))
+                        blurRadius: Design.px(s.technicalFrame ? 12 : 20)),
+                    // 设计稿 0 0 90px -34px var(--glow)：光只往卡外散一圈。
+                    if (glowColor != null)
+                      BoxShadow(
+                          color: glowColor.withValues(
+                              alpha: glowColor.a * .55),
+                          blurRadius: Design.px(90),
+                          spreadRadius: -Design.px(34))
                   ]
                 : null),
         child: ClipRRect(

@@ -107,12 +107,15 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
   }
   static SurfaceStyle of(BuildContext c) =>
       Theme.of(c).extension<SurfaceStyle>()!;
-  bool get liveBlur => glass && !technicalFrame;
+  /// 820A 上逐帧离屏高斯会直接吃掉帧预算，暗夜按设计稿只用静态色阶，
+  /// 不开实时模糊（设计稿 820A Budget 一节）。
+  bool get liveBlur => glass && !technicalFrame && !nocturne;
   double get controlRadius =>
       technicalFrame ? (radius * .5).clamp(0, Design.px(16)) : radius * .64;
   Color get corner => dark ? const Color(0xFF829AB2) : const Color(0xFF738DA8);
   Color get dock => nocturne
-      ? const Color(0xFF0A0B0C)
+      // 设计稿底栏是 97.5% 不透明的纯渐变背板，不做背景模糊。
+      ? const Color(0xFA0A0B0C)
       : (dark ? const Color(0xFF0C1929) : const Color(0xFFF5F8FC));
   Color get background => nocturne
       ? const Color(0xFF050607)
@@ -186,6 +189,27 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
       spectrumStyle, accent, accentText, seed, text, muted, disabled, surface,
       strong, soft, edge, shadow);
 }
+
+/// 暗夜主题「一卡一色」的底部光晕：颜色取自设计稿色板，alpha 22–34。
+/// 同屏最多 5 色是设计稿的约束，按卡片类型固定后自然满足。
+Color nocturneGlow(String type) => switch (type) {
+      'nav' => const Color(0x4D3BE2C0),
+      'trafficLight' => const Color(0x4DFFB057),
+      'music' => const Color(0x4DFF5FA8),
+      'weather' => const Color(0x526FD3FF),
+      'calendar' => const Color(0x4D8E6CFF),
+      'member' => const Color(0x424E8CF8),
+      'cleanup' => const Color(0x4D6FD3FF),
+      'tpms' => const Color(0x573BE2C0),
+      'body' => const Color(0x573BE2C0),
+      'battery' => const Color(0x574E8CF8),
+      'air' => const Color(0x576FD3FF),
+      'clock' => const Color(0x52FFB057),
+      'clockWeather' => const Color(0x576FD3FF),
+      'shortcuts' => const Color(0x428E6CFF),
+      'vehicle' => const Color(0x578E6CFF),
+      _ => const Color(0x4D3BE2C0),
+    };
 
 SurfaceStyle? _cachedStyle;
 ThemeData? _cachedTheme;
