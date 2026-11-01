@@ -40,7 +40,8 @@ class BottomDock extends StatelessWidget {
             canPlay = demo || media['available'] == true,
             canToggle = demo || media['canToggle'] == true,
             playing = media['playing'] == true,
-            dockScale = _dockContentScale(c.appearance.dockSize);
+            dockScale = _dockContentScale(c.appearance.dockSize),
+            showMusicVisual = c.appearance.dockMusicVisual;
         Widget gap() => SizedBox(width: Design.px(12));
         Widget action(
                 String key, IconData icon, String label, VoidCallback? tap,
@@ -115,25 +116,67 @@ class BottomDock extends StatelessWidget {
                     ? () => c.command('climate-mode', value: mode)
                     : null,
                 child: FittedBox(fit: BoxFit.scaleDown, child: child));
-        // 胶囊底栏：左右留边、四角半圆、底下离屏幕一条缝。外层 SizedBox
-        // 的高度仍是 96，留白做在它里面，所以上面的卡片区尺寸不受影响。
+        final Widget trackMetadata = Column(
+            key: const ValueKey('dock-track-title'),
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('${media['title'] ?? '暂无播放'}',
+                  style: TextStyle(
+                      fontSize: Design.px(23 * dockScale),
+                      fontWeight: FontWeight.w500),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis),
+              SizedBox(height: Design.px(4)),
+              Text('${media['artist'] ?? '等待媒体会话'}',
+                  style: TextStyle(
+                      fontSize: Design.px(16 * dockScale), color: s.muted),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis)
+            ]);
+        final Widget musicInfo = InkWell(
+            key: const ValueKey('music-info'),
+            onTap: () => showMediaPanel(context, c),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              ClipRRect(
+                  borderRadius: BorderRadius.circular(s.radius * .5),
+                  child: SizedBox(
+                      width: Design.px(60),
+                      height: Design.px(60),
+                      child: MediaArtwork(
+                          media: media,
+                          demo: demo,
+                          fallbackSize: Design.px(30)))),
+              SizedBox(width: Design.px(16)),
+              showMusicVisual
+                  ? Expanded(flex: 5, child: trackMetadata)
+                  : ConstrainedBox(
+                      constraints: BoxConstraints(maxWidth: Design.px(320)),
+                      child: trackMetadata),
+              if (showMusicVisual) ...[
+                SizedBox(width: Design.px(16)),
+                Expanded(child: DockMusicVisual(media: media, demo: demo))
+              ]
+            ]));
+        final floating = c.appearance.dockLayout == 'floating';
+        // The reserved strip stays the same height in both modes.
         return SizedBox(
             key: const ValueKey('bottom-dock'),
             height: Design.px(96),
             child: Padding(
-                padding: EdgeInsets.fromLTRB(
-                    Design.px(16), 0, Design.px(16), Design.px(10)),
+                padding: floating
+                    ? EdgeInsets.symmetric(
+                        horizontal: Design.px(16), vertical: Design.px(5))
+                    : EdgeInsets.zero,
                 child: GlassSurface(
+                    key: const ValueKey('dock-surface'),
                     dock: true,
-                    // 胶囊的圆角吃「圆角」设置：暗夜默认 25，高度 72 的一半
-                    // 是 36，看起来就是全圆角胶囊。滑到 0 时给一个兜底——
-                    // 底栏已经是浮起的一条，纯方角会散开，所以退回首版的
-                    // 43（≈半径 36）保持胶囊形状。
-                    radius: s.radius == 0 ? Design.px(43) : s.radius,
-                    shadow: true,
+                    dockFramed: floating,
+                    radius: floating ? s.radius : 0,
+                    shadow: floating,
                     tone: SurfaceTone.strong,
-                padding: EdgeInsets.symmetric(
-                    horizontal: Design.px(14), vertical: Design.px(7)),
+                    padding: EdgeInsets.symmetric(
+                        horizontal: Design.px(14), vertical: Design.px(7)),
                     child: Row(children: [
                       SizedBox(
                           width: Design.px(352),
@@ -233,8 +276,9 @@ class BottomDock extends StatelessWidget {
                                     width: 72)
                               ]))),
                       gap(),
-                      Expanded(
-                          flex: 8,
+                      _DockMusicRegion(
+                          expanded: showMusicVisual,
+                          compactWidth: Design.px(680 + (dockScale - 1) * 120),
                           child: GlassSurface(
                               key: const ValueKey('dock-music-frame'),
                               radius: s.controlRadius,
@@ -308,78 +352,11 @@ class BottomDock extends StatelessWidget {
                                                       width: 60)
                                                 ])),
                                         SizedBox(width: Design.px(20)),
-                                        Expanded(
-                                            child: InkWell(
-                                                key: const ValueKey(
-                                                    'music-info'),
-                                                onTap: () =>
-                                                    showMediaPanel(context, c),
-                                                child: Row(children: [
-                                                  ClipRRect(
-                                                      borderRadius:
-                                                          BorderRadius.circular(
-                                                              s.radius * .5),
-                                                      child: SizedBox(
-                                                          width: Design.px(60),
-                                                          height: Design.px(60),
-                                                          child: MediaArtwork(
-                                                              media: media,
-                                                              demo: demo,
-                                                              fallbackSize:
-                                                                  Design.px(
-                                                                      30)))),
-                                                  SizedBox(
-                                                      width: Design.px(16)),
-                                                  Expanded(
-                                                      flex: 5,
-                                                      child: Column(
-                                                          key: const ValueKey(
-                                                              'dock-track-title'),
-                                                          mainAxisAlignment:
-                                                              MainAxisAlignment
-                                                                  .center,
-                                                          crossAxisAlignment:
-                                                              CrossAxisAlignment
-                                                                  .start,
-                                                          children: [
-                                                            Text(
-                                                                '${media['title'] ?? '暂无播放'}',
-                                                                style: TextStyle(
-                                                                    fontSize: Design
-                                                                        .px(23 *
-                                                                            dockScale),
-                                                                    fontWeight:
-                                                                        FontWeight
-                                                                            .w500),
-                                                                maxLines: 1,
-                                                                overflow:
-                                                                    TextOverflow
-                                                                        .ellipsis),
-                                                            SizedBox(
-                                                                height:
-                                                                    Design.px(
-                                                                        4)),
-                                                            Text(
-                                                                '${media['artist'] ?? '等待媒体会话'}',
-                                                                style: TextStyle(
-                                                                    fontSize: Design
-                                                                        .px(16 *
-                                                                            dockScale),
-                                                                    color: s
-                                                                        .muted),
-                                                                maxLines: 1,
-                                                                overflow:
-                                                                    TextOverflow
-                                                                        .ellipsis)
-                                                          ])),
-                                                  SizedBox(
-                                                      width: Design.px(16)),
-                                                  Expanded(
-                                                      flex: 6,
-                                                      child: DockMusicVisual(
-                                                          media: media,
-                                                          demo: demo))
-                                                ])))
+                                        showMusicVisual
+                                            ? Expanded(child: musicInfo)
+                                            : Flexible(
+                                                fit: FlexFit.loose,
+                                                child: musicInfo)
                                       ]))))),
                       gap(),
                       IconAction(
@@ -392,6 +369,21 @@ class BottomDock extends StatelessWidget {
                           child: UniAppIcon(size: Design.px(42 * dockScale)))
                     ]))));
       });
+}
+
+class _DockMusicRegion extends StatelessWidget {
+  final bool expanded;
+  final double compactWidth;
+  final Widget child;
+  const _DockMusicRegion(
+      {required this.expanded,
+      required this.compactWidth,
+      required this.child});
+
+  @override
+  Widget build(BuildContext context) => expanded
+      ? Expanded(flex: 8, child: child)
+      : SizedBox(width: compactWidth, child: child);
 }
 
 Future<void> showUniDockMenu(BuildContext context, LauncherController c) async {

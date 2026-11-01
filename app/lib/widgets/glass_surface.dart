@@ -20,6 +20,7 @@ class GlassSurface extends StatelessWidget {
   final Color? glow;
   final bool shadow;
   final bool dock;
+  final bool dockFramed;
 
   /// Nocturne only: the dock's media block. It gets a single flat tint instead
   /// of the card glass (the white gradient plus the 66 px bottom shade would
@@ -43,6 +44,7 @@ class GlassSurface extends StatelessWidget {
       this.glow,
       this.shadow = true,
       this.dock = false,
+      this.dockFramed = false,
       this.flat = false,
       this.sheet = false});
 
@@ -74,12 +76,14 @@ class GlassSurface extends StatelessWidget {
                 : null,
             borderRadius: shape,
             border: s.technicalFrame
-                ? (dock ? Border(top: BorderSide(color: s.edge)) : null)
+                ? (dock && !dockFramed
+                    ? Border(top: BorderSide(color: s.edge))
+                    : null)
                 : Border.all(color: borderColor ?? s.edge)),
         child: Material(
             type: MaterialType.transparency,
             child: Padding(padding: padding, child: child)));
-    final framed = s.technicalFrame && !dock
+    final framed = s.technicalFrame && (!dock || dockFramed)
         ? DecoratedBox(
             position: DecorationPosition.foreground,
             decoration: ShapeDecoration(
