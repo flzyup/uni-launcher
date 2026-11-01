@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import '../model/appearance.dart';
+import '../theme/design_tokens.dart';
 import '../theme/launcher_theme.dart';
 
 class SceneBackground extends StatelessWidget {
@@ -25,7 +26,7 @@ class SceneBackground extends StatelessWidget {
     final showOverlay =
         !hasWallpaper || wallpaper.wallpaperOverlay || forceOverlay;
     return Stack(fit: StackFit.expand, children: [
-      if (s.technicalFrame)
+      if (s.technicalFrame || s.nocturne)
         ColoredBox(color: s.background)
       else
         const SizedBox.expand(),
@@ -33,7 +34,9 @@ class SceneBackground extends StatelessWidget {
         WallpaperImage(appearance: wallpaper, cacheWidth: wallpaperCacheWidth)
       else
         const SizedBox.expand(),
-      if (s.technicalFrame && !hasWallpaper)
+      if (s.nocturne)
+        _nocturneBackdrop(s, hasWallpaper)
+      else if (s.technicalFrame && !hasWallpaper)
         _technicalGradient(s)
       else if (s.technicalFrame && showOverlay)
         _technicalWallpaperOverlay(s)
@@ -44,6 +47,40 @@ class SceneBackground extends StatelessWidget {
       else
         const SizedBox.expand(),
       KeyedSubtree(key: const ValueKey('scene-content'), child: child),
+    ]);
+  }
+
+  /// 暗夜画布：纯黑铺底 + 80px 网格 + 左上强调色、右下暖色的两处环境光，
+  /// 与 design/desktop-lynk05.html 的画板底一致。有壁纸时只做压暗。
+  Widget _nocturneBackdrop(SurfaceStyle s, bool hasWallpaper) {
+    if (hasWallpaper) {
+      return const DecoratedBox(
+          decoration: BoxDecoration(color: Color(0x99050506)));
+    }
+    return Stack(fit: StackFit.expand, children: [
+      const RepaintBoundary(child: CustomPaint(painter: _NightGridPainter())),
+      DecoratedBox(
+          decoration: BoxDecoration(
+              gradient: RadialGradient(
+                  center: const Alignment(-.72, -.92),
+                  radius: 1.1,
+                  colors: [
+            s.accent.withValues(alpha: .09),
+            s.accent.withValues(alpha: 0)
+          ]))),
+      const DecoratedBox(
+          decoration: BoxDecoration(
+              gradient: RadialGradient(
+                  center: Alignment(.9, 1),
+                  radius: 1,
+                  colors: [Color(0x17FFB057), Color(0x00FFB057)]))),
+      const DecoratedBox(
+          decoration: BoxDecoration(
+              gradient: RadialGradient(
+                  center: Alignment.center,
+                  radius: .85,
+                  stops: [.52, 1],
+                  colors: [Color(0x00000000), Color(0x4D000000)]))),
     ]);
   }
 
@@ -129,6 +166,28 @@ class SceneBackground extends StatelessWidget {
                     const Color(0x0079A2B7)
                   ])),
               child: const SizedBox.expand())));
+}
+
+/// 80 设计像素的极淡网格：只是让纯黑有一点点距离感，不参与交互也不重绘。
+class _NightGridPainter extends CustomPainter {
+  const _NightGridPainter();
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = const Color(0x0DFFFFFF)
+      ..strokeWidth = 1;
+    final step = Design.px(80);
+    if (step <= 0) return;
+    for (var x = 0.0; x <= size.width; x += step) {
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
+    }
+    for (var y = 0.0; y <= size.height; y += step) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _NightGridPainter oldDelegate) => false;
 }
 
 class WallpaperImage extends StatelessWidget {

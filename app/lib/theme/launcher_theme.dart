@@ -4,7 +4,7 @@ import 'design_tokens.dart';
 import 'technical_frame.dart';
 
 class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
-  final bool dark, glass, technicalFrame;
+  final bool dark, glass, technicalFrame, nocturne;
   final double radius;
   final String spectrumStyle;
   final Color accent,
@@ -21,6 +21,7 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
   const SurfaceStyle(
       {required this.dark,
       this.technicalFrame = false,
+      this.nocturne = false,
       this.spectrumStyle = 'bars',
       required this.glass,
       required this.radius,
@@ -62,6 +63,30 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
           edge: dark ? const Color(0xFF31475E) : const Color(0xFFCAD6E4),
           shadow: dark ? const Color(0x18000000) : const Color(0x0C263E58));
     }
+    if (a.themeStyle == 'nocturne') {
+      // 暗夜：纯黑画布 + 一卡一色玻璃。色值取自 design/desktop-lynk05.html
+      // 的 Nocturne 色板（--bg #050607、--ink #EFF4F6、--mint #3BE2C0、
+      // --hair rgba(255,255,255,.08)），固定深色，不跟随明暗与壁纸亮度。
+      final mint = a.palette == 'mint';
+      return SurfaceStyle(
+          dark: true,
+          nocturne: true,
+          glass: a.glass,
+          technicalFrame: false,
+          spectrumStyle: a.spectrumStyle,
+          radius: Design.px(a.radius),
+          accent: mint ? const Color(0xFF3BE2C0) : a.accent(true),
+          accentText: const Color(0xFF04110E),
+          seed: mint ? const Color(0xFF3BE2C0) : a.seed(),
+          text: const Color(0xFFEFF4F6),
+          muted: const Color(0xFF98A1A4),
+          disabled: const Color(0xFF60686B),
+          surface: const Color(0xE60F1112),
+          strong: const Color(0xF5141617),
+          soft: const Color(0x12FFFFFF),
+          edge: const Color(0x17FFFFFF),
+          shadow: const Color(0x66000000));
+    }
     return SurfaceStyle(
         dark: dark,
         spectrumStyle: a.spectrumStyle,
@@ -86,10 +111,14 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
   double get controlRadius =>
       technicalFrame ? (radius * .5).clamp(0, Design.px(16)) : radius * .64;
   Color get corner => dark ? const Color(0xFF829AB2) : const Color(0xFF738DA8);
-  Color get dock => dark ? const Color(0xFF0C1929) : const Color(0xFFF5F8FC);
-  Color get background => technicalFrame
-      ? (dark ? const Color(0xFF07111F) : const Color(0xFFE8EEF5))
-      : (dark ? const Color(0xFF0E1920) : const Color(0xFFE1ECE7));
+  Color get dock => nocturne
+      ? const Color(0xFF0A0B0C)
+      : (dark ? const Color(0xFF0C1929) : const Color(0xFFF5F8FC));
+  Color get background => nocturne
+      ? const Color(0xFF050607)
+      : technicalFrame
+          ? (dark ? const Color(0xFF07111F) : const Color(0xFFE8EEF5))
+          : (dark ? const Color(0xFF0E1920) : const Color(0xFFE1ECE7));
   BorderSide controlSide(bool selected) => BorderSide(
       color: selected
           ? (technicalFrame ? Color.lerp(edge, accent, .24)! : accent)
@@ -138,6 +167,7 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
       other.dark == dark &&
       other.glass == glass &&
       other.technicalFrame == technicalFrame &&
+      other.nocturne == nocturne &&
       other.radius == radius &&
       other.spectrumStyle == spectrumStyle &&
       other.accent == accent &&
@@ -152,7 +182,7 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
       other.edge == edge &&
       other.shadow == shadow;
   @override
-  int get hashCode => Object.hash(dark, glass, technicalFrame, radius,
+  int get hashCode => Object.hash(dark, glass, technicalFrame, nocturne, radius,
       spectrumStyle, accent, accentText, seed, text, muted, disabled, surface,
       strong, soft, edge, shadow);
 }

@@ -38,7 +38,18 @@ class GlassSurface extends StatelessWidget {
     final content = DecoratedBox(
         decoration: BoxDecoration(
             color: color,
-            gradient: s.technicalFrame && s.glass
+            gradient: s.nocturne
+                // 暗夜玻璃：顶亮底暗的四段白叠加，取自设计稿 .card。
+                ? LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    stops: const [0, .42, .74, 1],
+                    colors: [
+                        for (final alpha in const [.085, .032, .014, .038])
+                          Color.alphaBlend(
+                              Colors.white.withValues(alpha: alpha), color)
+                      ])
+                : s.technicalFrame && s.glass
                 ? LinearGradient(
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
