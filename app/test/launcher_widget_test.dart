@@ -102,7 +102,7 @@ void main() {
   testWidgets('native navigation switch sends platform action', (t) async {
     final (c, g) = await launch(t);
     c.openSettings();
-    c.tab('system');
+    c.tab('dock');
     await t.pumpAndSettle();
     await t.scrollUntilVisible(
         find.byKey(const ValueKey('system-navigation-hidden')), 300,

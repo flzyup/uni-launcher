@@ -111,6 +111,61 @@ class IntegrationSettings extends StatelessWidget {
   }
 }
 
+/// Dock ownership and the replacement relationship with SystemUI.
+class DockRuntimeSettings extends StatelessWidget {
+  final LauncherController controller;
+  const DockRuntimeSettings({super.key, required this.controller});
+  @override
+  Widget build(BuildContext context) =>
+      ValueListenableBuilder<Map<String, dynamic>>(
+          valueListenable: controller.native,
+          builder: (context, n, _) {
+            final c = controller, s = SurfaceStyle.of(context);
+            Map<String, dynamic> mapOf(Object? value) =>
+                value is Map ? Map<String, dynamic>.from(value) : {};
+            return GlassSurface(
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                  Text('全局底栏与系统导航', style: TextStyle(fontSize: Design.px(26))),
+                  SizedBox(height: Design.px(10)),
+                  Text('${mapOf(n['vehicle'])['reason'] ?? '未连接原车服务'}',
+                      style:
+                          TextStyle(fontSize: Design.px(19), color: s.muted)),
+                  SizedBox(height: Design.px(8)),
+                  Row(children: [
+                    TextButton(
+                        onPressed: () => c.command('refresh'),
+                        child: const Text('刷新连接')),
+                    TextButton(
+                        onPressed: () => c.command('media-access'),
+                        child: const Text('授权媒体访问'))
+                  ]),
+                  DesignSwitchTile(
+                      key: const ValueKey('global-dock'),
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('全局底栏'),
+                      subtitle: Text(mapOf(n['globalDock'])['allowed'] == true
+                          ? '在其他应用中使用相同的首页、空调和音乐控制'
+                          : '开启后需允许悬浮显示'),
+                      value: mapOf(n['globalDock'])['enabled'] == true,
+                      onChanged: (v) => c.command('global-dock', enabled: v)),
+                  DesignSwitchTile(
+                      key: const ValueKey('system-navigation-hidden'),
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('隐藏系统原有导航栏'),
+                      subtitle: Text(n['systemNavigationGranted'] == true
+                          ? '关闭后恢复原有显示；与全局底栏分别设置'
+                          : '需要系统授予导航栏管理权限'),
+                      value: n['systemNavigationHidden'] == true,
+                      onChanged: n['systemNavigationGranted'] == true
+                          ? (v) =>
+                              c.command('system-navigation-hidden', enabled: v)
+                          : null),
+                ]));
+          });
+}
+
 /// Operational preferences formerly grouped under the removed 功能接入 tab.
 class RuntimeSettings extends StatelessWidget {
   final LauncherController controller;

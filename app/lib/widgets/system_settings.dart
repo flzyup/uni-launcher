@@ -3,9 +3,7 @@ import '../controller/launcher_controller.dart';
 import '../theme/design_tokens.dart';
 import '../theme/launcher_theme.dart';
 import 'glass_surface.dart';
-import 'integration_settings.dart';
 import 'native_slice_builder.dart';
-import 'dock_size_settings.dart';
 
 /// System-owned labels come from the native adapter.
 /// Never invent an enabled setting when this device cannot provide it.
@@ -60,13 +58,16 @@ class SystemSettingsPanel extends StatelessWidget {
                   return Padding(
                       padding: EdgeInsets.only(bottom: Design.px(6)),
                       child: GlassSurface(
-                          padding: EdgeInsets.symmetric(horizontal: Design.px(8)),
+                          padding:
+                              EdgeInsets.symmetric(horizontal: Design.px(8)),
                           child: ListTile(
-                              key: const ValueKey('system-setting-official-root'),
+                              key: const ValueKey(
+                                  'system-setting-official-root'),
                               leading: const Icon(Icons.settings_outlined),
                               title: const Text('原车系统设置'),
                               trailing: const Icon(Icons.chevron_right),
-                              onTap: () => controller.command('open-official', value: 'settings'))));
+                              onTap: () => controller.command('open-official',
+                                  value: 'settings'))));
                 }
                 if (entry.containsKey('group')) {
                   return Padding(
@@ -93,23 +94,10 @@ class SystemSettingsPanel extends StatelessWidget {
               return Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Column(
-                        key: const ValueKey('system-app-controls'),
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Padding(
-                              padding: EdgeInsets.symmetric(
-                                  horizontal: Design.px(16),
-                                  vertical: Design.px(12)),
-                              child: Text('应用与底栏',
-                                  style: TextStyle(fontSize: Design.px(26)))),
-                          RuntimeSettings(controller: controller),
-                        ]),
-                    SizedBox(height: Design.px(22)),
-                    DockSizeSettings(controller: controller),
-                    SizedBox(height: Design.px(22)),
+                    SizedBox(height: Design.px(4)),
                     Row(children: [
-                      Text('原车系统设置&安卓设置', style: TextStyle(fontSize: Design.px(26))),
+                      Text('原车系统设置&安卓设置',
+                          style: TextStyle(fontSize: Design.px(26))),
                       const Spacer(),
                       TextButton.icon(
                           key: const ValueKey('refresh-system-settings'),

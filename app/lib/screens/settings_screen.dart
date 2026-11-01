@@ -14,11 +14,14 @@ import '../widgets/launcher_dialog.dart';
 import '../widgets/embedded_navigation.dart';
 import '../widgets/system_settings.dart';
 import '../widgets/setting_block.dart';
+import '../widgets/dock_size_settings.dart';
+import '../widgets/integration_settings.dart';
 import '../widgets/spectrum_painter.dart';
 import '../ota/update_controller.dart';
 import '../ota/update_ui.dart';
 import '../widgets/ambient_light_settings.dart';
 import '../widgets/color_picker.dart';
+import '../widgets/native_slice_builder.dart';
 import '../platform/ambient_light.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -55,45 +58,91 @@ class SettingsScreen extends StatelessWidget {
                                       fontSize: Design.px(36),
                                       fontWeight: FontWeight.w500)),
                               SizedBox(height: Design.px(9)),
-                              Text('外观、配色与系统设置',
+                              Text('按分类管理外观、应用、动画与车辆',
                                   style: TextStyle(
                                       fontSize: Design.px(20), color: s.muted))
                             ]),
                         const Spacer()
                       ])),
-                  SizedBox(height: Design.px(24)),
-                  Container(
-                      height: Design.px(60),
-                      decoration: BoxDecoration(
-                          border: Border(bottom: BorderSide(color: s.edge))),
-                      child: Row(children: [
-                        for (final tab in [
-                          ('appearance', '外观主题'),
-                          ('motion', '切换动效'),
-                          ('ambient', '氛围灯'),
-                          ('system', '系统设置'),
-                          ('about', '关于')
-                        ])
-                          _SettingsTab(controller: c, id: tab.$1, label: tab.$2)
-                      ])),
-                  SizedBox(height: Design.px(24)),
+                  SizedBox(height: Design.px(22)),
                   Expanded(
-                      child: switch (c.settingsTab) {
-                    'appearance' => LayoutBuilder(
-                        builder: (context, box) => SingleChildScrollView(
-                            child: SizedBox(
-                                height: box.maxHeight < Design.px(620)
-                                    ? Design.px(620)
-                                    : box.maxHeight,
-                                child: AppearanceSettings(controller: c)))),
-                    'motion' => PageMotionSettings(controller: c),
-                    'ambient' => AmbientLightSettingsTab(controller: c),
-                    'system' => SystemSettingsPanel(controller: c),
-                    'about' => update == null
-                        ? const Center(child: Text('更新服务暂不可用'))
-                        : AboutPanel(update: update!),
-                    _ => SystemSettingsPanel(controller: c)
-                  }),
+                      child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                        SizedBox(
+                            width: Design.px(326),
+                            child: GlassSurface(
+                                padding: EdgeInsets.all(Design.px(14)),
+                                child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: [
+                                      for (final (index, tab) in [
+                                        (
+                                          'appearance',
+                                          Icons.palette_outlined,
+                                          '外观与壁纸'
+                                        ),
+                                        (
+                                          'dock',
+                                          Icons.dashboard_outlined,
+                                          '应用与底栏'
+                                        ),
+                                        (
+                                          'connections',
+                                          Icons.route_outlined,
+                                          '导航与媒体'
+                                        ),
+                                        (
+                                          'motion',
+                                          Icons.animation_outlined,
+                                          '动画与频谱'
+                                        ),
+                                        (
+                                          'ambient',
+                                          Icons.light_outlined,
+                                          '氛围灯'
+                                        ),
+                                        (
+                                          'system',
+                                          Icons.settings_suggest_outlined,
+                                          '原车系统'
+                                        ),
+                                        ('about', Icons.info_outline, '关于与更新')
+                                      ].indexed)
+                                        Padding(
+                                            padding: EdgeInsets.only(
+                                                bottom: index == 6
+                                                    ? 0
+                                                    : Design.px(10)),
+                                            child: _SettingsTab(
+                                                controller: c,
+                                                id: tab.$1,
+                                                icon: tab.$2,
+                                                label: tab.$3))
+                                    ]))),
+                        SizedBox(width: Design.px(22)),
+                        Expanded(
+                            child: switch (c.settingsTab) {
+                          'appearance' => LayoutBuilder(
+                              builder: (context, box) => SingleChildScrollView(
+                                  child: SizedBox(
+                                      height: box.maxHeight < Design.px(620)
+                                          ? Design.px(620)
+                                          : box.maxHeight,
+                                      child:
+                                          AppearanceSettings(controller: c)))),
+                          'dock' => DockSettings(controller: c),
+                          'connections' => const ConnectionSettings(),
+                          'motion' => PageMotionSettings(controller: c),
+                          'ambient' => AmbientLightSettingsTab(controller: c),
+                          'system' => SystemSettingsPanel(controller: c),
+                          'about' => update == null
+                              ? const Center(child: Text('更新服务暂不可用'))
+                              : AboutPanel(update: update!),
+                          _ => SystemSettingsPanel(controller: c)
+                        }),
+                      ])),
                 ])));
   }
 }
@@ -101,32 +150,87 @@ class SettingsScreen extends StatelessWidget {
 class _SettingsTab extends StatelessWidget {
   final LauncherController controller;
   final String id, label;
+  final IconData icon;
   const _SettingsTab(
-      {required this.controller, required this.id, required this.label});
+      {required this.controller,
+      required this.id,
+      required this.label,
+      required this.icon});
   @override
   Widget build(BuildContext context) {
     final s = SurfaceStyle.of(context), selected = controller.settingsTab == id;
-    return Padding(
-        padding: EdgeInsets.only(right: Design.px(12)),
-        child: InkWell(
+    return SizedBox(
+        height: Design.px(68),
+        child: OutlinedButton(
             key: ValueKey('tab-$id'),
-            onTap: () => controller.tab(id),
-            child: Padding(
-                padding: EdgeInsets.symmetric(horizontal: Design.px(30)),
-                child: Container(
-                    key: ValueKey('tab-indicator-$id'),
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                        border: Border(
-                            bottom: BorderSide(
-                                width: Design.px(3),
-                                color:
-                                    selected ? s.accent : Colors.transparent))),
-                    child: Text(label,
-                        style: TextStyle(
-                            fontSize: Design.px(24),
-                            color: selected ? s.accent : s.muted))))));
+            style: s.selectionStyle(selected),
+            onPressed: () => controller.tab(id),
+            child: Row(children: [
+              DesignIcon(icon, size: Design.px(26)),
+              SizedBox(width: Design.px(14)),
+              Expanded(
+                  child: Text(label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          fontSize: Design.px(22),
+                          color: selected ? s.accent : s.text)))
+            ])));
   }
+}
+
+class DockSettings extends StatelessWidget {
+  final LauncherController controller;
+  const DockSettings({super.key, required this.controller});
+  @override
+  Widget build(BuildContext context) {
+    final c = controller, a = c.appearance, s = SurfaceStyle.of(context);
+    return ListView(
+        key: const PageStorageKey('dock-settings-scroll'),
+        padding: EdgeInsets.zero,
+        children: [
+          SettingBlock(
+              title: '底栏样式',
+              note: '悬浮底栏使用卡片圆角',
+              child: Row(children: [
+                for (final (index, layout)
+                    in [('floating', '悬浮'), ('full', '铺满')].indexed)
+                  Expanded(
+                      child: Padding(
+                          padding: EdgeInsets.only(
+                              right: index == 0 ? Design.px(14) : 0),
+                          child: SizedBox(
+                              height: Design.px(66),
+                              child: OutlinedButton(
+                                  key: ValueKey('dock-layout-${layout.$1}'),
+                                  style: s.selectionStyle(
+                                      a.dockLayout == layout.$1),
+                                  onPressed: () => c.setAppearance(
+                                      a.copyWith(dockLayout: layout.$1)),
+                                  child: Text(layout.$2)))))
+              ])),
+          SizedBox(height: Design.px(16)),
+          DockSizeSettings(controller: c),
+          SizedBox(height: Design.px(16)),
+          DockRuntimeSettings(controller: c),
+        ]);
+  }
+}
+
+class ConnectionSettings extends StatelessWidget {
+  const ConnectionSettings({super.key});
+  @override
+  Widget build(BuildContext context) => NativeSliceBuilder(
+      valueListenable: SettingsControllerScope.of(context).native,
+      select: (native) => native,
+      builder: (context, native) => ListView(
+              key: const PageStorageKey('connection-settings-scroll'),
+              padding: EdgeInsets.zero,
+              children: [
+                IntegrationSettings(
+                    controller: SettingsControllerScope.of(context),
+                    native: native)
+              ]));
 }
 
 class SpectrumSettings extends StatelessWidget {
@@ -135,53 +239,70 @@ class SpectrumSettings extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = SurfaceStyle.of(context), c = controller;
-    return SettingBlock(
-        title: '音乐频谱',
-        note: '卡片、音乐弹窗与底栏共用样式',
-        child:
-            Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          LayoutBuilder(
-              builder: (context, box) => Wrap(
-                      spacing: Design.px(14),
-                      runSpacing: Design.px(14),
-                      children: [
-                        for (final entry in spectrumStyleLabels.entries)
-                          SizedBox(
-                              width: (box.maxWidth - Design.px(14)) / 2,
-                              child: OutlinedButton(
-                                  key: ValueKey('spectrum-style-${entry.key}'),
-                                  style: s.selectionStyle(
-                                      c.appearance.spectrumStyle == entry.key),
-                                  onPressed: () => c.setAppearance(c.appearance
-                                      .copyWith(spectrumStyle: entry.key)),
-                                  child: Padding(
-                                      padding: EdgeInsets.symmetric(
-                                          vertical: Design.px(16)),
-                                      child: Column(children: [
-                                        SizedBox(
-                                            height: Design.px(38),
-                                            width: double.infinity,
-                                            child: SpectrumStylePreview(
-                                                style: entry.key,
-                                                accent: s.accent,
-                                                edge: s.edge)),
-                                        SizedBox(height: Design.px(12)),
-                                        Text(entry.value),
-                                      ]))))
-                      ])),
-          SizedBox(height: Design.px(16)),
-          Text('底栏右侧左右滑动可切换歌词和频谱；预览为静态示意。',
-              style: TextStyle(fontSize: Design.px(18), color: s.muted)),
-          SizedBox(height: Design.px(14)),
-          DesignSwitchTile(
-              key: const ValueKey('dock-music-progress-switch'),
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      SettingBlock(
+          title: '音乐频谱',
+          note: '卡片、音乐弹窗与底栏共用样式',
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            LayoutBuilder(
+                builder: (context, box) => Wrap(
+                        spacing: Design.px(14),
+                        runSpacing: Design.px(14),
+                        children: [
+                          for (final entry in spectrumStyleLabels.entries)
+                            SizedBox(
+                                width: (box.maxWidth - Design.px(14)) / 2,
+                                child: OutlinedButton(
+                                    key:
+                                        ValueKey('spectrum-style-${entry.key}'),
+                                    style: s.selectionStyle(
+                                        c.appearance.spectrumStyle ==
+                                            entry.key),
+                                    onPressed: () => c.setAppearance(c
+                                        .appearance
+                                        .copyWith(spectrumStyle: entry.key)),
+                                    child: Padding(
+                                        padding: EdgeInsets.symmetric(
+                                            vertical: Design.px(16)),
+                                        child: Column(children: [
+                                          SizedBox(
+                                              height: Design.px(38),
+                                              width: double.infinity,
+                                              child: SpectrumStylePreview(
+                                                  style: entry.key,
+                                                  accent: s.accent,
+                                                  edge: s.edge)),
+                                          SizedBox(height: Design.px(12)),
+                                          Text(entry.value),
+                                        ]))))
+                        ])),
+            SizedBox(height: Design.px(16)),
+            Text('底栏右侧左右滑动可切换歌词和频谱；预览为静态示意。',
+                style: TextStyle(fontSize: Design.px(18), color: s.muted)),
+            SizedBox(height: Design.px(14)),
+            DesignSwitchTile(
+                key: const ValueKey('dock-music-progress-switch'),
+                contentPadding: EdgeInsets.zero,
+                title: const Text('音乐进度动态背景'),
+                subtitle: const Text('背景长度同步播放进度，光晕向进度线左侧展开'),
+                value: c.appearance.dockMusicProgressBackground,
+                onChanged: (value) => c.setAppearance(
+                    c.appearance.copyWith(dockMusicProgressBackground: value))),
+          ])),
+      SizedBox(height: Design.px(16)),
+      SettingBlock(
+          title: '底部音乐工具条',
+          note: '控制底栏右侧的音乐信息区域',
+          child: DesignSwitchTile(
+              key: const ValueKey('dock-music-visual-switch'),
               contentPadding: EdgeInsets.zero,
-              title: const Text('音乐进度动态背景'),
-              subtitle: const Text('背景长度同步播放进度，光晕向进度线左侧展开'),
-              value: c.appearance.dockMusicProgressBackground,
+              title: const Text('字幕/频谱区域'),
+              subtitle: const Text('关闭后保留播放控制、封面、歌曲与歌手'),
+              value: c.appearance.dockMusicVisual,
               onChanged: (value) => c.setAppearance(
-                  c.appearance.copyWith(dockMusicProgressBackground: value))),
-        ]));
+                  c.appearance.copyWith(dockMusicVisual: value)))),
+    ]);
   }
 }
 
@@ -269,13 +390,8 @@ class AppearanceSettings extends StatelessWidget {
                                                 a.themeStyle == style.$1)),
                                         // 暗夜默认圆角取 Nocturne.defaultRadius；
                                         // 用户已经调过就保留。
-                                        onPressed: () => c.setAppearance(a.copyWith(
-                                            themeStyle: style.$1,
-                                            radius:
-                                                style.$1 == 'nocturne' &&
-                                                        a.radius == 0
-                                                    ? Nocturne.defaultRadius
-                                                    : a.radius)),
+                                        onPressed: () =>
+                                            c.setAppearance(a.copyWith(themeStyle: style.$1, radius: style.$1 == 'nocturne' && a.radius == 0 ? Nocturne.defaultRadius : a.radius)),
                                         child: Text(style.$2))))
                         ])),
                     SizedBox(height: Design.px(16)),

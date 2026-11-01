@@ -283,7 +283,7 @@ void main() {
     await t.pumpAndSettle();
     expect(g.commands.last['action'], 'launch-navigation');
     c.openSettings();
-    c.tab('system');
+    c.tab('connections');
     await t.pumpAndSettle();
     expect(find.byKey(const ValueKey('media-source')), findsOneWidget);
     expect(find.byKey(const ValueKey('navigation-source')), findsOneWidget);
