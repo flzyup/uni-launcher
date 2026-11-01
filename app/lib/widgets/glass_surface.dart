@@ -21,9 +21,12 @@ class GlassSurface extends StatelessWidget {
   final bool shadow;
   final bool dock;
 
-  /// Nocturne only: draw no surface at all — for frames nested inside another
-  /// surface (the dock's media block), where the parent already carries the
-  /// glass and a second white-alpha fill would read as a bright patch.
+  /// Nocturne only: the dock's media block. It gets a single flat tint instead
+  /// of the card glass (the white gradient plus the 66 px bottom shade would
+  /// read as a smudge inside a 72 px capsule), but it must still carry *some*
+  /// surface — without it the playback tint floats on pure black and reads as
+  /// a loose rectangle, and the block's corners no longer answer the radius
+  /// setting the way the classic theme's do.
   final bool flat;
 
   /// Nocturne only: floating panel (dialog sheet) rather than a desktop card.
@@ -119,14 +122,21 @@ class GlassSurface extends StatelessWidget {
   /// for the 820A GPU — no backdrop-filter, no floating lights).
   Widget _nocturne(SurfaceStyle s, BorderRadius shape) {
     if (flat) {
-      // 不画表面，但**仍然裁剪**：底栏音乐块的播放进度是直接 fillRect 的
-      // 直角矩形，少了这层 ClipRRect 就会在胶囊里亮出一个方框（用户反馈
-      // 「音乐外面那个框」）。其他主题靠外层统一裁剪，暗夜不能例外。
+      // 底栏音乐块：只给一层平整的淡底和细边，不叠玻璃高光与底部压暗
+      // （那两样铺在 72 高的胶囊里会糊成一块黑）。底色是必须的——没有它，
+      // 播放进度染在近黑画布上就只剩一根孤立的色块，四角也不随圆角走。
       return ClipRRect(
           borderRadius: shape,
-          child: Material(
-              type: MaterialType.transparency,
-              child: Padding(padding: padding, child: child)));
+          child: DecoratedBox(
+              decoration: BoxDecoration(
+                  // 和经典主题底栏音乐块的 soft 底色同一个值：暗夜要的是
+                  // 「显示方式跟经典一样」，不是另立一套。
+                  color: const Color(0x1AB3D9D9),
+                  borderRadius: shape,
+                  border: Border.all(color: const Color(0x2BFFFFFF))),
+              child: Material(
+                  type: MaterialType.transparency,
+                  child: Padding(padding: padding, child: child))));
     }
     final isCard = !dock && !sheet;
     // 卡片和浮层面板共用同一套玻璃，区别只有两处：面板背后是内容而不是
