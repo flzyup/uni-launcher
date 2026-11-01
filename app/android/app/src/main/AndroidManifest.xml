@@ -42,6 +42,12 @@
       <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
       <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.HOME"/><category android:name="android.intent.category.DEFAULT"/></intent-filter>
     </activity>
+    <!-- A separate launcher alias keeps settings discoverable in “全部应用” while
+         routing into the same Flutter activity with the settings intent. -->
+    <activity-alias android:name=".DesktopSettings" android:targetActivity=".MainActivity"
+        android:label="UNI桌面设置" android:icon="@drawable/uni_icon" android:exported="true">
+      <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
+    </activity-alias>
     <activity android:name=".integration.OfficialWidgetActivity" android:exported="false" android:screenOrientation="landscape"/>
     <activity android:name=".WallpaperPickerActivity" android:exported="false" android:screenOrientation="landscape"/>
     <service android:name=".integration.MediaAccessService" android:label="UNI 媒体访问" android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" android:exported="true"><intent-filter><action android:name="android.service.notification.NotificationListenerService"/></intent-filter></service>
