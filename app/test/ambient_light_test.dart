@@ -198,6 +198,15 @@ void main() {
     test('a missing payload keeps the defaults', () {
       expect(AmbientLightSettings.fromJson(null),
           const AmbientLightSettings());
+      // The tuning page starts on a preset; 自定义 is a deliberate choice.
+      expect(const AmbientLightSettings().customMode, isFalse);
+    });
+
+    test('the custom mode flag round trips through json', () {
+      const settings = AmbientLightSettings(customMode: true);
+      final restored = AmbientLightSettings.fromJson(settings.toJson());
+      expect(restored, settings);
+      expect(restored.customMode, isTrue);
     });
 
     test('the rhythm regions round trip through json', () {

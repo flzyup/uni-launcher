@@ -13,12 +13,13 @@ class AmbientColor {
   const AmbientColor(this.r, this.g, this.b, this.brightness);
 
   /// Packed `0xRRGGBB`, the encoding the vendor SDK expects.
-  int get packed => ((r.clamp(0, 255)) << 16) | ((g.clamp(0, 255)) << 8) |
+  int get packed =>
+      ((r.clamp(0, 255)) << 16) |
+      ((g.clamp(0, 255)) << 8) |
       (b.clamp(0, 255)).clamp(0, 255);
 
   /// `#RRGGBB` for diagnostics and the settings preview.
-  String get hex =>
-      '#${r.clamp(0, 255).toRadixString(16).padLeft(2, '0')}'
+  String get hex => '#${r.clamp(0, 255).toRadixString(16).padLeft(2, '0')}'
       '${g.clamp(0, 255).toRadixString(16).padLeft(2, '0')}'
       '${b.clamp(0, 255).toRadixString(16).padLeft(2, '0')}';
 
@@ -187,7 +188,8 @@ class AmbientPalette {
   /// the music show as a continuous change in brightness rather than a step.
   static AmbientColor colorOf(double hue, int brightness,
       [double? colorSaturation]) {
-    final rgb = hsvToRgb(hue, (colorSaturation ?? saturation).clamp(0.0, 1.0), 1);
+    final rgb =
+        hsvToRgb(hue, (colorSaturation ?? saturation).clamp(0.0, 1.0), 1);
     final b = brightness.clamp(0, 100);
     return scaleByBrightness(AmbientColor(rgb[0], rgb[1], rgb[2], b));
   }
@@ -258,8 +260,8 @@ class AmbientPalette {
   ///  and loud is warm.
   static double intensityHue(double level) {
     final t = level.clamp(0.0, 1.0);
-    return normalizeHue(intensityHueCold -
-        (intensityHueCold - intensityHueWarm) * t);
+    return normalizeHue(
+        intensityHueCold - (intensityHueCold - intensityHueWarm) * t);
   }
 
   /// Spectrum mode hue: circular mean weighted by band energy.
@@ -289,8 +291,7 @@ class AmbientPalette {
   ///
   /// Sensitivity 1 is linear. Above 1 the quiet parts light up too and the
   /// strip keeps up with the music; below 1 only loud passages light it.
-  static int brightnessFor(
-      double level, double sensitivity, int min, int max) {
+  static int brightnessFor(double level, double sensitivity, int min, int max) {
     final lo = min.clamp(0, 100);
     final hi = max.clamp(0, 100);
     if (hi <= lo) return lo;
@@ -601,7 +602,8 @@ class AmbientPalette {
     // A higher sensitivity means a smaller gamma means a flatter curve, so
     // the quiet parts light up too.
     final gamma = levelGammaBase +
-        levelGammaSlope * (1 - sensitivity.clamp(minSensitivity, maxSensitivity));
+        levelGammaSlope *
+            (1 - sensitivity.clamp(minSensitivity, maxSensitivity));
     final v = math.pow(u, gamma).toDouble();
     final floor = (floorPercent / 100).clamp(0.0, 1.0);
     return (floor + (1 - floor) * v).clamp(0.0, 1.0);
@@ -735,6 +737,14 @@ class AmbientLightSettings {
   /// changed default does not override a deliberate choice: an installation
   /// that never touched the chips can be migrated, one that did cannot.
   final bool modeConfigured;
+
+  /// Whether the tuning sliders are visible.
+  ///
+  /// Presets are the front door: picking one hides every slider and shows a
+  /// read-only summary instead. Tapping 自定义 brings the sliders back. The
+  /// flag is stored so a restart does not silently fold the user's tweaks
+  /// back into a preset-shaped page.
+  final bool customMode;
 
   /// Fixed hue in degrees, used by [AmbientPalette.modeFixed].
   final double fixedHue;
@@ -895,6 +905,7 @@ class AmbientLightSettings {
     this.enabled = false,
     this.mode = AmbientPalette.modeBass,
     this.modeConfigured = false,
+    this.customMode = false,
     this.fixedHue = 210,
     this.bassHue = 12,
     this.midHue = 122,
@@ -966,6 +977,7 @@ class AmbientLightSettings {
           ? mode.toInt()
           : AmbientPalette.modeBass,
       modeConfigured: json['modeConfigured'] == true,
+      customMode: json['customMode'] == true,
       fixedHue: json['fixedHue'] is num
           ? AmbientPalette.normalizeHue((json['fixedHue'] as num).toDouble())
           : 210,
@@ -982,9 +994,8 @@ class AmbientLightSettings {
       midCustom: _hexColor(json['midCustom']),
       trebleCustom: _hexColor(json['trebleCustom']),
       sensitivity: json['sensitivity'] is num
-          ? (json['sensitivity'] as num)
-              .toDouble()
-              .clamp(AmbientPalette.minSensitivity, AmbientPalette.maxSensitivity)
+          ? (json['sensitivity'] as num).toDouble().clamp(
+              AmbientPalette.minSensitivity, AmbientPalette.maxSensitivity)
           : 1.4,
       beatLeadMs: json['beatLeadMs'] is num
           ? (json['beatLeadMs'] as num).toInt().clamp(0, 250)
@@ -1017,9 +1028,7 @@ class AmbientLightSettings {
           ? (json['hueMaxAccel'] as num).toInt().clamp(30, 800)
           : 240,
       maxDeltaE: json['maxDeltaE'] is num
-          ? (json['maxDeltaE'] as num)
-              .toDouble()
-              .clamp(0.2, 6.0)
+          ? (json['maxDeltaE'] as num).toDouble().clamp(0.2, 6.0)
           : 1.8,
       floor: json['floor'] is num
           ? (json['floor'] as num).toInt().clamp(0, 30)
@@ -1073,6 +1082,7 @@ class AmbientLightSettings {
         'enabled': enabled,
         'mode': mode,
         'modeConfigured': modeConfigured,
+        'customMode': customMode,
         'fixedHue': fixedHue.round(),
         'bassHue': bassHue.round(),
         'midHue': midHue.round(),
@@ -1112,6 +1122,7 @@ class AmbientLightSettings {
     bool? enabled,
     int? mode,
     bool? modeConfigured,
+    bool? customMode,
     double? fixedHue,
     double? bassHue,
     double? midHue,
@@ -1150,6 +1161,7 @@ class AmbientLightSettings {
         enabled: enabled ?? this.enabled,
         mode: mode ?? this.mode,
         modeConfigured: modeConfigured ?? this.modeConfigured,
+        customMode: customMode ?? this.customMode,
         fixedHue: fixedHue ?? this.fixedHue,
         bassHue: bassHue ?? this.bassHue,
         midHue: midHue ?? this.midHue,
@@ -1173,10 +1185,10 @@ class AmbientLightSettings {
         saturation: saturation ?? this.saturation,
         breath: breath ?? this.breath,
         hueSpanDeg: hueSpanDeg ?? this.hueSpanDeg,
-        centroidWindowLowHundredths: centroidWindowLowHundredths ??
-            this.centroidWindowLowHundredths,
-        centroidWindowSpanHundredths: centroidWindowSpanHundredths ??
-            this.centroidWindowSpanHundredths,
+        centroidWindowLowHundredths:
+            centroidWindowLowHundredths ?? this.centroidWindowLowHundredths,
+        centroidWindowSpanHundredths:
+            centroidWindowSpanHundredths ?? this.centroidWindowSpanHundredths,
         hueRotateDegPerSec: hueRotateDegPerSec ?? this.hueRotateDegPerSec,
         maxChromaHundredths: maxChromaHundredths ?? this.maxChromaHundredths,
         hueJumpDeg: hueJumpDeg ?? this.hueJumpDeg,
@@ -1193,6 +1205,7 @@ class AmbientLightSettings {
       other.enabled == enabled &&
       other.mode == mode &&
       other.modeConfigured == modeConfigured &&
+      other.customMode == customMode &&
       other.fixedHue == fixedHue &&
       other.bassHue == bassHue &&
       other.midHue == midHue &&
@@ -1230,7 +1243,9 @@ class AmbientLightSettings {
   /// A `#RRGGBB` string from the payload, or an empty string.
   static String _hexColor(Object? value) {
     if (value is! String) return '';
-    return RegExp(r'^#[0-9a-fA-F]{6}$').hasMatch(value) ? value.toLowerCase() : '';
+    return RegExp(r'^#[0-9a-fA-F]{6}$').hasMatch(value)
+        ? value.toLowerCase()
+        : '';
   }
 
   @override
@@ -1238,6 +1253,7 @@ class AmbientLightSettings {
         enabled,
         mode,
         modeConfigured,
+        customMode,
         fixedHue,
         bassHue,
         midHue,
