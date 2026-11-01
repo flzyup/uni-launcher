@@ -26,7 +26,7 @@ abstract final class Nocturne {
     'nav': Color(0x4D3BE2C0),
     'trafficLight': Color(0x473BE2C0),
     'music': Color(0x4DFF5FA8),
-    'shortcuts': Color(0x42FF5FA8),
+    'shortcuts': Color(0x428E6CFF),
     'weather': Color(0x526FD3FF),
     'air': Color(0x576FD3FF),
     'cleanup': Color(0x476FD3FF),
