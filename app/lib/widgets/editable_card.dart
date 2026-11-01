@@ -119,12 +119,22 @@ class _EditableCardState extends State<EditableCard> {
                         onPanUpdate: (_) {},
                         child: Container(
                             decoration: BoxDecoration(
-                                color: s.strong.withValues(alpha: .70),
+                                // 暗夜卡面是近黑，原来的 s.strong(.70) 手柄
+                                // 贴上去几乎看不见，用户会以为「没有大小手柄、
+                                // 拖不动」。这里换成主题强调色的淡底＋描边。
+                                color: s.nocturne
+                                    ? s.accent.withValues(alpha: .18)
+                                    : s.strong.withValues(alpha: .70),
+                                border: s.nocturne
+                                    ? Border.all(
+                                        color: s.accent.withValues(alpha: .45))
+                                    : null,
                                 borderRadius: BorderRadius.only(
                                     topLeft: Radius.circular(s.controlRadius))),
                             child: Center(
                                 child: UniIcon('resize',
-                                    size: Design.px(24), color: s.muted))))),
+                                    size: Design.px(24),
+                                    color: s.nocturne ? s.accent : s.muted))))),
               ]
             ])));
   }
