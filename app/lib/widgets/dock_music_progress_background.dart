@@ -115,33 +115,12 @@ class _DockMusicProgressPainter extends CustomPainter {
     if (dividerX < 1) return;
 
     final accent = style.accent;
-    // 进度色块必须跟着音乐块的圆角走：外层的裁剪只盖得住四角，盖不住中间
-    // 那块满高的 drawRect，在胶囊里就亮成一个直角方框（用户反馈「音乐外面
-    // 那个框」）。这里先按 controlRadius 裁一遍，再分主题画。
+    // 进度染色沿用经典主题的满高整块渐变，只多一层按音乐块圆角的裁剪：
+    // 外层 GlassSurface 的裁剪盖得住四角、盖不住中间这两条 drawRect，胶囊
+    // 里就会亮出一个直角方框（用户反馈「音乐外面那个框」）。
     canvas.save();
     canvas.clipRRect(RRect.fromRectAndRadius(
         Offset.zero & size, Radius.circular(style.controlRadius)));
-
-    if (style.nocturne) {
-      // 暗夜画布是近黑，满高染色会读成一块生硬的方块；设计稿的底栏是细线
-      // 语言，所以这里收成底部一条贴合圆角的进度条，末端加一个圆点。
-      final barHeight = math.min(Design.dz(4), size.height * .12);
-      final barTop = size.height - barHeight - Design.dz(3);
-      final radius = Radius.circular(barHeight / 2);
-      canvas.drawRRect(
-          RRect.fromRectAndRadius(
-              Rect.fromLTWH(0, barTop, dividerX, barHeight), radius),
-          Paint()
-            ..shader = ui.Gradient.linear(Offset.zero, Offset(dividerX, 0), [
-              accent.withValues(alpha: .10),
-              accent.withValues(alpha: .58),
-            ]));
-      final dot = barHeight * .95;
-      canvas.drawCircle(Offset(dividerX - dot / 2, barTop + barHeight / 2),
-          dot / 1.9, Paint()..color = accent.withValues(alpha: .92));
-      canvas.restore();
-      return;
-    }
 
     final fill = Paint()
       ..shader = ui.Gradient.linear(Offset.zero, Offset(dividerX, 0), [
