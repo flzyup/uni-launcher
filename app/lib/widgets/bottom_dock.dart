@@ -125,7 +125,7 @@ class BottomDock extends StatelessWidget {
                     Design.px(16), 0, Design.px(16), Design.px(10)),
                 child: GlassSurface(
                     dock: true,
-                    // 胶囊的圆角吃「圆角」设置：暗夜默认 34，高度 72 的一半
+                    // 胶囊的圆角吃「圆角」设置：暗夜默认 25，高度 72 的一半
                     // 是 36，看起来就是全圆角胶囊。滑到 0 时给一个兜底——
                     // 底栏已经是浮起的一条，纯方角会散开，所以退回首版的
                     // 43（≈半径 36）保持胶囊形状。

@@ -267,12 +267,14 @@ class AppearanceSettings extends StatelessWidget {
                                                     : s.soft,
                                             side: s.controlSide(
                                                 a.themeStyle == style.$1)),
-                                        // 暗夜按设计稿是 34 圆角；用户已经调过就保留。
+                                        // 暗夜默认圆角取 Nocturne.defaultRadius；
+                                        // 用户已经调过就保留。
                                         onPressed: () => c.setAppearance(a.copyWith(
                                             themeStyle: style.$1,
                                             radius:
-                                                style.$1 == 'nocturne' && a.radius == 0
-                                                    ? 34
+                                                style.$1 == 'nocturne' &&
+                                                        a.radius == 0
+                                                    ? Nocturne.defaultRadius
                                                     : a.radius)),
                                         child: Text(style.$2))))
                         ])),

@@ -20,6 +20,10 @@ abstract final class Nocturne {
   /// and the card shadows still read.
   static const background = Color(0xFF050607);
 
+  /// 切到暗夜时写进「圆角」的初始值。设计稿是 34，按实机观感收到 25：
+  /// 34 在 1600 画布上是 1:1 单位，比经典主题的换算值大一圈。
+  static const defaultRadius = 25.0;
+
   /// Alpha is tuned per card type, not shared: a 4x2 card needs more glow than
   /// an 8x6 one to read as the same intensity (measured on the design canvas).
   static const _glow = <String, Color>{
@@ -132,9 +136,10 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
   ///
   /// The radius is taken from the settings slider verbatim — one unit on the
   /// slider is one design unit on screen, so 0 really means square corners.
-  /// The design's 34 is only a starting value, written by the theme picker and
-  /// the preview entry point when they switch a profile to Nocturne; mapping
-  /// 0 → 34 here would make the left end of the slider a dead zone.
+  /// [Nocturne.defaultRadius] is only a starting value, written by the theme
+  /// picker and the preview entry point when they switch a profile to
+  /// Nocturne; mapping 0 → 25 here would make the left end of the slider a
+  /// dead zone.
   factory SurfaceStyle._nocturne(Appearance a) {
     final accent = a.accent(true);
     return SurfaceStyle(
