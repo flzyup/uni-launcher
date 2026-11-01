@@ -7,6 +7,8 @@ import '../widgets/scene_background.dart';
 import '../theme/design_tokens.dart';
 import '../widgets/bottom_dock.dart';
 import 'settings_screen.dart';
+import '../ota/update_controller.dart';
+import '../ota/update_ui.dart';
 
 class LauncherShell extends StatefulWidget {
   final LauncherController controller;
@@ -16,12 +18,36 @@ class LauncherShell extends StatefulWidget {
 }
 
 class _LauncherShellState extends State<LauncherShell> {
+  // Rebuilds used to report geometry on every controller notification; the
+  // payload only changes when the layout, page or overlay state does.
+  String? _sentViewport;
+  late final UpdateController update = UpdateController();
+  @override
+  void initState() {
+    super.initState();
+    if (widget.controller.gateway is AndroidGateway) {
+      update.onAvailable = () {
+        if (mounted) showUpdateDialog(context, update);
+      };
+      update.initialize();
+    }
+  }
+
   late final ValueNotifier<double> pagePosition =
       ValueNotifier(widget.controller.page.toDouble());
   LauncherController get controller => widget.controller;
 
+  void _reportViewport(String metrics) {
+    if (metrics == _sentViewport) return;
+    _sentViewport = metrics;
+    AndroidGateway.methods
+        .invokeMethod<void>('viewport', metrics)
+        .catchError((Object _) {});
+  }
+
   @override
   void dispose() {
+    update.dispose();
     pagePosition.dispose();
     super.dispose();
   }
@@ -54,7 +80,8 @@ class _LauncherShellState extends State<LauncherShell> {
                     final globalDock = controller.native.value['globalDock'];
                     final globalDockActive = globalDock is Map &&
                         globalDock['enabled'] == true &&
-                        globalDock['running'] == true;
+                        globalDock['running'] == true &&
+                        globalDock['visible'] == true;
                     final height = nativeHeight != null && nativeHeight > 0
                         ? (nativeHeight /
                                 MediaQuery.devicePixelRatioOf(context))
@@ -70,11 +97,9 @@ class _LauncherShellState extends State<LauncherShell> {
                         'page': controller.page,
                         'settings': controller.settings
                       });
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        AndroidGateway.methods
-                            .invokeMethod<void>('viewport', metrics)
-                            .catchError((Object _) {});
-                      });
+                      final pending = metrics;
+                      WidgetsBinding.instance.addPostFrameCallback(
+                          (_) => _reportViewport(pending));
                     }
                     return Align(
                         alignment: Alignment.topCenter,
@@ -102,7 +127,11 @@ class _LauncherShellState extends State<LauncherShell> {
                                                     position: pagePosition)),
                                             controller.settings
                                                 ? SettingsScreen(
-                                                    controller: controller)
+                                                    controller: controller,
+                                                    update: controller.gateway
+                                                            is AndroidGateway
+                                                        ? update
+                                                        : null)
                                                 : const SizedBox.shrink(),
                                           ])),
                                       if (!globalDockActive)

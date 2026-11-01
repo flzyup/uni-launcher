@@ -67,8 +67,8 @@ def validate(args, output):
         compiled.mkdir(parents=True, exist_ok=True)
         print(f'Compiling all official-car helpers against {platform}', flush=True)
         run([javac, '-source', '8', '-target', '8', '-Xlint:-options', '-encoding', 'UTF-8',
-             '-bootclasspath', platform, '-d', compiled, SOURCE / 'VehicleAdapter.java',
-             *pure, SOURCE / 'OfficialCarReader.java', SOURCE / 'OfficialVehicleSensors.java',
+             '-bootclasspath', platform, '-d', compiled, SOURCE.parent / 'LauncherVisibility.java', SOURCE / 'VehicleAdapter.java',
+             *pure, SOURCE / 'OfficialCarReader.java', SOURCE / 'OfficialBodySignals.java', SOURCE / 'OfficialVehicleSensors.java',
              SOURCE / 'OfficialHybridReader.java', TESTS / 'OfficialHybridReaderTest.java',
              TESTS / 'OfficialVehicleSensorsTest.java'])
         run([java, '-cp', os.pathsep.join([str(compiled), str(platform)]),

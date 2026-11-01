@@ -79,7 +79,11 @@ void main() {
               .resolve(TextDirection.ltr),
           BorderRadius.zero);
     }
-    final field = t.widget<TextField>(find.byKey(const ValueKey('hex-field')));
+    await t.ensureVisible(find.byKey(const ValueKey('custom-color')));
+    await t.tap(find.byKey(const ValueKey('custom-color')));
+    await t.pumpAndSettle();
+    final field =
+        t.widget<TextField>(find.byKey(const ValueKey('color-picker-hex')));
     final border = field.decoration?.border ??
         Theme.of(t.element(find.byType(DesktopPreview)))
             .inputDecorationTheme
@@ -87,11 +91,27 @@ void main() {
     expect((border! as OutlineInputBorder).borderRadius, BorderRadius.zero);
     expect(t.takeException(), null);
   });
+  testWidgets('smart wallpaper styling stays consistent in settings',
+      (t) async {
+    final (c, _) = await launch(t);
+    c.setAppearance(
+        c.appearance.copyWith(mode: 'smart', wallpaper: 'precision'));
+    c.openSettings();
+    await t.pumpAndSettle();
+    expect(
+        SurfaceStyle.of(t.element(find.byKey(const ValueKey('tab-system'))))
+            .dark,
+        isFalse);
+    expect(t.takeException(), isNull);
+  });
+
   testWidgets('wallpaper presets update the persisted appearance', (t) async {
     final (c, g) = await launch(t);
     c.openSettings();
     await t.pumpAndSettle();
-    expect(find.byKey(const ValueKey('wallpaper-overlay')), findsNothing);
+    expect(find.byKey(const ValueKey('wallpaper-overlay')), findsOneWidget);
+    expect(find.text('叠加主题渐变'), findsOneWidget);
+    expect(find.text('更改自动保存'), findsNothing);
     final dawn = find.byKey(const ValueKey('wallpaper-dawn'));
     await t.ensureVisible(dawn);
     await t.pumpAndSettle();
@@ -99,10 +119,14 @@ void main() {
     await t.pumpAndSettle();
     expect(c.appearance.wallpaper, 'dawn');
     expect(c.appearance.mode, 'smart');
-    expect(find.text('叠加主题渐变'), findsNothing);
+    expect(c.appearance.wallpaperOverlay, isFalse);
+    expect(jsonDecode(g.saved!)['preferences']['wallpaperOverlay'], false);
+    await t.tap(find.byKey(const ValueKey('wallpaper-overlay')));
+    await t.pumpAndSettle();
+    expect(c.appearance.wallpaperOverlay, isTrue);
+    expect(jsonDecode(g.saved!)['preferences']['wallpaperOverlay'], true);
     expect(jsonDecode(g.saved!)['preferences']['wallpaper'], 'dawn');
-    expect(jsonDecode(g.saved!)['preferences'],
-        isNot(contains('wallpaperOverlay')));
+    expect(jsonDecode(g.saved!)['preferences'], contains('wallpaperOverlay'));
     expect(find.byKey(const ValueKey('wallpaper-neon')), findsOneWidget);
     expect(find.byKey(const ValueKey('wallpaper-precision')), findsOneWidget);
     expect(find.byKey(const ValueKey('wallpaper-terrain')), findsOneWidget);
@@ -216,7 +240,7 @@ void main() {
     }
     expect(find.text('副驾通风'), findsNothing);
     final sheet = t.widget<LauncherSheet>(find.byType(LauncherSheet));
-    expect(sheet.width, closeTo(933.333, .01));
+    expect(sheet.width, closeTo(1200, .01));
     expect(t.takeException(), null);
   });
   testWidgets(
@@ -231,7 +255,7 @@ void main() {
     await t.pumpAndSettle();
     for (final key in ['driverHeat', 'driverVent', 'passengerHeat']) {
       expect(find.byKey(ValueKey('seat-unknown-$key')), findsOneWidget);
-      for (int level = 0; level <= 3; level++)
+      for (int level = 1; level <= 3; level++)
         expect(
             t
                 .widget<OutlinedButton>(
@@ -239,6 +263,18 @@ void main() {
                 .onPressed,
             null);
     }
+    expect(
+        t
+            .widget<OutlinedButton>(
+                find.byKey(const ValueKey('seat-driver-off')))
+            .onPressed,
+        isNull);
+    expect(
+        t
+            .widget<OutlinedButton>(
+                find.byKey(const ValueKey('seat-passengerHeat-0')))
+            .onPressed,
+        isNull);
     expect(t.takeException(), null);
   });
 }

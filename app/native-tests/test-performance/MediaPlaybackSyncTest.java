@@ -1,6 +1,7 @@
 import android.content.*;
 import android.media.*;
 import android.media.session.*;
+import android.os.Handler;
 import xyz.i4o.uni.launcher.integration.*;
 import java.util.*;
 
@@ -48,6 +49,50 @@ public final class MediaPlaybackSyncTest {
         check(bridge.updates==updates+1,"empty selection synchronized once");
         check(qq.callbacks.isEmpty()&&netease.callbacks.isEmpty(),"removed sources detach callbacks");
         adapter.stop();check(app.sessions.listener==null&&!mirror.active,"stop removes active-session listener");
+        Context retentionContext=new Context();MediaController saved=new MediaController("player.saved");
+        saved.state.state=PlaybackState.STATE_PLAYING;retentionContext.sessions.active=Arrays.asList(saved);
+        MediaAdapter retentionAdapter=new MediaAdapter(retentionContext,()->{});retentionAdapter.start();
+        check(retentionAdapter.snapshot().getString("title").equals("Track player.saved"),"live track stored");
+        saved.state.state=PlaybackState.STATE_PAUSED;saved.metadata=null;saved.emitMetadata();
+        check(retentionAdapter.snapshot().getString("title").equals("Track player.saved"),"paused same session retains metadata");
+        retentionContext.sessions.active=Collections.emptyList();retentionContext.sessions.listener.onActiveSessionsChanged(retentionContext.sessions.active);
+        check(retentionAdapter.snapshot().getBoolean("cached")&&retentionAdapter.snapshot().getString("source").equals("player.saved"),"removed session reports labelled cached track");
+        MediaController other=new MediaController("player.other");other.state.state=PlaybackState.STATE_PLAYING;
+        retentionContext.sessions.active=Arrays.asList(other);retentionContext.sessions.listener.onActiveSessionsChanged(retentionContext.sessions.active);
+        check(retentionAdapter.snapshot().getString("source").equals("player.other")&&!retentionAdapter.snapshot().getBoolean("cached"),"new live session replaces cached source");
+        for(int i=0;i<20;i++){
+            retentionAdapter.stop();check(other.callbacks.isEmpty()&&retentionContext.sessions.listener==null,"stop detaches session callbacks");
+            retentionAdapter.start();check(other.callbacks.size()==1,"restart registers one callback");
+        }
+        retentionAdapter.stop();check(other.callbacks.isEmpty(),"final stop releases session callback");
+        Handler.lastPending=null;
+        Context confirmedContext=new Context();confirmedContext.pm.install("player.confirmed","Confirmed");
+        MediaController confirmed=new MediaController("player.confirmed");confirmed.state.state=PlaybackState.STATE_PAUSED;
+        confirmedContext.sessions.active=Arrays.asList(confirmed);
+        MediaAdapter confirmedAdapter=new MediaAdapter(confirmedContext,()->{});confirmedAdapter.start();
+        check(confirmedAdapter.snapshot().getString("source").equals("player.confirmed"),"confirmation test stores selected source");
+        check(confirmedAdapter.command("toggle-play"),"play command accepted");
+        confirmed.state.state=PlaybackState.STATE_PLAYING;
+        check(Handler.lastPending!=null,"play wake confirmation scheduled");Handler.lastPending.run();
+        check(confirmedContext.launches==0,"confirmed playback does not wake app");confirmedAdapter.stop();
+
+        Handler.lastPending=null;
+        Context ignoredContext=new Context();ignoredContext.pm.install("player.ignored","Ignored");
+        MediaController ignored=new MediaController("player.ignored");ignored.state.state=PlaybackState.STATE_PAUSED;
+        ignoredContext.sessions.active=Arrays.asList(ignored);
+        MediaAdapter ignoredAdapter=new MediaAdapter(ignoredContext,()->{});ignoredAdapter.start();
+        check(ignoredAdapter.snapshot().getString("source").equals("player.ignored"),"ignored test stores selected source");
+        check(ignoredAdapter.command("toggle-play")&&ignored.controls.play==1,"initial play dispatch counted");
+        check(Handler.lastPending!=null,"ignored play schedules fallback");Handler.lastPending.run();
+        check(ignoredContext.launches==1,"stalled play wakes the owning app");check(Handler.lastPending!=null,"fallback waits for app session");Handler.lastPending.run();
+        check(ignored.controls.play==2,"fallback retries play after wake");ignoredAdapter.stop();
+
+        Context disconnectedContext=new Context();disconnectedContext.pm.install("player.disconnected","Disconnected");
+        disconnectedContext.prefs.put("source","player.disconnected");disconnectedContext.prefs.put("title","Saved track");
+        MediaAdapter disconnectedAdapter=new MediaAdapter(disconnectedContext,()->{});disconnectedAdapter.start();
+        check(disconnectedAdapter.command("toggle-play"),"saved-source play launches exactly once");
+        check(disconnectedContext.launches==1,"disconnected play does not fall through to a second launch");disconnectedAdapter.stop();
+
         Context denied=new Context();denied.sessions.denied=true;MediaAdapter unavailable=new MediaAdapter(denied,()->{});unavailable.start();
         check(!unavailable.snapshot().getBoolean("authorized")&&!MediaSession.last.active,"missing media permission fails closed");unavailable.stop();
         System.out.println("PASS MediaPlaybackSyncTest: "+checks+" checks; 100 playback callbacks = 100 synchronizations; QQ/NetEase steering regression passed");

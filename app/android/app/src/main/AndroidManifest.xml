@@ -1,5 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
   <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS"/>
+  <uses-permission android:name="android.permission.BIND_APPWIDGET"/>
   <uses-permission android:name="android.permission.INJECT_EVENTS"/>
   <uses-permission android:name="android.permission.STATUS_BAR"/>
   <uses-permission android:name="android.permission.STATUS_BAR_SERVICE"/>
@@ -26,25 +27,34 @@
   <uses-permission android:name="android.permission.BLUETOOTH"/>
   <uses-permission android:name="android.permission.READ_PHONE_STATE"/>
   <uses-permission android:name="android.permission.READ_CALENDAR"/>
+  <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>
+  <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
   <uses-permission android:name="android.permission.RECORD_AUDIO"/>
   <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
   <uses-permission android:name="android.permission.READ_PRIVILEGED_PHONE_STATE"/>
   <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES"/>
-  <application android:label="UNI 桌面" android:name="${applicationName}" android:icon="@drawable/uni_icon" android:allowBackup="false" android:usesCleartextTraffic="false">
+  <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
+  <!-- 明文只放行「传文件」里用户自己填的下载地址：局域网 NAS、内网发布页和旧站点
+       基本都是 http://，系统默认会直接拒连。应用自身不发起任何其他明文请求。 -->
+  <application android:label="UNI 桌面" android:name="${applicationName}" android:icon="@drawable/uni_icon" android:allowBackup="false" android:usesCleartextTraffic="true">
     <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleInstance" android:screenOrientation="landscape" android:theme="@style/LaunchTheme" android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode" android:hardwareAccelerated="true" android:windowSoftInputMode="adjustResize">
       <meta-data android:name="io.flutter.embedding.android.NormalTheme" android:resource="@style/NormalTheme"/>
       <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
       <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.HOME"/><category android:name="android.intent.category.DEFAULT"/></intent-filter>
     </activity>
-    <activity-alias android:name=".DesktopSettings" android:targetActivity=".MainActivity" android:exported="true" android:label="UNI桌面设置" android:icon="@drawable/uni_icon">
-      <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
-    </activity-alias>
     <activity android:name=".integration.OfficialWidgetActivity" android:exported="false" android:screenOrientation="landscape"/>
+    <activity android:name=".WallpaperPickerActivity" android:exported="false" android:screenOrientation="landscape"/>
     <service android:name=".integration.MediaAccessService" android:label="UNI 媒体访问" android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" android:exported="true"><intent-filter><action android:name="android.service.notification.NotificationListenerService"/></intent-filter></service>
     <service android:name=".GlobalDockService" android:exported="false"/>
+    <service android:name=".OtaBootService" android:exported="false"/>
+    <receiver android:name=".OtaBootReceiver" android:exported="true">
+      <intent-filter><action android:name="com.ecarx.intent.action.EAS_LAUNCH_BAT_3RD"/></intent-filter>
+    </receiver>
+    <provider android:name=".integration.OtaFileProvider" android:authorities="xyz.i4o.uni.launcher.ota" android:exported="false" android:grantUriPermissions="true"/>
+    <provider android:name=".integration.TransferFileProvider" android:authorities="xyz.i4o.uni.launcher.transfer" android:exported="false" android:grantUriPermissions="true"/>
     <receiver android:name=".GlobalDockBootReceiver" android:exported="true">
       <intent-filter><action android:name="android.intent.action.BOOT_COMPLETED"/></intent-filter>
     </receiver>
-    <meta-data android:name="flutterEmbedding" android:value="2"/>
+        <meta-data android:name="flutterEmbedding" android:value="2"/>
   </application>
 </manifest>

@@ -22,7 +22,8 @@ class SceneBackground extends StatelessWidget {
     // Keep the content at one stable parent/slot. Wrapping it in a new
     // decoration for settings (or switching wallpaper/theme) would dispose
     // the live map and release its display, bringing AMap onto the main screen.
-    final showOverlay = !hasWallpaper || forceOverlay;
+    final showOverlay =
+        !hasWallpaper || wallpaper.wallpaperOverlay || forceOverlay;
     return Stack(fit: StackFit.expand, children: [
       if (s.technicalFrame)
         ColoredBox(color: s.background)
@@ -34,11 +35,10 @@ class SceneBackground extends StatelessWidget {
         const SizedBox.expand(),
       if (s.technicalFrame && !hasWallpaper)
         _technicalGradient(s)
+      else if (s.technicalFrame && showOverlay)
+        _technicalWallpaperOverlay(s)
       else if (s.technicalFrame)
-        ColoredBox(
-            color: forceOverlay
-                ? s.background.withValues(alpha: .9)
-                : Colors.transparent)
+        const SizedBox.expand()
       else if (showOverlay)
         _classicBackdrop(s, hasWallpaper)
       else
@@ -58,6 +58,21 @@ class SceneBackground extends StatelessWidget {
             s.background,
             Color.lerp(s.background, s.seed, s.dark ? .12 : .08)!,
           ])));
+
+  Widget _technicalWallpaperOverlay(SurfaceStyle s) => DecoratedBox(
+      key: const ValueKey('technical-wallpaper-overlay'),
+      decoration: BoxDecoration(
+          gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              stops: const [0, .63, 1],
+              colors: [
+                Color.lerp(s.background, s.seed, s.dark ? .42 : .32)!
+                    .withValues(alpha: s.dark ? .52 : .38),
+                s.background.withValues(alpha: s.dark ? .25 : .18),
+                Color.lerp(s.background, s.seed, s.dark ? .28 : .22)!
+                    .withValues(alpha: s.dark ? .42 : .30),
+              ])));
 
   Widget _classicBackdrop(SurfaceStyle s, bool hasWallpaper) => DecoratedBox(
       decoration: BoxDecoration(
@@ -126,10 +141,10 @@ class WallpaperImage extends StatelessWidget {
   Widget build(BuildContext context) {
     final preset = appearance.wallpaperPreset;
     if (preset?.asset != null) {
+      // cacheWidth already matches the panel width, so this is a 1:1 blit: mipmaps
+      // cost VRAM and upload time without changing a single pixel.
       return Image.asset(preset!.asset!,
-          fit: fit,
-          cacheWidth: cacheWidth,
-          filterQuality: FilterQuality.medium);
+          fit: fit, cacheWidth: cacheWidth, filterQuality: FilterQuality.low);
     }
     if (appearance.wallpaper == 'custom' &&
         appearance.wallpaperPath.isNotEmpty) {
@@ -137,7 +152,7 @@ class WallpaperImage extends StatelessWidget {
           key: ValueKey(appearance.wallpaperPath),
           fit: fit,
           cacheWidth: cacheWidth,
-          filterQuality: FilterQuality.medium,
+          filterQuality: FilterQuality.low,
           gaplessPlayback: true,
           errorBuilder: (_, __, ___) => const SizedBox.expand());
     }

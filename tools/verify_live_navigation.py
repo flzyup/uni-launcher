@@ -81,10 +81,10 @@ assert after_pinch['maxPointers'] == 2 and after_pinch['lastAction'] == 1, after
 
 cycles = []
 for cycle in range(4):
-    tap(978, 856)
+    tap(978, 32)
     hidden = wait(lambda d: d['flutterViewport']['page'] == 1)
     same_display(hidden, initial)
-    tap(940, 856)
+    tap(940, 32)
     shown = wait(lambda d: d['flutterViewport']['page'] == 0 and d['mapViews'][0]['cardVisible'])
     same_display(shown, initial)
     time.sleep(.5)
@@ -103,7 +103,8 @@ tap(138, 936)
 wait(lambda d: not d['flutterViewport']['settings'])
 tap(1320, 936)
 time.sleep(.5)
-assert not state()['mapViews'][0]['cardVisible'], 'Modal did not isolate map input'
+# Keep rendering the card behind the glass modal. Its barrier must isolate
+# input without destroying/recreating the live texture.
 screenshot('media-dialog')
 touches = fixture()['touchEvents']
 tap(740, 350)
@@ -114,11 +115,16 @@ time.sleep(.5)
 tap(1217, 114)
 time.sleep(.5)
 assert fixture()['displayId'] == 0, 'Fullscreen map did not enter physical display'
+fullscreen_stack = shell('am', 'stack', 'list')
+assert 'com.autonavi.amapauto/' in fullscreen_stack and 'bounds=[0,0][1920,888]' in fullscreen_stack, fullscreen_stack
 shell('am', 'start', '-W', '-n', 'xyz.i4o.uni.launcher/.MainActivity')
 restored = wait(lambda d: d['mapViews'][0]['cardVisible'] and d['mapViews'][0]['hostVisible'])
 time.sleep(.5)
 same_display(restored, initial)
 assert fixture()['displayId'] == initial['displayId']
+returned_stack = shell('am', 'stack', 'list')
+card_bounds = f'bounds=[0,0][{initial['width']}x{initial['height']}]'.replace('x', ',')
+assert card_bounds in returned_stack, returned_stack
 screenshot('fullscreen-return')
 live_displays = shell('dumpsys', 'display').count('DisplayDeviceInfo{"UNI Live Navigation ')
 assert live_displays == 1, live_displays

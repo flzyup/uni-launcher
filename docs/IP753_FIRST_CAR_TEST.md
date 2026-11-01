@@ -10,17 +10,54 @@
 
 ## 实车签名包
 
-本车定义的车辆扩展权限为 `signature|privileged`，地图输入权限为 `signature`。核对原车 CarService 与已有调试工具的证书后，使用仓库外已有的签名文件生成单独的 `UNI-Launcher-0.4.1-IP753.apk`。应用使用独立 UID，不声明系统共享 UID。开发/模拟器包保留原开发证书，两种证书的包不能相互直接覆盖。
+本车定义的车辆扩展权限为 `signature|privileged`，地图输入权限为 `signature`。核对原车 CarService 与已有调试工具的证书后，使用仓库外已有的签名文件生成单独的 `UNI-Launcher-<版本>-IP753.apk`。应用使用独立 UID，不声明系统共享 UID。开发/模拟器包保留原开发证书，两种证书的包不能相互直接覆盖。
 
 构建完成后，在仓库根目录生成实车包：
 
 ```sh
 python3 tools/sign_car_apk.py \
-  --input app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk \
-  --out app/build/app/outputs/flutter-apk/UNI-Launcher-0.4.1-IP753.apk
+  --input app/build/app/outputs/flutter-apk/app-release.apk
 ```
 
+`--out` 可以省略，默认写到 **`dist/UNI-Launcher-<版本>-IP753.apk`**（版本号从刚构建出来的 APK 里读，改了版本号不会对不上）。两个 app 的实车包都放在各自的 `dist/` 下，和 `app/build/...` 里的中间产物分开 —— 那个目录里曾经躺着几个 V2 移植前的旧 APK，体积和正式包几乎一样，很容易装错车机。
+
 脚本只签名、校验证书和输出 APK，不连接或安装车辆。密钥不入 Git。
+
+### 平台密钥从哪来
+
+`sign_car_apk.py` 按下面的顺序找平台密钥（`platform.pk8` + `platform.x509.pem`）：
+
+| 顺序 | 来源 | 说明 |
+| --- | --- | --- |
+| 1 | `--toolchain` | 显式指定 |
+| 2 | `$IP753_SIGNING_DIR` | 环境变量 |
+| 3 | `/data/tools/linkco-android/ip753-signing` | 原来那台构建机的路径 |
+| 4 | `<repo>/../cardesk/platform-key` | **兄弟工程 cardesk 用的同一张密钥** |
+
+第 4 项是关键：cardesk 的实车包也是用这张证书签的，所以两个 app 签出来是**同一张平台证书**，车控权限两边都拿得到。Java 与 apksigner 也一样自动找（`$JAVA_HOME` → `PATH` → 仓库自带工具链；apksigner 从 SDK 的 `build-tools` 里取最新的）。
+
+### 证书是强校验的
+
+脚本签完会 `apksigner verify --print-certs` 并比对指纹：
+
+```
+c8a2e9bccf597c2fb6dc66bee293fc13f2fc47ec77bc6b2b0d52c11f51192ab8
+```
+
+对不上就把产物**删掉**并报错 —— 签名不符的包装到车机上，现象是「句柄永远拿不到、氛围灯不亮」，跟「没接氛围灯」一模一样，很容易误判成通道问题。
+
+### 两个 app 的产物命名
+
+| app | 实车包（平台签名） | 包名 | 开发包（开发证书） |
+| --- | --- | --- | --- |
+| **UNI-Launcher**（本工程） | `dist/UNI-Launcher-<版本>-IP753.apk` | `xyz.i4o.uni.launcher` | `app/build/app/outputs/flutter-apk/app-debug.apk` |
+| **CarDesk**（兄弟工程 cardesk） | `dist/CarDesk-platform-<包名>-<versionCode>.apk` | `com.ecarx.cardesk`（并存）或 `com.ecarx.qq.tool`（替换原桌面） | `app-debug.apk` |
+
+两条规则：
+
+1. **包名不同 ⇒ 两个 app 可以同时装在车上**（即使证书相同）；桌面上的名字也不同（`UNI 桌面` / `CarDesk 车控桌面`）。
+2. **实车包的名字里带签名标记**（`IP753` / `platform`），和开发包一眼能分开 —— 开发证书的包装到车上会因签名不符拿不到车控权限。
+3. **实车包只在 `dist/` 下**。`app/build/.../flutter-apk/` 里是构建中间产物，不是给车上装的；那里曾经同时躺着几个改版前的旧 APK，肉眼很难和正式包区分开。`dist/README.md` 每次出包时自动生成，写明**唯一该装的那个文件**和它的 SHA-256（和 cardesk 的做法一致）。
 
 ## 接入测试发现
 

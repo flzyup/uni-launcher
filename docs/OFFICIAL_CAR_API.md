@@ -26,6 +26,8 @@
 
 现车启动类路径已有 `android.car.jar` 与 `ecarx.adapterapi.jar`，本车不要求新增 `uses-library`，也不需要打包厂商实现。应用必须声明并获授 `android.car.permission.CAR_VENDOR_EXTENSION`，保护级别为 `signature|privileged`；现装自定义 Launcher 已获得该权限。
 
+**签名决定这个权限能不能拿到。** `signature|privileged` 意味着只有与原车 Launcher 同一张证书签名的应用才会被授予。开发／模拟器包用的是另一张证书，装到车机上没有这个权限，`Car.create` 不会被调用，句柄永远拿不到——所有车控能力（空调、座椅、胎压、音乐律动氛围灯）都表现为「不可用」。实车包用 `tools/sign_car_apk.py` 单独签出 platform 证书（与 cardesk 实机验证用的同一张，SHA256 `C8:A2:E9:BC:…`），详见[工程说明](../app/README.md)。两种证书的包不能互相覆盖安装。
+
 `PropertyHalServiceIds.insertVendorProperty` 对厂商属性的读写均使用此权限。`CarPropertyService.getProperty/registerListener` 检查读取权限，`setProperty` 检查写权限。平台虽另外定义 `CONTROL_CAR_CLIMATE`、`CONTROL_CAR_SEATS`，本车这些厂商 PA/CB 属性实际映射到 `CAR_VENDOR_EXTENSION`。
 
 **精确接口与编码**

@@ -4,14 +4,17 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import '../model/appearance.dart';
+import '../model/ambient_light.dart';
 import '../model/card_layout.dart';
 import '../model/card_reorder.dart';
 import '../platform/native_gateway.dart';
+import '../platform/ambient_light.dart';
 
 class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
   final NativeGateway gateway;
   final native = ValueNotifier<Map<String, dynamic>>({});
   Appearance appearance = const Appearance();
+  AmbientLightSettings ambientLight = const AmbientLightSettings();
   Map<String, String> appNames = {};
   List<LauncherCard> cards = defaultCards();
   LauncherCard? placementOrigin, placementTarget;
@@ -88,7 +91,7 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> _saveTail = Future.value();
   // Budgets include both the UTF-16 source key and compressed image bytes.
   final _icons = _SnapshotImages(256, 4 * 1024 * 1024);
-  final _recentImages = _SnapshotImages(48, 12 * 1024 * 1024);
+  final _recentImages = _SnapshotImages(48, 6 * 1024 * 1024);
   bool _observingMemory = false;
   bool _disposed = false;
 
@@ -117,8 +120,8 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
     if (_disposed) return;
     if (!_observingMemory) {
       final imageCache = PaintingBinding.instance.imageCache;
-      imageCache.maximumSize = 128;
-      imageCache.maximumSizeBytes = 24 * 1024 * 1024;
+      imageCache.maximumSize = 64;
+      imageCache.maximumSizeBytes = 10 * 1024 * 1024;
       WidgetsBinding.instance.addObserver(this);
       _observingMemory = true;
     }
@@ -134,6 +137,8 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
           final data = jsonDecode(raw) as Map<String, dynamic>;
           appearance = Appearance.fromJson(
               Map<String, dynamic>.from(data['preferences'] ?? {}));
+          ambientLight = AmbientLightSettings.fromJson(
+              Map<String, dynamic>.from(data['ambientLight'] ?? {}));
           appNames = _decodeAppNames(state['appNames'] ?? data['appNames']);
           final parsed = (data['cards'] as List)
               .map((c) => LauncherCard.fromJson(Map<String, dynamic>.from(c)))
@@ -161,22 +166,63 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
     }
     if (_disposed) return;
     ready = true;
+    _syncAmbientLight();
     notifyListeners();
   }
 
-  void _receive(Map<String, dynamic> state) {
+  /// Payloads that Android sends on bootstrap and on change, never with every
+  /// telemetry tick. A partial packet omits them and the last copy is retained.
+  static const _carriedKeys = [
+    'apps',
+    'recentTasks',
+    'savedDesign',
+    'appNames'
+  ];
+  static const _carriedMedia = ['artwork', 'lyrics'];
+
+  void _receive(Map<String, dynamic> incoming) {
+    final previous = native.value;
+    // A partial packet carries telemetry only: merge it over the last state so
+    // omitted payloads keep their instance (the icon/artwork caches, and every
+    // deep comparison in NativeSliceBuilder, depend on identical references).
+    final partial = incoming['partial'] == true;
+    Map<String, dynamic> state = incoming;
+    if (partial) {
+      state = <String, dynamic>{...incoming}..remove('partial');
+      for (final key in _carriedKeys) {
+        if (!state.containsKey(key) && previous.containsKey(key)) {
+          state[key] = previous[key];
+        }
+      }
+      final media = state['media'], previousMedia = previous['media'];
+      if (media is Map && previousMedia is Map) {
+        Map<String, dynamic>? merged;
+        for (final key in _carriedMedia) {
+          if (!media.containsKey(key) && previousMedia.containsKey(key)) {
+            merged ??= Map<String, dynamic>.from(media);
+            merged[key] = previousMedia[key];
+          }
+        }
+        if (merged != null) state['media'] = merged;
+      }
+    }
     // The settings catalog can contain hundreds of entries. Android sends it
     // on bootstrap/explicit refresh, rather than with every telemetry event.
     if (!state.containsKey('systemSettings') &&
-        native.value.containsKey('systemSettings')) {
-      state = {...state, 'systemSettings': native.value['systemSettings']};
+        previous.containsKey('systemSettings')) {
+      state = {...state, 'systemSettings': previous['systemSettings']};
     }
     if (_disposed) return;
-    _icons.begin(native.value['apps'], const ['icon']);
-    _recentImages
-        .begin(native.value['recentTasks'], const ['icon', 'snapshot']);
+    // Bookkeeping only for payloads this packet actually carries; running it on
+    // a packet that omits them would evict images that are still on screen.
+    final keepIcons = !(partial && !incoming.containsKey('apps'));
+    final keepRecents = !(partial && !incoming.containsKey('recentTasks'));
+    if (keepIcons) _icons.begin(previous['apps'], const ['icon']);
+    if (keepRecents) {
+      _recentImages.begin(previous['recentTasks'], const ['icon', 'snapshot']);
+    }
     final apps = state['apps'];
-    if (apps is List) {
+    if (keepIcons && apps is List) {
       state = {
         ...state,
         'apps': [
@@ -190,7 +236,7 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
     // An explicit non-recents panel means its stale task payload is hidden.
     final recentsClosed =
         dock is Map && dock.containsKey('panel') && dock['panel'] != 'recents';
-    if (recentTasks is List) {
+    if (keepRecents && recentTasks is List) {
       state = {
         ...state,
         'recentTasks': recentsClosed
@@ -205,8 +251,8 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
               ]
       };
     }
-    _icons.finish();
-    _recentImages.finish();
+    if (keepIcons) _icons.finish();
+    if (keepRecents) _recentImages.finish();
     bool overlayThemeChanged = false;
     if ({'global-dock', 'global-panel'}.contains(state['hostMode']) &&
         state['savedDesign'] is String &&
@@ -288,6 +334,7 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
   String serialize() => jsonEncode({
         'version': 6,
         'preferences': appearance.toJson(),
+        'ambientLight': ambientLight.toJson(),
         'cards': cards.map((c) => c.toJson()).toList(),
         'pageCount': pageCount,
         'appNames': appNames
@@ -355,6 +402,31 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
     if (save) persist();
   }
 
+  /// Only the desktop engine drives the ambient strip. The global dock and
+  /// the global panel run in their own isolates, and a second writer would
+  /// race the first one for the same colour.
+  bool get drivesAmbientLight => !isGlobalDock;
+
+  /// Stores the ambient light settings and hands them to the head unit.
+  void setAmbientLight(AmbientLightSettings next) {
+    if (next == ambientLight) return;
+    ambientLight = next;
+    notifyListeners();
+    persist();
+    if (drivesAmbientLight) {
+      unawaited(AmbientLightService.shared.applySettings(next));
+    }
+  }
+
+  /// Pushes the stored settings to the head unit channel and reads its
+  /// capability back.
+  void _syncAmbientLight() {
+    if (!drivesAmbientLight) return;
+    final service = AmbientLightService.shared;
+    unawaited(service.applySettings(ambientLight));
+    unawaited(service.refreshStatus());
+  }
+
   void home() {
     if (isGlobalDock) {
       command('show-home');
@@ -392,7 +464,9 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> switchPage(int value) async {
-    final target = value.clamp(0, pageCount - 1), request = ++_pageRequest;
+    // pageCount itself is the transient trailing library page. It is not part
+    // of pageCount until a card is actually placed there.
+    final target = value.clamp(0, pageCount).toInt(), request = ++_pageRequest;
     if (target == page) return;
     // Page selection is intentionally a small one-way platform call. Sending
     // it through the general action channel publishes a complete vehicle
@@ -424,6 +498,12 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
     _backupPages = pageCount;
     editing = true;
     settings = false;
+    notifyListeners();
+  }
+
+  void beginEditAtEnd() {
+    beginEdit();
+    _setPage(pageCount);
     notifyListeners();
   }
 

@@ -49,7 +49,7 @@ public final class LiveNavigationHost {
                     if(map!=null&&!map.disposed&&map.requestedVisible&&hostVisible)
                         throw new IllegalStateException("Navigation already visible in another card");
                     if(map!=null){map.close();map=null;}
-                    map=new LiveMap(nextId++,pkg,dimension(call.argument("width"),1920),dimension(call.argument("height"),1080));
+                    map=new LiveMap(nextId++,pkg,dimension(call.argument("width"),1920),dimension(call.argument("height"),1080),scale(call.argument("scale")));
                     result.success(map.status());
                     LiveMap created=map;main.post(()->{if(map==created&&!created.disposed)created.activate();});
                 }else if("dispose".equals(call.method)){
@@ -62,6 +62,13 @@ public final class LiveNavigationHost {
         });
     }
     private NavigationApps apps(){return new NavigationApps(activity,activity.getSharedPreferences("launcher",0));}
+    /** 纹理缩放系数，只接受 (0.3, 1] 以免误配出无法使用的画面。 */
+    private static float scale(Object raw){
+        if(!(raw instanceof Number))return 1f;
+        double value=((Number)raw).doubleValue();
+        return Double.isFinite(value)&&value>0.3&&value<=1?((float)value):1f;
+    }
+
     private int dimension(Object raw,int maximum){
         if(!(raw instanceof Number))throw new IllegalArgumentException("Missing map dimensions");
         double value=((Number)raw).doubleValue();
@@ -96,12 +103,15 @@ public final class LiveNavigationHost {
         Object inputForwarder;
         java.lang.reflect.Method forwardEvent;
         int width,height,activationCount,launchCount,taskMoves,resizeCount,placementAttempts,generation;
+        /** 纹理像素缩放：只降分辨率，密度同比降，保证导航 App 看到的 dp 尺寸不变。 */
+        final float scale;
         boolean disposed,requestedVisible=true,ready,pointerDown;
         long downTime;
         String phase="loading",reason="正在载入实时地图";
         final Runnable timeout=()->{if(!disposed&&!ready){phase="unavailable";reason="地图未输出画面，请重试或全屏打开";publish();}};
-        LiveMap(int id,String pkg,int width,int height)throws Exception{
-            this.id=id;this.pkg=pkg;this.width=width;this.height=height;
+        LiveMap(int id,String pkg,int logicalWidth,int logicalHeight,float scale)throws Exception{
+            this.id=id;this.pkg=pkg;this.scale=scale;
+            this.width=pixels(logicalWidth);this.height=pixels(logicalHeight);
             channel=new MethodChannel(messenger,"xyz.i4o.uni.launcher/map/"+id);
             channel.setMethodCallHandler((call,result)->{
                 try{
@@ -146,8 +156,7 @@ public final class LiveNavigationHost {
             });
             surface=new Surface(texture.surfaceTexture());
             DisplayManager manager=(DisplayManager)activity.getSystemService(Context.DISPLAY_SERVICE);
-            display=manager.createVirtualDisplay("UNI Live Navigation "+id,width,height,
-                    activity.getResources().getDisplayMetrics().densityDpi,surface,
+            display=manager.createVirtualDisplay("UNI Live Navigation "+id,width,height,textureDensity(),surface,
                     DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC|DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY);
             if(display==null)throw new IllegalStateException("Virtual display unavailable");
             // Match ActivityView's Android 9 contract without its SurfaceView.
@@ -159,11 +168,20 @@ public final class LiveNavigationHost {
             inputForwarder=create.invoke(input,display.getDisplay().getDisplayId());
             forwardEvent=inputForwarder.getClass().getMethod("forwardEvent",InputEvent.class);forwardEvent.setAccessible(true);
         }
-        void resize(int nextWidth,int nextHeight){
+        int pixels(int logical){return Math.max(64,Math.min(1920,Math.round(logical*scale)));}
+
+        /** 密度同比缩放，导航 App 的 dp 逻辑尺寸保持不变，因此它自己的界面不会重排。 */
+        int textureDensity(){
+            int base=activity.getResources().getDisplayMetrics().densityDpi;
+            return Math.max(72,Math.round(base*scale));
+        }
+
+        void resize(int logicalWidth,int logicalHeight){
+            int nextWidth=pixels(logicalWidth),nextHeight=pixels(logicalHeight);
             if(disposed||width==nextWidth&&height==nextHeight)return;
             cancelTouch();width=nextWidth;height=nextHeight;resizeCount++;
             texture.surfaceTexture().setDefaultBufferSize(width,height);
-            display.resize(width,height,activity.getResources().getDisplayMetrics().densityDpi);
+            display.resize(width,height,textureDensity());
             ready=false;awaitingFrame.set(true);phase="loading";reason="正在调整实时地图";publish();
             main.removeCallbacks(timeout);main.postDelayed(timeout,10000);
         }
@@ -197,6 +215,12 @@ public final class LiveNavigationHost {
                     java.lang.reflect.Method move=manager.getClass().getMethod("moveStackToDisplay",int.class,int.class);move.setAccessible(true);
                     move.invoke(manager,type.getField("stackId").getInt(stack),display.getDisplay().getDisplayId());
                     taskMoves++;
+                    // AMap keeps full-screen Activity bounds after moving back.
+                    // Resize the stack before it draws, so the existing view tree
+                    // relayouts without clearing the live texture.
+                    java.lang.reflect.Method resizeStack=manager.getClass().getMethod("resizeStack",int.class,android.graphics.Rect.class,boolean.class,boolean.class,boolean.class,int.class);
+                    resizeStack.setAccessible(true);
+                    resizeStack.invoke(manager,type.getField("stackId").getInt(stack),new android.graphics.Rect(0,0,width,height),true,true,false,-1);
                 }
                 return ComponentName.unflattenFromString(names[0]);
             }return null;

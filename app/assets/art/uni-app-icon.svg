@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <title>UNI桌面</title>
+  <defs>
+    <linearGradient id="mark" gradientUnits="userSpaceOnUse" x1="150" y1="177" x2="360" y2="341">
+      <stop offset="0" stop-color="#F7FAFF"/>
+      <stop offset=".5" stop-color="#DEEEFC"/>
+      <stop offset="1" stop-color="#83B6FF"/>
+    </linearGradient>
+    <linearGradient id="i" gradientUnits="userSpaceOnUse" x1="420" y1="177" x2="464" y2="341">
+      <stop offset="0" stop-color="#A1E4F5"/>
+      <stop offset="1" stop-color="#61AEF5"/>
+    </linearGradient>
+  </defs>
+  <path d="M0 0h512v512H0z" fill="#0D203B"/>
+  <path d="M46 177h42v86c0 23 12 35 35 35h23c22 0 34-12 34-35v-46c0-25 16-41 38-41 13 0 22 5 32 14l109 104V177h42v125c0 24-15 39-37 39-13 0-23-5-32-14l-99-93c-6-6-11-5-11 3v26c0 50-28 78-76 78h-23c-50 0-77-28-77-78z" fill="url(#mark)"/>
+  <path d="M424 177h36c2 0 4 2 4 4v156c0 2-2 4-4 4h-36c-2 0-4-2-4-4V181c0-2 2-4 4-4z" fill="url(#i)"/>
+</svg>

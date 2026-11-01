@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:uni_launcher/controller/launcher_controller.dart';
 import 'package:uni_launcher/launcher_app.dart';
+import 'package:uni_launcher/theme/design_tokens.dart';
 import 'package:uni_launcher/widgets/circulation_icon.dart';
+import 'package:uni_launcher/widgets/uni_icon.dart';
 import 'fake_gateway.dart';
 
 void main() {
@@ -28,6 +30,53 @@ void main() {
         find.byKey(const ValueKey('dock-circulation-indicator'));
     final left = find.byKey(const ValueKey('dock-temperature-left'));
     final right = find.byKey(const ValueKey('dock-temperature-right'));
+    final home = t.getRect(find.byKey(const ValueKey('home')));
+    final music = t.getRect(find.byKey(const ValueKey('dock-music-frame')));
+    final climateFrame =
+        t.getRect(find.byKey(const ValueKey('dock-climate-frame')));
+    expect(home.width, closeTo(music.height, .1));
+    expect(home.height, closeTo(music.height, .1));
+    expect(climateFrame.height, closeTo(music.height, .1));
+    for (final finder in [
+      ac,
+      find.byKey(const ValueKey('climate')),
+      left,
+      right,
+      circulation,
+      find.byKey(const ValueKey('climate-power'))
+    ]) {
+      final rect = t.getRect(finder);
+      expect(rect.width, closeTo(home.width, .1), reason: '$finder');
+      expect(rect.height, closeTo(home.height, .1), reason: '$finder');
+    }
+    final pressColors = <Color>{
+      for (final key in [
+        'system-back',
+        'home',
+        'all-apps',
+        'recents',
+        'camera',
+        'dock-ac-indicator',
+        'dock-temperature-left',
+        'climate',
+        'dock-circulation-indicator',
+        'dock-temperature-right',
+        'climate-power',
+        'previous',
+        'play-pause',
+        'next',
+        'uni-menu',
+      ])
+        t
+            .widget<InkWell>(find
+                .descendant(
+                    of: find.byKey(ValueKey(key)),
+                    matching: find.byType(InkWell))
+                .first)
+            .overlayColor!
+            .resolve({WidgetState.pressed})!,
+    };
+    expect(pressColors, hasLength(1));
     expect(t.getCenter(ac).dx, lessThan(t.getCenter(left).dx));
     expect(t.getCenter(left).dx, lessThan(t.getCenter(fan).dx));
     expect(t.getCenter(right).dx, greaterThan(t.getCenter(circulation).dx));
@@ -50,6 +99,13 @@ void main() {
     expect(g.commands.last['value'], 'recirc');
     await t.tap(fan);
     await t.pumpAndSettle();
+    expect(
+        t.widget<UniIcon>(find.byKey(const ValueKey('climate-fan-icon'))).size,
+        greaterThanOrEqualTo(Design.px(36)));
+    expect(
+        t.getCenter(find.byKey(const ValueKey('climate-card-left'))).dy,
+        closeTo(
+            t.getCenter(find.byKey(const ValueKey('climate-card-fan'))).dy, 1));
     final autoLabels = t.widgetList<Text>(find.text('AUTO'));
     expect(
         autoLabels.any((text) => text.maxLines == 1 && text.softWrap == false),

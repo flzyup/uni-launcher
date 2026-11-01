@@ -44,6 +44,7 @@ const wallpaperPresets = <WallpaperPreset>[
 class Appearance {
   static const themeStyles = ['classic', 'blueGlass'];
   static const spectrumStyles = ['bars', 'segments', 'mirror', 'outline'];
+  static const dockSizes = ['small', 'medium', 'large'];
   static const defaultDesktopName = 'LYNK & CO / 05';
   static String normalizeDesktopName(Object? value) {
     final name =
@@ -62,9 +63,12 @@ class Appearance {
       desktopName,
       wallpaper,
       wallpaperPath;
+  final String dockSize;
   final double radius;
   final double? wallpaperLuminance;
   final bool glass;
+  final bool wallpaperOverlay;
+  final bool dockMusicProgressBackground;
   const Appearance(
       {this.desktopName = defaultDesktopName,
       this.mode = 'system',
@@ -73,10 +77,13 @@ class Appearance {
       this.custom = '#38A4A0',
       this.radius = 0,
       this.glass = false,
+      this.wallpaperOverlay = false,
+      this.dockMusicProgressBackground = true,
       this.pageTransition = 'slide',
       this.spectrumStyle = 'segments',
       this.wallpaper = 'gradient',
       this.wallpaperPath = '',
+      this.dockSize = 'large',
       this.wallpaperLuminance});
   factory Appearance.fromJson(Map<String, dynamic> json) => Appearance(
         desktopName: normalizeDesktopName(json['desktopName']),
@@ -97,6 +104,10 @@ class Appearance {
             ? (json['radius'] as num).toDouble().clamp(0, 40)
             : 28,
         glass: json['glass'] == true,
+        wallpaperOverlay: json['wallpaperOverlay'] == true,
+        dockMusicProgressBackground: json['dockMusicProgressBackground'] is bool
+            ? json['dockMusicProgressBackground'] as bool
+            : true,
         pageTransition: normalizePageEffect(json['pageTransition']),
         spectrumStyle: spectrumStyles.contains(json['spectrumStyle'])
             ? json['spectrumStyle']
@@ -109,6 +120,8 @@ class Appearance {
                 (json['wallpaperPath'] as String).length <= 1024
             ? json['wallpaperPath']
             : '',
+        dockSize:
+            dockSizes.contains(json['dockSize']) ? json['dockSize'] : 'large',
         wallpaperLuminance: json['wallpaperLuminance'] is num
             ? (json['wallpaperLuminance'] as num).toDouble().clamp(0, 1)
             : null,
@@ -121,10 +134,13 @@ class Appearance {
           String? custom,
           double? radius,
           bool? glass,
+          bool? wallpaperOverlay,
+          bool? dockMusicProgressBackground,
           String? pageTransition,
           String? spectrumStyle,
           String? wallpaper,
           String? wallpaperPath,
+          String? dockSize,
           double? wallpaperLuminance}) =>
       Appearance(
           desktopName: normalizeDesktopName(desktopName ?? this.desktopName),
@@ -134,12 +150,16 @@ class Appearance {
           custom: custom ?? this.custom,
           radius: (radius ?? this.radius).clamp(0, 40),
           glass: glass ?? this.glass,
+          wallpaperOverlay: wallpaperOverlay ?? this.wallpaperOverlay,
+          dockMusicProgressBackground:
+              dockMusicProgressBackground ?? this.dockMusicProgressBackground,
           pageTransition: pageTransition ?? this.pageTransition,
           spectrumStyle: spectrumStyles.contains(spectrumStyle)
               ? spectrumStyle!
               : this.spectrumStyle,
           wallpaper: wallpaper ?? this.wallpaper,
           wallpaperPath: wallpaperPath ?? this.wallpaperPath,
+          dockSize: dockSizes.contains(dockSize) ? dockSize! : this.dockSize,
           wallpaperLuminance: wallpaperLuminance ?? this.wallpaperLuminance);
   Map<String, dynamic> toJson() => {
         'desktopName': desktopName,
@@ -149,9 +169,12 @@ class Appearance {
         'custom': custom,
         'radius': radius.round(),
         'glass': glass,
+        'wallpaperOverlay': wallpaperOverlay,
+        'dockMusicProgressBackground': dockMusicProgressBackground,
         'pageTransition': pageTransition,
         'spectrumStyle': spectrumStyle,
         'wallpaper': wallpaper,
+        'dockSize': dockSize,
         if (wallpaperPath.isNotEmpty) 'wallpaperPath': wallpaperPath,
         if (wallpaperLuminance != null)
           'wallpaperLuminance': wallpaperLuminance,

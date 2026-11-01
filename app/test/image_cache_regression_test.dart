@@ -50,9 +50,11 @@ void main() {
               pixel.length * 2 +
               base64Decode(pixel).length);
     }
+    // Budgets are sized for the 2GB head units: icons ship as WebP now, so the
+    // decoded-picture cache needs far less room to stay warm.
     expect(
-        PaintingBinding.instance.imageCache.maximumSizeBytes, 24 * 1024 * 1024);
-    expect(PaintingBinding.instance.imageCache.maximumSize, 128);
+        PaintingBinding.instance.imageCache.maximumSizeBytes, 10 * 1024 * 1024);
+    expect(PaintingBinding.instance.imageCache.maximumSize, 64);
   });
 
   test(
@@ -160,6 +162,55 @@ void main() {
     WidgetsBinding.instance.handleMemoryPressure();
     expect(controller.imageCacheStats.values, everyElement(0));
     await gateway.dispose();
+  });
+
+  test('telemetry-only packets keep the payloads they omit', () async {
+    final gateway = FakeGateway();
+    final controller = LauncherController(gateway);
+    await controller.initialize();
+    addTearDown(() async {
+      controller.dispose();
+      await gateway.dispose();
+    });
+    gateway.stream.add({
+      'apps': [
+        {'package': 'app', 'icon': pixel}
+      ],
+      'recentTasks': [
+        {'id': 1, 'snapshot': pixel}
+      ],
+      'media': {'title': 'A', 'artwork': pixel, 'lyrics': '[00:01.00]one'},
+      'appNames': {'app': 'My player'},
+      'savedDesign': '{"preferences":{}}'
+    });
+    final icon = (controller.native.value['apps'] as List).single['iconBytes'];
+    expect(controller.imageCacheStats['iconCount'], 1);
+    expect(controller.imageCacheStats['recentCount'], 1);
+    // Android sends icons, artwork, lyrics, names and design once, then streams
+    // telemetry without them; the retained copy must survive untouched.
+    gateway.stream
+        .add({'partial': true, 'demo': true, 'media': {'title': 'B'}});
+    final state = controller.native.value;
+    expect((state['apps'] as List).single['iconBytes'], same(icon));
+    expect((state['recentTasks'] as List).single['snapshotBytes'],
+        base64Decode(pixel));
+    expect((state['media'] as Map)['title'], 'B');
+    expect((state['media'] as Map)['artwork'], pixel);
+    expect((state['media'] as Map)['lyrics'], '[00:01.00]one');
+    expect(state['appNames'], {'app': 'My player'});
+    expect(state['savedDesign'], '{"preferences":{}}');
+    expect(state.containsKey('partial'), false);
+    expect(controller.imageCacheStats['iconCount'], 1,
+        reason: 'a packet without icons must not evict the visible ones');
+    expect(controller.imageCacheStats['recentCount'], 1);
+    expect(controller.appName({'package': 'app'}), 'My player');
+    // A full packet still replaces everything, including retiring old images.
+    gateway.stream.add({
+      'apps': [
+        {'package': 'other', 'icon': pixel}
+      ]
+    });
+    expect(controller.imageCacheStats['recentCount'], 0);
   });
 
   test('cache changes preserve persisted app renames', () async {

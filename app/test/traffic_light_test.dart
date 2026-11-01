@@ -210,6 +210,21 @@ void main() {
     await t.pumpWidget(const SizedBox());
   });
 
+  testWidgets('heading stays at the top for waiting and single signal',
+      (t) async {
+    await t.pumpWidget(review(TrafficLightSnapshot.fromNative({})));
+    await t.pump();
+    final waitingTop =
+        t.getTopLeft(find.byKey(const ValueKey('traffic-light-open-map'))).dy;
+    await t.pumpWidget(review(TrafficLightSnapshot.fromNative(signalState())));
+    await t.pump();
+    expect(
+        t.getTopLeft(find.byKey(const ValueKey('traffic-light-open-map'))).dy,
+        closeTo(waitingTop, .1));
+    expect(find.text('高德地图'), findsOneWidget);
+    expect(t.takeException(), isNull);
+  });
+
   testWidgets(
       'off-page card cancels countdown timer and shows stale data on reveal',
       (t) async {

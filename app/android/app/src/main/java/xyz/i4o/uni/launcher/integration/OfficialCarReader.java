@@ -13,7 +13,9 @@ import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.lang.ref.WeakReference;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
@@ -46,8 +48,8 @@ public final class OfficialCarReader implements VehicleAdapter {
     private static final Class<?>[] NONE = new Class<?>[0];
     // This SDK has no unregisterReadyChangedCallback. Register exactly one SDK
     // watcher per process; activity-scoped readers are held only weakly.
-    private static Object sharedSdkCar, sharedFunctions, sharedSignals, sharedWatcher;
-    private static boolean sharedReady;
+    private static volatile Object sharedSdkCar, sharedFunctions, sharedSignals, sharedWatcher;
+    private static volatile boolean sharedReady;
     private static final List<WeakReference<OfficialCarReader>> readers = new ArrayList<>();
     private final Context context;
     private final Runnable changed;
@@ -66,8 +68,16 @@ public final class OfficialCarReader implements VehicleAdapter {
     private volatile boolean writeSignaturesAvailable;
     private volatile String lastCommandJson = "{}";
     private volatile int cameraCapability = -1;
+    // Diagnostic only: IP753 door zone/value semantics require an open/close
+    // comparison before any readings may be published as vehicle state.
+    private long bodyProbeAt;
+    private String bodyProbeJson = "{}";
     private long commandSequence;
     private PendingCommand pending; // worker only; never replayed/retried
+    private final JSONObject retainedClimate=new JSONObject();
+    private final Deque<RestoreStep> restoreQueue=new ArrayDeque<>();
+    private JSONObject lastPowerField, nextRestoreProfile, restoreProfile;
+    private boolean restoringClimate;
 
     public OfficialCarReader(Context context) { this(context, null); }
 
@@ -81,8 +91,19 @@ public final class OfficialCarReader implements VehicleAdapter {
         if (started || closed) return;
         started = true;
         main.post(new Runnable() { public void run() { initializeOnMain(); } });
-        worker.scheduleWithFixedDelay(new Runnable() { public void run() { collectSafely(); } }, 0, 1, TimeUnit.SECONDS);
+        // A fixed 1s period walks the OEM bus even while another app is on screen.
+        // Reschedule instead so the cadence can follow our visibility.
+        worker.schedule(poll, 0, TimeUnit.MILLISECONDS);
     }
+
+    private final Runnable poll = new Runnable() { public void run() {
+        if (closed) return;
+        try { collectSafely(); } catch (RuntimeException ignored) {}
+        if (closed) return;
+        try {
+            worker.schedule(this, xyz.i4o.uni.launcher.LauncherVisibility.visible() ? 1 : 3, TimeUnit.SECONDS);
+        } catch (java.util.concurrent.RejectedExecutionException ignored) {}
+    }};
 
     public JSONObject read() { start(); return snapshot(); }
 
@@ -104,7 +125,11 @@ public final class OfficialCarReader implements VehicleAdapter {
         try {
             JSONObject state = snapshot();
             JSONObject field = state.getJSONObject("fields").optJSONObject(key);
+            if ("power".equals(key) && retainedClimate.optBoolean("power", true) == false)
+                field = powerFallback(field);
             if (!writeSignaturesAvailable || !freshWritable(field)) return false;
+            if ("climate-power".equals(action) && Boolean.TRUE.equals(field.opt("value")))
+                nextRestoreProfile = captureClimateProfile(state);
             if (OfficialCarCommand.plan(action, zone, mode, field.opt("value"), state.optInt("driverZone"), 16, 31, 0.5) == null) return false;
             if (!commandBusy.compareAndSet(false, true)) return false;
             acquired = true;
@@ -119,6 +144,46 @@ public final class OfficialCarReader implements VehicleAdapter {
     /** Latest official PAC camera gate: -1 disconnected/unknown, otherwise
      * PAC_CAMERA_NONE / REARONLY / 360AM. Refreshed with every poll. */
     public int cameraCapability() { return cameraCapability; }
+
+    /**
+     * Borrowed SDK handle for other vehicle features that need the same
+     * transport, such as the ambient light writer.
+     *
+     * The handle belongs to this reader: it is created once per process and
+     * the SDK has no unregister callback, so a second Car.create would be
+     * wrong. The borrower must never create, bind, subscribe, disconnect or
+     * cache it, and must only write when the user asked for it.
+     *
+     * <h3>The handle is resolved lazily, on every use</h3>
+     * {@code getICarFunction()} hands out null while the vehicle service is
+     * still connecting, which is the normal state at app start. Caching that
+     * one early answer would leave the handle null for the whole process
+     * lifetime, and every writer would report "no vehicle handle" even
+     * though the service connected a second later. So the lookup is retried
+     * until it succeeds, and the result is cached from then on.
+     *
+     * @return the {@code ICarFunction} handle, or null while the vehicle
+     *         service has not handed it out yet
+     */
+    public static Object borrowedFunctions() {
+        Object function = sharedFunctions;
+        if (function != null) return function;
+        synchronized (OfficialCarReader.class) {
+            if (sharedFunctions != null) return sharedFunctions;
+            if (sharedSdkCar == null) return null;
+            try {
+                Object resolved = call(sharedSdkCar, "getICarFunction", NONE);
+                if (resolved != null) sharedFunctions = resolved;
+                return resolved;
+            } catch (Exception | LinkageError ignored) {
+                // The service is not ready yet. The next caller tries again.
+                return null;
+            }
+        }
+    }
+
+    /** Whether the shared SDK has reported itself connected. */
+    public static boolean borrowedSdkReady() { return sharedReady; }
 
     private boolean permitted() {
         return context.checkSelfPermission(OfficialCarContract.PERMISSION) == PackageManager.PERMISSION_GRANTED;
@@ -207,7 +272,7 @@ public final class OfficialCarReader implements VehicleAdapter {
         } catch (RejectedExecutionException e) { queued.set(false); }
     }
 
-    private void collectSafely() {
+    private synchronized void collectSafely() {
         if (closed) return;
         if (pending != null && SystemClock.elapsedRealtime() > pending.deadline) finishCommand("timeout", "未在5秒内获得目标状态读回");
         if (!permitted()) { publishUnavailable("车辆厂商读取权限未授权"); return; }
@@ -257,6 +322,18 @@ public final class OfficialCarReader implements VehicleAdapter {
             JSONObject extraSensors=new OfficialVehicleSensors(sdkCar,signals,
                     OfficialVehicleSensors.Units.confirmed(null, "km", "owner confirmed original UI range km 2026-10-25")).appendTo(fields);
             new OfficialHybridReader(propertyManager).appendTo(fields);
+            if (SystemClock.elapsedRealtime() - bodyProbeAt >= 5000 || bodyProbeAt == 0) {
+                bodyProbeAt = SystemClock.elapsedRealtime();
+                bodyProbeJson = readBodyProbe().toString();
+            }
+            state.put("bodyProbe", new JSONObject(bodyProbeJson));
+            OfficialBodySignals.append(fields, new JSONObject(bodyProbeJson), driverZone);
+            if (fields.getJSONObject("power").optBoolean("valid"))
+                lastPowerField = fields.getJSONObject("power");
+            for (String key : new String[]{"left", "right", "fan", "auto", "ac", "power", "sync", "recirc"}) {
+                JSONObject field = fields.getJSONObject(key);
+                if (field.optBoolean("valid")) retainedClimate.put(key, field.opt("value"));
+            }
             int capability = -1;
             try {
                 Object value = call(functions, "getFunctionValue", new Class<?>[]{int.class}, OfficialCarContract.PAC_CAMERA_CAPABILITY);
@@ -285,9 +362,18 @@ public final class OfficialCarReader implements VehicleAdapter {
             JSONObject capabilities = new JSONObject(); boolean anyWritable = false;
             for (String key : new String[]{"left", "right", "fan", "power", "auto", "ac", "recirc", "sync"}) {
                 JSONObject field = fields.getJSONObject(key); boolean writable = freshWritable(field);
+                if ("power".equals(key) && !writable && lastPowerField != null
+                        && Boolean.FALSE.equals(retainedClimate.opt("power"))) {
+                    field = powerFallback(field); writable = freshWritable(field);
+                }
                 anyWritable |= writable;
                 capabilities.put(key, new JSONObject().put("supported", field.optBoolean("supported"))
-                        .put("readable", field.optBoolean("valid")).put("writable", writable));
+                        .put("readable", field.optBoolean("valid") || writable).put("writable", writable));
+            }
+            java.util.Iterator<String> retainedKeys = retainedClimate.keys();
+            while (retainedKeys.hasNext()) {
+                String key = retainedKeys.next();
+                if (!climate.has(key)) climate.put(key, retainedClimate.opt(key));
             }
             checkPending(fields);
             state.put("writable", anyWritable).put("readOnly", false).put("climateCapabilities", capabilities);
@@ -295,6 +381,48 @@ public final class OfficialCarReader implements VehicleAdapter {
                     .put("reason", validCount > 0 ? "已读取官方车辆状态；按各项能力接受用户操作" : "服务已连接，字段尚无有效读数");
             publish(state);
         } catch (Exception | LinkageError e) { publishUnavailable("官方车辆读取失败：" + failure(e)); }
+    }
+
+    /** Candidate SDK values for supervised diagnostics only; never writes and
+     * deliberately does not convert them to door-open/closed UI states. */
+    private JSONObject readBodyProbe() {
+        JSONObject result = new JSONObject();
+        try {
+            final int function = 553779968;
+            JSONArray zones = new JSONArray();
+            for (int zone : new int[]{1, 4, 16, 64}) {
+                JSONObject entry = new JSONObject().put("zone", zone);
+                try {
+                    Object supported = call(functions, "isFunctionSupported", new Class<?>[]{int.class, int.class}, function, zone);
+                    entry.put("support", String.valueOf(supported));
+                    if ("active".equalsIgnoreCase(String.valueOf(supported))) {
+                        Object raw = call(functions, "getFunctionValue", new Class<?>[]{int.class, int.class}, function, zone);
+                        if (raw instanceof Number) entry.put("raw", ((Number) raw).intValue());
+                    }
+                } catch (Exception | LinkageError e) { entry.put("reason", failure(e)); }
+                zones.put(entry);
+            }
+            JSONArray properties = new JSONArray();
+            String[] names = {"driver", "driverRear", "passenger", "passengerRear", "trunk"};
+            for (int i = 0; i < names.length; i++) {
+                int property = 560993300 + i;
+                JSONObject entry = new JSONObject().put("name", names[i]).put("propertyId", property);
+                try {
+                    Object value = call(propertyManager, "getProperty", new Class<?>[]{Class.class, int.class, int.class}, byte[].class, property, 0);
+                    if (value == null) throw new IllegalStateException("PROPERTY_VALUE_ABSENT");
+                    int status = ((Number) call(value, "getStatus", NONE)).intValue();
+                    entry.put("halStatus", status).put("sourceTimestampNanos", call(value, "getTimestamp", NONE));
+                    if (status != 0) throw new IllegalStateException("HAL_STATUS_" + status);
+                    OfficialCarPayload payload = OfficialCarPayload.parse((byte[]) call(value, "getValue", NONE));
+                    entry.put("availabilityRaw", payload.availability).put("formatRaw", payload.format)
+                            .put("statusRaw", payload.status).put("raw", payload.data).put("active", payload.active());
+                } catch (Exception | LinkageError e) { entry.put("reason", failure(e)); }
+                properties.put(entry);
+            }
+            result.put("functionId", function).put("zones", zones).put("properties", properties)
+                    .put("verified", false).put("observedAtMs", System.currentTimeMillis());
+        } catch (Exception ignored) { }
+        return result;
     }
 
     private JSONObject readField(String key, int property, int function, int zone, String kind) throws Exception {
@@ -381,8 +509,12 @@ public final class OfficialCarReader implements VehicleAdapter {
             requireCommandConnection(requestedAt, epoch);
             JSONObject snapshot = snapshot();
             JSONObject previous = snapshot.getJSONObject("fields").getJSONObject(key);
+            if ("power".equals(key) && retainedClimate.optBoolean("power", true) == false)
+                previous = powerFallback(previous);
             if (!freshWritable(previous)) throw new IllegalStateException("STALE_OR_UNSUPPORTED");
             JSONObject fresh = readField(key, previous.getInt("propertyId"), previous.getInt("functionId"), previous.getInt("zone"), previous.getString("kind"));
+            if ("power".equals(key) && retainedClimate.optBoolean("power", true) == false)
+                fresh = powerFallback(fresh);
             if (!freshWritable(fresh)) throw new IllegalStateException("TARGET_READ_INVALID:" + fresh.optString("reason"));
             int driver = snapshot.optInt("driverZone");
             if (("seat-heat".equals(action) || "seat-vent".equals(action)) && driver != driverZone(new JSONArray()))
@@ -416,6 +548,90 @@ public final class OfficialCarReader implements VehicleAdapter {
         }
     }
 
+    private JSONObject powerFallback(JSONObject fresh) {
+        if (freshWritable(fresh) || lastPowerField == null
+                || !Boolean.FALSE.equals(lastPowerField.opt("value"))) return fresh;
+        try {
+            JSONObject fallback = new JSONObject(lastPowerField.toString());
+            long now = System.currentTimeMillis();
+            fallback.put("valid", true).put("value", false).put("reason", "电源关闭；保留最后一次可写元数据")
+                    .put("updatedAtMs", now).put("updatedAtElapsedMs", SystemClock.elapsedRealtime())
+                    .put("supportStatus", "active").put("writable", true);
+            return fallback;
+        } catch (Exception e) { return fresh; }
+    }
+
+    private JSONObject captureClimateProfile(JSONObject state) throws Exception {
+        JSONObject profile = new JSONObject(); JSONObject fields = state.optJSONObject("fields");
+        if (fields == null) return profile;
+        for (String key : new String[]{"left", "right", "fan", "auto", "ac", "sync", "recirc"}) {
+            JSONObject field = fields.optJSONObject(key);
+            if (field != null && field.optBoolean("valid")) profile.put(key, field.opt("value"));
+        }
+        return profile;
+    }
+
+    private void beginClimateRestore() {
+        JSONObject profile = restoreProfile;
+        if (profile == null || profile.length() == 0) return;
+        restoreQueue.clear(); restoringClimate = true;
+        for (String key : new String[]{"left", "right", "fan", "auto", "ac", "sync", "recirc"}) {
+            if (!profile.has(key)) continue;
+            // AUTO has no safe direct fan write on this firmware; the AUTO switch restores that mode.
+            if ("fan".equals(key) && "auto".equals(profile.opt(key))) continue;
+            restoreQueue.add(new RestoreStep(key, profile.opt(key)));
+        }
+        scheduleNextRestore();
+    }
+
+    private void scheduleNextRestore() {
+        if (!restoringClimate) return;
+        if (restoreQueue.isEmpty()) { restoringClimate = false; commandBusy.set(false); return; }
+        try { worker.schedule(new Runnable() { public void run() { executeRestoreStep(); } }, 240, TimeUnit.MILLISECONDS); }
+        catch (RuntimeException e) { cancelRestore("恢复队列无法执行：" + e.getMessage()); }
+    }
+
+    private void executeRestoreStep() {
+        if (!restoringClimate || closed) return;
+        RestoreStep step = restoreQueue.poll();
+        if (step == null) { restoringClimate = false; commandBusy.set(false); return; }
+        try {
+            requireCommandConnection(SystemClock.elapsedRealtime(), connectionEpoch.get());
+            JSONObject snapshot = snapshot();
+            JSONObject previous = snapshot.getJSONObject("fields").optJSONObject(step.key);
+            if (previous == null) throw new IllegalStateException("FIELD_METADATA_ABSENT");
+            JSONObject fresh = readField(step.key, previous.getInt("propertyId"), previous.getInt("functionId"),
+                    previous.getInt("zone"), previous.getString("kind"));
+            if (!freshWritable(fresh)) throw new IllegalStateException("TARGET_READ_INVALID:" + fresh.optString("reason"));
+            OfficialCarCommand plan = OfficialCarCommand.restore(step.key, step.value, snapshot.optInt("driverZone"));
+            if (plan == null) throw new IllegalArgumentException("RESTORE_VALUE_OR_RANGE");
+            if (OfficialCarCommand.matches(fresh.opt("value"), plan.expected)) {
+                commandStatus(++commandSequence, step.key, "confirmed", "打开后配置已保留");
+                scheduleNextRestore(); return;
+            }
+            Object accepted;
+            if (plan.temperature != null) accepted = call(functions, "setCustomizeFunctionValue",
+                    new Class<?>[]{int.class, int.class, float.class}, plan.function, plan.zone, plan.temperature);
+            else if (plan.zone != 0) accepted = call(functions, "setFunctionValue",
+                    new Class<?>[]{int.class, int.class, int.class}, plan.function, plan.zone, plan.intValue);
+            else accepted = call(functions, "setFunctionValue", new Class<?>[]{int.class, int.class},
+                    plan.function, plan.intValue);
+            if (!Boolean.TRUE.equals(accepted)) throw new IllegalStateException("SDK_REJECTED");
+            pending = new PendingCommand(++commandSequence, step.key, plan.expected,
+                    fresh.optLong("sourceTimestampNanos"), connectionEpoch.get());
+            commandStatus(pending.id, step.key, "sent", "打开后恢复关闭前配置");
+            refreshSoon();
+        } catch (Exception | LinkageError e) {
+            cancelRestore("部分配置未恢复：" + failure(e));
+        }
+    }
+
+    private void cancelRestore(String reason) {
+        restoreQueue.clear(); restoringClimate = false; commandBusy.set(false);
+        if (pending != null) { commandStatus(pending.id, pending.key, "failed", reason); pending = null; }
+        else commandStatus(++commandSequence, "climate", "failed", reason);
+    }
+
     private void requireCommandConnection(long requestedAt, int epoch) {
         if (closed || !sdkReady || propertyManager == null || !permitted() || epoch != connectionEpoch.get())
             throw new IllegalStateException("CONNECTION_CHANGED");
@@ -435,8 +651,18 @@ public final class OfficialCarReader implements VehicleAdapter {
     }
 
     private void finishCommand(String status, String reason) {
-        if (pending != null) commandStatus(pending.id, pending.key, status, reason);
-        pending = null; commandBusy.set(false);
+        if (pending == null) return;
+        commandStatus(pending.id, pending.key, status, reason);
+        boolean powerOffConfirmed = "power".equals(pending.key) && Boolean.FALSE.equals(pending.expected) && "confirmed".equals(status);
+        boolean powerOnConfirmed = "power".equals(pending.key) && Boolean.TRUE.equals(pending.expected) && "confirmed".equals(status);
+        if (powerOffConfirmed) { restoreProfile = nextRestoreProfile; nextRestoreProfile = null; }
+        if (!"confirmed".equals(status)) { restoreQueue.clear(); restoringClimate = false; }
+        pending = null;
+        if (powerOnConfirmed && restoreProfile != null && restoreProfile.length() > 0) {
+            beginClimateRestore(); return;
+        }
+        if (restoringClimate && !restoreQueue.isEmpty()) { scheduleNextRestore(); return; }
+        restoringClimate = false; commandBusy.set(false);
     }
 
     private void commandStatus(long id, String key, String status, String reason) {
@@ -444,6 +670,11 @@ public final class OfficialCarReader implements VehicleAdapter {
                 .put("reason", reason).put("updatedAtMs", System.currentTimeMillis()).toString(); }
         catch (Exception ignored) {}
         notifyChanged();
+    }
+
+    private static final class RestoreStep {
+        final String key; final Object value;
+        RestoreStep(String key, Object value) { this.key = key; this.value = value; }
     }
 
     private static final class PendingCommand {

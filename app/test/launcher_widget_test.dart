@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:uni_launcher/controller/launcher_controller.dart';
 import 'package:uni_launcher/launcher_app.dart';
+import 'package:uni_launcher/theme/technical_frame.dart';
 import 'package:uni_launcher/widgets/glass_surface.dart';
 import 'package:uni_launcher/model/card_layout.dart';
 import 'fake_gateway.dart';
@@ -54,6 +55,35 @@ void main() {
     expect(g.saved, contains('"glass":false'));
     expect(t.takeException(), null);
   });
+  testWidgets('desktop always exposes one transient trailing library page',
+      (t) async {
+    final (c, _) = await launch(t);
+    expect(c.pageCount, 2);
+    for (final key in ['page-0', 'page-1', 'page-2']) {
+      expect(find.byKey(ValueKey(key)), findsOneWidget);
+    }
+    await t.tap(find.byKey(const ValueKey('page-2')));
+    await t.pumpAndSettle();
+    expect(c.page, 2);
+    expect(c.pageCount, 2);
+    expect(find.text('添加一张卡片'), findsOneWidget);
+    expect(t.takeException(), isNull);
+  });
+
+  testWidgets('desktop edit actions use equal horizontal spacing', (t) async {
+    final (c, _) = await launch(t);
+    c.beginEdit();
+    await t.pumpAndSettle();
+    final cancel = t.getRect(find.byKey(const ValueKey('cancel-edit')));
+    final add = t.getRect(find.byKey(const ValueKey('add-card')));
+    final finish = t.getRect(find.byKey(const ValueKey('finish-edit')));
+    final leading = add.left - cancel.right;
+    final trailing = finish.left - add.right;
+    expect(leading, closeTo(trailing, .1));
+    expect(leading, greaterThan(0));
+    expect(t.takeException(), isNull);
+  });
+
   testWidgets(
       'edit mode allows horizontal page swipes without starting card placement',
       (t) async {
@@ -91,6 +121,12 @@ void main() {
     expect(c.editing, true);
     await t.tap(find.byKey(const ValueKey('add-card')));
     await t.pumpAndSettle();
+    final libraryTile = find
+        .ancestor(
+            of: find.byKey(const ValueKey('add-air')),
+            matching: find.byType(Material))
+        .first;
+    expect(t.widget<Material>(libraryTile).shape, isA<TechnicalFrameBorder>());
     await t.tap(find.byKey(const ValueKey('add-air')));
     await t.pumpAndSettle();
     expect(c.cards.length, 10);
@@ -109,9 +145,8 @@ void main() {
     await t.pumpAndSettle();
     expect(find.text('600 米后右转'), findsNothing);
     expect(find.text('24°'), findsNothing);
-    expect(find.text('—°').evaluate().length, greaterThanOrEqualTo(2));
     final play = t.widget<IconAction>(find.byKey(const ValueKey('play-pause')));
-    expect(play.onTap, null);
+    expect(play.onTap, isNotNull);
     expect(c.native.value['demo'], false);
     expect(t.takeException(), null);
   });

@@ -66,6 +66,35 @@ final class OfficialCarCommand {
         return new OfficialCarCommand(key, function, 0, encoded, null, target);
     }
 
+
+    static OfficialCarCommand restore(String key, Object target, int driverZone) {
+        if ("left".equals(key) || "right".equals(key)) {
+            if (!(target instanceof Number)) return null;
+            double value=((Number)target).doubleValue();
+            if (!finite(value) || value < 16 || value > 31 || Math.abs(value * 2 - Math.rint(value * 2)) > .01) return null;
+            return new OfficialCarCommand(key, OfficialCarContract.TEMP, "left".equals(key) ? 1 : 4,
+                    0, (float)value, value);
+        }
+        if ("fan".equals(key)) {
+            if (!(target instanceof Number)) return null;
+            double raw=((Number)target).doubleValue();
+            if (!finite(raw) || raw != Math.rint(raw) || raw < 0 || raw > 7) return null;
+            int value=(int)raw;
+            return new OfficialCarCommand(key, OfficialCarContract.FAN, 0,
+                    value == 0 ? 0 : OfficialCarContract.FAN + value, null, value);
+        }
+        if ("power".equals(key)) return null; // POWER starts the restore profile.
+        if (!(target instanceof Boolean) || !(driverZone == 1 || driverZone == 4)) return null;
+        boolean value=(Boolean)target;
+        int function="auto".equals(key) ? OfficialCarContract.AUTO
+                : "ac".equals(key) ? OfficialCarContract.AC
+                : "sync".equals(key) ? OfficialCarContract.SYNC : OfficialCarContract.CIRCULATION;
+        int encoded=function == OfficialCarContract.CIRCULATION
+                ? (value ? OfficialCarContract.CIRCULATION_INNER : OfficialCarContract.CIRCULATION_OUTSIDE)
+                : (value ? 1 : 0);
+        return new OfficialCarCommand(key, function, 0, encoded, null, value);
+    }
+
     static boolean matches(Object actual, Object target) {
         return actual instanceof Number && target instanceof Number
                 ? Math.abs(((Number) actual).doubleValue() - ((Number) target).doubleValue()) < 0.01

@@ -26,6 +26,7 @@ public final class RecentTasksRepository {
     private final ActivityManager activities;
     private final PackageManager packages;
     private final Set<Integer> allowed=new LinkedHashSet<>();
+    private final Set<Integer> locked=new HashSet<>();
     private final Set<String> protectedPackages=new HashSet<>();
 
     public RecentTasksRepository(Context context){
@@ -71,6 +72,7 @@ public final class RecentTasksRepository {
                 if(!app.enabled)continue;
                 JSONObject item=new JSONObject().put("taskId",id).put("package",pkg)
                     .put("label",packages.getApplicationLabel(app).toString())
+                    .put("locked",locked.contains(id))
                     .put("icon",encodeDrawable(packages.getApplicationIcon(app),96));
                 Bitmap preview=taskSnapshot(id);
                 if(preview!=null){
@@ -80,6 +82,7 @@ public final class RecentTasksRepository {
                 result.put(item);allowed.add(id);
             }
         }catch(Exception e){android.util.Log.w("UniRecents","Unable to read recent tasks",e);}
+        locked.retainAll(allowed);
         return result;
     }
 
@@ -106,16 +109,25 @@ public final class RecentTasksRepository {
         catch(Exception e){android.util.Log.w("UniRecents","Unable to restore task "+taskId,e);return false;}
     }
 
+    public synchronized Boolean toggleLock(int taskId){
+        if(!allowed.contains(taskId))return null;
+        if(!locked.remove(taskId))locked.add(taskId);
+        return locked.contains(taskId);
+    }
+
     public synchronized boolean remove(int taskId){
-        if(!allowed.remove(taskId)||!canRemove())return false;
+        if(locked.contains(taskId)||!allowed.remove(taskId)||!canRemove())return false;
         return removeUnchecked(taskId);
     }
 
     public synchronized int clear(){
         if(!canRemove())return 0;
         int count=0;
-        for(Integer id:new LinkedHashSet<>(allowed))if(removeUnchecked(id))count++;
-        allowed.clear();return count;
+        for(Integer id:new LinkedHashSet<>(allowed)){
+            if(locked.contains(id))continue;
+            if(removeUnchecked(id))count++;
+        }
+        allowed.clear();allowed.addAll(locked);return count;
     }
 
     private boolean removeUnchecked(int taskId){

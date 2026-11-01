@@ -19,6 +19,15 @@ public final class OfficialCarCommandTest {
         check(plan("fan-up", "", "", "auto") == null, "AUTO has no manual increment source");
         check(plan("fan-up", "", "", 8) == null, "never write advertised-but-unmapped AUTO");
         check(plan("climate-power", "", "", false).intValue == 1, "power ON");
+        OfficialCarCommand restoreLeft = OfficialCarCommand.restore("left", 22.5, 1);
+        check(restoreLeft.function == 0x10060100 && restoreLeft.zone == 1
+                && restoreLeft.temperature == 22.5f, "restore left temperature");
+        check(OfficialCarCommand.restore("fan", 3, 1).intValue == 0x10020103,
+                "restore encoded fan level");
+        check(OfficialCarCommand.restore("recirc", true, 1).intValue == 0x10030101,
+                "restore inner circulation");
+        check(OfficialCarCommand.restore("power", true, 1) == null,
+                "power itself is not part of the saved profile");
         check(plan("climate-mode", "", "auto", true).function == 0x10010200, "auto function");
         check(plan("climate-mode", "", "ac", true).intValue == 0, "AC OFF");
         check(plan("climate-mode", "", "sync", false).function == 0x10060500, "sync function");

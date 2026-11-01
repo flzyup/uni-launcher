@@ -12,6 +12,7 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
       seed,
       text,
       muted,
+      disabled,
       surface,
       strong,
       soft,
@@ -28,6 +29,7 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
       required this.seed,
       required this.text,
       required this.muted,
+      required this.disabled,
       required this.surface,
       required this.strong,
       required this.soft,
@@ -53,6 +55,7 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
           seed: a.seed(),
           text: dark ? const Color(0xFFF2F6FC) : const Color(0xFF172B42),
           muted: dark ? const Color(0xFFA2B3C7) : const Color(0xFF52687F),
+          disabled: dark ? const Color(0xFF68808F) : const Color(0xFF93A5BA),
           surface: dark ? const Color(0xF0102034) : const Color(0xF0F6F9FD),
           strong: dark ? const Color(0xFA172B43) : const Color(0xFAFFFFFF),
           soft: dark ? const Color(0xFF1B3048) : const Color(0xFFE9EFF7),
@@ -70,6 +73,7 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
         seed: a.seed(),
         text: dark ? const Color(0xFFF2F6F5) : const Color(0xFF182D29),
         muted: dark ? const Color(0xFFADBDC4) : const Color(0xFF546C65),
+        disabled: dark ? const Color(0xFF668081) : const Color(0xFF93A8A2),
         surface: dark ? const Color(0xA116232B) : const Color(0x8CFFFFFF),
         strong: dark ? const Color(0xCC192730) : const Color(0xCCFAFFFD),
         soft: dark ? const Color(0x14B3D9D9) : const Color(0x5CFFFFFF),
@@ -107,13 +111,68 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
       side: technicalFrame
           ? controlSide(selected)
           : BorderSide(color: selected ? Colors.transparent : edge));
+
+  /// Weak control-level border for dense rows such as climate mode and seat
+  /// steps: a simple rounded outline so secondary cards keep the hierarchy.
+  ButtonStyle weakSelectionStyle(bool selected) => OutlinedButton.styleFrom(
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(controlRadius)),
+      backgroundColor:
+          selected ? accent.withValues(alpha: .10) : Colors.transparent,
+      foregroundColor: selected ? accent : text,
+      side: BorderSide(
+          color: selected
+              ? accent.withValues(alpha: .55)
+              : edge.withValues(alpha: .55)));
   @override
   SurfaceStyle copyWith() => this;
   @override
   SurfaceStyle lerp(covariant SurfaceStyle? other, double t) => other ?? this;
+  // ThemeData compares extensions with mapEquals, which falls back to identity for
+  // types without value equality. Without these, every rebuild produced a "new"
+  // theme and Theme re-inflated the whole subtree — repainting every card on each
+  // controller notification.
+  @override
+  bool operator ==(Object other) =>
+      other is SurfaceStyle &&
+      other.dark == dark &&
+      other.glass == glass &&
+      other.technicalFrame == technicalFrame &&
+      other.radius == radius &&
+      other.spectrumStyle == spectrumStyle &&
+      other.accent == accent &&
+      other.accentText == accentText &&
+      other.seed == seed &&
+      other.text == text &&
+      other.muted == muted &&
+      other.disabled == disabled &&
+      other.surface == surface &&
+      other.strong == strong &&
+      other.soft == soft &&
+      other.edge == edge &&
+      other.shadow == shadow;
+  @override
+  int get hashCode => Object.hash(dark, glass, technicalFrame, radius,
+      spectrumStyle, accent, accentText, seed, text, muted, disabled, surface,
+      strong, soft, edge, shadow);
 }
 
+SurfaceStyle? _cachedStyle;
+ThemeData? _cachedTheme;
+
 ThemeData launcherTheme(SurfaceStyle s) {
+  final cached = _cachedTheme;
+  if (cached != null && _cachedStyle == s) return cached;
+  final data = _buildTheme(s);
+  _cachedStyle = s;
+  _cachedTheme = data;
+  return data;
+}
+
+/// ColorScheme.fromSeed runs a full HCT derivation; the result depends only on the
+/// resolved style, so the launcher builds it once per appearance instead of once
+/// per frame.
+ThemeData _buildTheme(SurfaceStyle s) {
   final shape = s.controlShape();
   final button = ButtonStyle(
     shape: WidgetStatePropertyAll(shape),

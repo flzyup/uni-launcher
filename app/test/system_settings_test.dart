@@ -78,31 +78,11 @@ void main() {
     expect(t.takeException(), isNull);
   });
 
-  testWidgets('audio mode reflects state and sends only explicit selection',
-      (t) async {
+  testWidgets('navigation mixing controls stay retired', (t) async {
     final (_, g) = await open(t);
-    expect(
-        t
-            .widget<ChoiceChip>(
-                find.byKey(const ValueKey('navigation-audio-2')))
-            .selected,
-        isTrue);
-    expect(g.commands.where((c) => c['action'] == 'navigation-audio-mode'),
-        isEmpty);
-    await t.ensureVisible(find.byKey(const ValueKey('navigation-audio-1')));
-    await t.pumpAndSettle();
-    await t.tap(find.byKey(const ValueKey('navigation-audio-1')));
-    await t.pumpAndSettle();
-    expect(g.commands.last, containsPair('action', 'navigation-audio-mode'));
-    expect(g.commands.last, containsPair('value', '1'));
-  });
-
-  testWidgets('unavailable OEM interface cannot change navigation mixing',
-      (t) async {
-    final (_, g) = await open(t, available: false);
     expect(find.byType(ChoiceChip), findsNothing);
     expect(find.byKey(const ValueKey('navigation-audio-unavailable')),
-        findsOneWidget);
+        findsNothing);
     expect(g.commands.where((c) => c['action'] == 'navigation-audio-mode'),
         isEmpty);
   });

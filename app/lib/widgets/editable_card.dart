@@ -7,6 +7,7 @@ import 'card_content.dart';
 import 'clock_weather_card.dart';
 import 'glass_surface.dart';
 import 'launcher_dialog.dart';
+import 'media_source_badge.dart';
 import 'uni_icon.dart';
 
 part 'card_editor_sheet.dart';
@@ -78,12 +79,18 @@ class _EditableCardState extends State<EditableCard> {
                                 UniIcon('move',
                                     color: s.accent, size: Design.px(23)),
                                 SizedBox(width: Design.px(9)),
-                                Flexible(
-                                    child: Text(card.title,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(
-                                            fontSize: Design.px(21),
-                                            color: s.accent))),
+                                Expanded(
+                                    child: card.type == 'music'
+                                        ? MediaSourceBadge(
+                                            controller: c,
+                                            titleBar: true,
+                                            compact: true,
+                                            enabled: false)
+                                        : Text(card.title,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                                fontSize: Design.px(21),
+                                                color: s.accent))),
                                 SizedBox(width: Design.px(9)),
                                 Text('${card.w} × ${card.h}',
                                     style: TextStyle(
@@ -111,13 +118,12 @@ class _EditableCardState extends State<EditableCard> {
                         onPanUpdate: (_) {},
                         child: Container(
                             decoration: BoxDecoration(
-                                color: s.accent,
+                                color: s.strong.withValues(alpha: .70),
                                 borderRadius: BorderRadius.only(
                                     topLeft: Radius.circular(s.controlRadius))),
                             child: Center(
                                 child: UniIcon('resize',
-                                    size: Design.px(24),
-                                    color: s.accentText))))),
+                                    size: Design.px(24), color: s.muted))))),
               ]
             ])));
   }

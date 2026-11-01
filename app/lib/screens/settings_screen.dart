@@ -13,11 +13,18 @@ import '../widgets/uni_icon.dart';
 import '../widgets/launcher_dialog.dart';
 import '../widgets/embedded_navigation.dart';
 import '../widgets/system_settings.dart';
+import '../widgets/setting_block.dart';
 import '../widgets/spectrum_painter.dart';
+import '../ota/update_controller.dart';
+import '../ota/update_ui.dart';
+import '../widgets/ambient_light_settings.dart';
+import '../widgets/color_picker.dart';
+import '../platform/ambient_light.dart';
 
 class SettingsScreen extends StatelessWidget {
   final LauncherController controller;
-  const SettingsScreen({super.key, required this.controller});
+  final UpdateController? update;
+  const SettingsScreen({super.key, required this.controller, this.update});
   @override
   Widget build(BuildContext context) {
     final c = controller, s = SurfaceStyle.of(context);
@@ -52,12 +59,7 @@ class SettingsScreen extends StatelessWidget {
                                   style: TextStyle(
                                       fontSize: Design.px(20), color: s.muted))
                             ]),
-                        const Spacer(),
-                        UniIcon('check', size: Design.px(23), color: s.accent),
-                        SizedBox(width: Design.px(10)),
-                        Text(c.message.isEmpty ? '更改自动保存' : c.message,
-                            style: TextStyle(
-                                color: s.muted, fontSize: Design.px(19)))
+                        const Spacer()
                       ])),
                   SizedBox(height: Design.px(24)),
                   Container(
@@ -68,7 +70,9 @@ class SettingsScreen extends StatelessWidget {
                         for (final tab in [
                           ('appearance', '外观主题'),
                           ('motion', '切换动效'),
-                          ('system', '系统设置')
+                          ('ambient', '氛围灯'),
+                          ('system', '系统设置'),
+                          ('about', '关于')
                         ])
                           _SettingsTab(controller: c, id: tab.$1, label: tab.$2)
                       ])),
@@ -83,7 +87,11 @@ class SettingsScreen extends StatelessWidget {
                                     : box.maxHeight,
                                 child: AppearanceSettings(controller: c)))),
                     'motion' => PageMotionSettings(controller: c),
+                    'ambient' => AmbientLightSettingsTab(controller: c),
                     'system' => SystemSettingsPanel(controller: c),
+                    'about' => update == null
+                        ? const Center(child: Text('更新服务暂不可用'))
+                        : AboutPanel(update: update!),
                     _ => SystemSettingsPanel(controller: c)
                   }),
                 ])));
@@ -121,43 +129,6 @@ class _SettingsTab extends StatelessWidget {
   }
 }
 
-class SettingBlock extends StatelessWidget {
-  final String title;
-  final String? note;
-  final Widget? trailing;
-  final Widget child;
-  final bool compact;
-  const SettingBlock(
-      {super.key,
-      required this.title,
-      this.note,
-      this.trailing,
-      required this.child,
-      this.compact = false});
-  @override
-  Widget build(BuildContext context) {
-    final s = SurfaceStyle.of(context);
-    return GlassSurface(
-        padding: EdgeInsets.symmetric(
-            horizontal: Design.px(30), vertical: Design.px(compact ? 16 : 22)),
-        child:
-            Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Row(children: [
-            Text(title,
-                style: TextStyle(
-                    fontSize: Design.px(26), fontWeight: FontWeight.w500)),
-            if (note != null || trailing != null) const Spacer(),
-            if (note != null)
-              Text(note!,
-                  style: TextStyle(color: s.muted, fontSize: Design.px(18))),
-            if (trailing != null) trailing!
-          ]),
-          SizedBox(height: Design.px(18)),
-          child
-        ]));
-  }
-}
-
 class SpectrumSettings extends StatelessWidget {
   final LauncherController controller;
   const SpectrumSettings({super.key, required this.controller});
@@ -179,15 +150,8 @@ class SpectrumSettings extends StatelessWidget {
                               width: (box.maxWidth - Design.px(14)) / 2,
                               child: OutlinedButton(
                                   key: ValueKey('spectrum-style-${entry.key}'),
-                                  style: s
-                                      .selectionStyle(
-                                          c.appearance.spectrumStyle ==
-                                              entry.key)
-                                      .copyWith(
-                                          backgroundColor:
-                                              WidgetStatePropertyAll(s.soft),
-                                          foregroundColor:
-                                              WidgetStatePropertyAll(s.text)),
+                                  style: s.selectionStyle(
+                                      c.appearance.spectrumStyle == entry.key),
                                   onPressed: () => c.setAppearance(c.appearance
                                       .copyWith(spectrumStyle: entry.key)),
                                   child: Padding(
@@ -206,9 +170,58 @@ class SpectrumSettings extends StatelessWidget {
                                       ]))))
                       ])),
           SizedBox(height: Design.px(16)),
-          Text('底栏右侧左右滑动可切换频谱和歌词；预览为静态示意。',
+          Text('底栏右侧左右滑动可切换歌词和频谱；预览为静态示意。',
               style: TextStyle(fontSize: Design.px(18), color: s.muted)),
+          SizedBox(height: Design.px(14)),
+          DesignSwitchTile(
+              key: const ValueKey('dock-music-progress-switch'),
+              contentPadding: EdgeInsets.zero,
+              title: const Text('音乐进度动态背景'),
+              subtitle: const Text('背景长度同步播放进度，光晕向进度线左侧展开'),
+              value: c.appearance.dockMusicProgressBackground,
+              onChanged: (value) => c.setAppearance(
+                  c.appearance.copyWith(dockMusicProgressBackground: value))),
         ]));
+  }
+}
+
+/// The ambient light tab. It listens to the shared service so the capability
+/// line stays current, but the live colour is delivered through its own
+/// notifier and never rebuilds this page.
+class AmbientLightSettingsTab extends StatefulWidget {
+  final LauncherController controller;
+  const AmbientLightSettingsTab({super.key, required this.controller});
+  @override
+  State<AmbientLightSettingsTab> createState() =>
+      _AmbientLightSettingsTabState();
+}
+
+class _AmbientLightSettingsTabState extends State<AmbientLightSettingsTab> {
+  @override
+  void initState() {
+    super.initState();
+    // The capability is read when the tab opens: the vehicle service may
+    // have connected after the app started.
+    AmbientLightService.shared.refreshStatus();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = widget.controller;
+    return ListenableBuilder(
+        listenable: AmbientLightService.shared,
+        builder: (context, _) => ListView(
+                key: const PageStorageKey('ambient-settings-scroll'),
+                padding: EdgeInsets.zero,
+                children: [
+                  SettingBlock(
+                      title: '音乐律动氛围灯',
+                      note: '按正在播放的音乐频谱换算颜色与亮度',
+                      child: AmbientLightSettingsPanel(
+                          settings: c.ambientLight,
+                          service: AmbientLightService.shared,
+                          onChanged: c.setAmbientLight)),
+                ]));
   }
 }
 
@@ -282,107 +295,106 @@ class AppearanceSettings extends StatelessWidget {
                                             key: ValueKey('mode-${mode.$1}'),
                                             onPressed: () => c.setAppearance(
                                                 a.copyWith(mode: mode.$1)),
-                                            style: OutlinedButton.styleFrom(
-                                                shape: s.controlShape(
-                                                    selected:
-                                                        a.mode == mode.$1),
-                                                foregroundColor:
-                                                    a.mode == mode.$1
-                                                        ? s.accent
-                                                        : s.text,
-                                                side: s.controlSide(
-                                                    a.mode == mode.$1)),
-                                            child:
-                                                Stack(alignment: Alignment.center, children: [
-                                              Row(
-                                                  mainAxisAlignment:
-                                                      MainAxisAlignment.center,
-                                                  children: [
-                                                    DesignIcon(mode.$2,
-                                                        size: Design.px(26)),
-                                                    SizedBox(
-                                                        width: Design.px(14)),
-                                                    Text(mode.$3,
-                                                        style: TextStyle(
-                                                            fontSize:
-                                                                Design.px(22)))
-                                                  ]),
-                                              if (a.mode == mode.$1)
-                                                Align(
-                                                    alignment:
-                                                        Alignment.centerRight,
-                                                    child: UniIcon('check',
-                                                        size: Design.px(20)))
-                                            ])))))
+                                            style: s.selectionStyle(
+                                                a.mode == mode.$1),
+                                            child: Stack(
+                                                alignment: Alignment.center,
+                                                children: [
+                                                  Row(
+                                                      mainAxisAlignment:
+                                                          MainAxisAlignment
+                                                              .center,
+                                                      children: [
+                                                        DesignIcon(mode.$2,
+                                                            size:
+                                                                Design.px(26)),
+                                                        SizedBox(
+                                                            width:
+                                                                Design.px(14)),
+                                                        Text(mode.$3,
+                                                            style: TextStyle(
+                                                                fontSize:
+                                                                    Design.px(
+                                                                        22)))
+                                                      ]),
+                                                  if (a.mode == mode.$1)
+                                                    Align(
+                                                        alignment: Alignment
+                                                            .centerRight,
+                                                        child: UniIcon('check',
+                                                            size:
+                                                                Design.px(20)))
+                                                ])))))
                         ])),
                     SizedBox(height: Design.px(16)),
                     SettingBlock(
                         compact: box.maxHeight < Design.px(650),
                         title: '主题配色',
                         note: '同步改变强调色与背景氛围',
-                        child: Column(children: [
-                          Row(children: [
-                            for (final preset in accentPresets)
-                              Expanded(
-                                  child: Padding(
-                                      padding: EdgeInsets.only(
-                                          right:
-                                              preset.id == accentPresets.last.id
-                                                  ? 0
-                                                  : Design.px(14)),
-                                      child: SizedBox(
-                                          height: Design.px(138),
-                                          child: OutlinedButton(
-                                              key: ValueKey(
-                                                  'palette-${preset.id}'),
-                                              onPressed: () => c.setAppearance(
-                                                  a.copyWith(
-                                                      palette: preset.id)),
-                                              style: OutlinedButton.styleFrom(
-                                                  padding: EdgeInsets.symmetric(
-                                                      vertical: Design.px(17),
-                                                      horizontal:
-                                                          Design.px(10)),
-                                                  shape: s.controlShape(
-                                                      selected: a.palette ==
-                                                          preset.id),
-                                                  foregroundColor: s.text,
-                                                  side: s.controlSide(
-                                                      a.palette == preset.id)),
-                                              child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                                                Container(
-                                                    width: Design.px(59),
-                                                    height: Design.px(59),
-                                                    decoration: BoxDecoration(
-                                                        shape: BoxShape.circle,
-                                                        color: preset.seed),
-                                                    child: a.palette ==
-                                                            preset.id
-                                                        ? const Center(
-                                                            child: UniIcon(
-                                                                'check',
-                                                                size: 22,
-                                                                color: Colors
-                                                                    .white))
-                                                        : null),
-                                                SizedBox(height: Design.px(14)),
-                                                Text(preset.name,
-                                                    style: TextStyle(
-                                                        fontSize:
-                                                            Design.px(21)))
-                                              ])))))
-                          ]),
-                          SizedBox(height: Design.px(28)),
-                          Divider(height: 1, color: s.edge),
-                          SizedBox(height: Design.px(22)),
-                          CustomColorRow(controller: c),
+                        child: Row(children: [
+                          for (final item in [
+                            ...accentPresets.map((p) => (p.id, p.name, p.seed)),
+                            (
+                              'custom',
+                              '自定义',
+                              Color(0xFF000000 |
+                                  int.parse(a.custom.substring(1), radix: 16))
+                            )
+                          ])
+                            Expanded(
+                                child: Padding(
+                                    padding: EdgeInsets.only(
+                                        right: item.$1 == 'custom'
+                                            ? 0
+                                            : Design.px(14)),
+                                    child: SizedBox(
+                                        height: Design.px(138),
+                                        child: OutlinedButton(
+                                            key: ValueKey(item.$1 == 'custom'
+                                                ? 'custom-color'
+                                                : 'palette-${item.$1}'),
+                                            onPressed: () => item.$1 == 'custom'
+                                                ? editCustomColor(context, c)
+                                                : c.setAppearance(a.copyWith(
+                                                    palette: item.$1)),
+                                            style: s
+                                                .selectionStyle(
+                                                    a.palette == item.$1)
+                                                .copyWith(
+                                                    padding: WidgetStatePropertyAll(
+                                                        EdgeInsets.symmetric(
+                                                            vertical:
+                                                                Design.px(12),
+                                                            horizontal:
+                                                                Design.px(5)))),
+                                            child:
+                                                Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                                              Container(
+                                                  width: Design.px(59),
+                                                  height: Design.px(59),
+                                                  decoration: BoxDecoration(
+                                                      shape: BoxShape.circle,
+                                                      color: item.$3),
+                                                  child: a.palette == item.$1
+                                                      ? const Center(
+                                                          child: UniIcon(
+                                                              'check',
+                                                              size: 22,
+                                                              color:
+                                                                  Colors.white))
+                                                      : null),
+                                              SizedBox(height: Design.px(14)),
+                                              Text(item.$2,
+                                                  maxLines: 1,
+                                                  style: TextStyle(
+                                                      fontSize: Design.px(21)))
+                                            ]))))),
                         ])),
                     SizedBox(height: Design.px(16)),
                     WallpaperSetting(controller: c),
                     SizedBox(height: Design.px(16)),
                     RadiusSetting(controller: c),
                     SizedBox(height: Design.px(16)),
-                    SpectrumSettings(controller: c),
                   ])))),
       SizedBox(width: Design.px(24)),
       SizedBox(
@@ -423,33 +435,15 @@ class AppearanceSettings extends StatelessWidget {
                                   color: s.muted)))
                     ]),
                     SizedBox(height: Design.px(16)),
-                    Container(
-                        padding: EdgeInsets.only(top: Design.px(16)),
-                        decoration: BoxDecoration(
-                            border: Border(top: BorderSide(color: s.edge))),
-                        child: Row(children: [
-                          Expanded(
-                              child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                Text(s.technicalFrame ? '玻璃质感' : '毛玻璃',
-                                    style: TextStyle(fontSize: Design.px(23))),
-                                SizedBox(height: Design.px(6)),
-                                Text(
-                                    s.technicalFrame
-                                        ? '静态反光，无实时模糊'
-                                        : '关闭后保留半透明材质',
-                                    style: TextStyle(
-                                        fontSize: Design.px(17),
-                                        color: s.muted))
-                              ])),
-                          DesignToggle(
-                              key: const ValueKey('glass-switch'),
-                              label: s.technicalFrame ? '玻璃质感' : '毛玻璃',
-                              value: a.glass,
-                              onChanged: (v) =>
-                                  c.setAppearance(a.copyWith(glass: v)))
-                        ])),
+                    DesignSwitchTile(
+                        key: const ValueKey('glass-switch'),
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(s.technicalFrame ? '玻璃质感' : '毛玻璃'),
+                        subtitle: Text(
+                            s.technicalFrame ? '静态反光，无实时模糊' : '关闭后保留半透明材质'),
+                        value: a.glass,
+                        onChanged: (v) =>
+                            c.setAppearance(a.copyWith(glass: v))),
                     SizedBox(height: Design.px(18)),
                     OutlinedButton.icon(
                         onPressed: c.home,
@@ -521,6 +515,20 @@ class WallpaperSetting extends StatelessWidget {
     final c = controller, a = c.appearance, s = SurfaceStyle.of(context);
     return SettingBlock(
         title: '桌面壁纸',
+        trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+          Text('叠加主题渐变',
+              style: TextStyle(
+                  color: a.wallpaper == 'gradient' ? s.muted : null,
+                  fontSize: Design.px(18))),
+          SizedBox(width: Design.px(10)),
+          Switch(
+              key: const ValueKey('wallpaper-overlay'),
+              value: a.wallpaper == 'gradient' ? true : a.wallpaperOverlay,
+              onChanged: a.wallpaper == 'gradient'
+                  ? null
+                  : (value) =>
+                      c.setAppearance(a.copyWith(wallpaperOverlay: value)))
+        ]),
         child: LayoutBuilder(builder: (context, box) {
           final width = (box.maxWidth - Design.px(36)) / 4;
           return Wrap(
@@ -586,7 +594,9 @@ class _WallpaperTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = SurfaceStyle.of(context);
     return Material(
-        color: s.soft,
+        color: selected
+            ? Color.alphaBlend(s.accent.withValues(alpha: .11), s.soft)
+            : s.soft,
         clipBehavior: Clip.antiAlias,
         shape: s.controlShape(selected: selected).copyWith(
             side: s.technicalFrame
@@ -776,281 +786,21 @@ class _CustomColorRowState extends State<CustomColorRow> {
   }
 }
 
-const _standardColors = <Color>[
-  Color(0xFFF44336),
-  Color(0xFFE91E63),
-  Color(0xFF9C27B0),
-  Color(0xFF673AB7),
-  Color(0xFF3F51B5),
-  Color(0xFF2196F3),
-  Color(0xFF03A9F4),
-  Color(0xFF00BCD4),
-  Color(0xFF009688),
-  Color(0xFF4CAF50),
-  Color(0xFF8BC34A),
-  Color(0xFFCDDC39),
-  Color(0xFFFFC107),
-  Color(0xFFFF9800),
-  Color(0xFFFF5722),
-  Color(0xFF795548),
-  Color(0xFF607D8B),
-  Color(0xFF455A64),
-];
-
-String _colorHex(Color color) =>
-    '#${color.toARGB32().toRadixString(16).substring(2).toUpperCase()}';
-
 Future<String?> editCustomColor(
     BuildContext context, LauncherController c) async {
-  HSVColor hsv = HSVColor.fromColor(Color(
-      0xFF000000 | int.parse(c.appearance.custom.substring(1), radix: 16)));
-  final input = TextEditingController(text: _colorHex(hsv.toColor()));
-  final result = await showLauncherSheet<String>(context,
+  final result = await showCustomColorPicker(context,
       title: '自定义主题色',
       subtitle: '从完整色域取色，或选择常用颜色',
-      closeLabel: '关闭取色器',
-      width: Design.px(780),
-      builder: (context) => StatefulBuilder(builder: (context, setState) {
-            final color = hsv.toColor(),
-                hex = _colorHex(color),
-                s = SurfaceStyle.of(context);
-            void select(HSVColor value) {
-              setState(() {
-                hsv = value;
-                input.text = _colorHex(value.toColor());
-                input.selection =
-                    TextSelection.collapsed(offset: input.text.length);
-              });
-            }
-
-            return SingleChildScrollView(
-                child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                  Text('常用颜色',
-                      style:
-                          TextStyle(fontSize: Design.px(20), color: s.muted)),
-                  SizedBox(height: Design.px(14)),
-                  Wrap(
-                      spacing: Design.px(13),
-                      runSpacing: Design.px(13),
-                      children: [
-                        for (final preset in [
-                          ...accentPresets.map((item) => item.seed),
-                          ..._standardColors
-                        ])
-                          _ColorSwatch(
-                              color: preset,
-                              selected: _colorHex(preset) == hex,
-                              onTap: () => select(HSVColor.fromColor(preset)))
-                      ]),
-                  SizedBox(height: Design.px(24)),
-                  Text('颜色',
-                      style:
-                          TextStyle(fontSize: Design.px(20), color: s.muted)),
-                  SizedBox(height: Design.px(12)),
-                  _SaturationValueField(
-                      hsv: hsv,
-                      onChanged: (saturation, value) => select(
-                          hsv.withSaturation(saturation).withValue(value))),
-                  SizedBox(height: Design.px(18)),
-                  _HueField(
-                      hue: hsv.hue,
-                      onChanged: (hue) => select(hsv.withHue(hue))),
-                  SizedBox(height: Design.px(22)),
-                  Row(children: [
-                    Container(
-                        width: Design.px(58),
-                        height: Design.px(58),
-                        decoration: BoxDecoration(
-                            color: color,
-                            shape: BoxShape.circle,
-                            border: Border.all(color: s.edge))),
-                    SizedBox(width: Design.px(18)),
-                    Expanded(
-                        child: TextField(
-                            key: const ValueKey('color-picker-hex'),
-                            controller: input,
-                            maxLength: 7,
-                            textCapitalization: TextCapitalization.characters,
-                            inputFormatters: [
-                              FilteringTextInputFormatter.allow(
-                                  RegExp(r'[#0-9a-fA-F]'))
-                            ],
-                            decoration: const InputDecoration(
-                                counterText: '', labelText: 'HEX 色值'),
-                            onSubmitted: (value) {
-                              if (RegExp(r'^#[0-9a-fA-F]{6}$')
-                                  .hasMatch(value)) {
-                                select(HSVColor.fromColor(Color(0xFF000000 |
-                                    int.parse(value.substring(1), radix: 16))));
-                              }
-                            })),
-                    SizedBox(width: Design.px(18)),
-                    FilledButton(
-                        onPressed: () {
-                          Navigator.pop(context, hex);
-                        },
-                        child: const Text('应用颜色'))
-                  ])
-                ]));
-          }));
-  // showGeneralDialog completes when the pop starts. Keep the field controller
-  // alive until the 180 ms reverse transition has detached the route, then
-  // rebuild the application theme outside that route.
-  await Future<void>.delayed(const Duration(milliseconds: 220));
-  input.dispose();
+      initial: Color(
+          0xFF000000 | int.parse(c.appearance.custom.substring(1), radix: 16)),
+      presets: [
+        ...accentPresets.map((item) => item.seed),
+        ...standardPickerColors
+      ]);
   if (result != null) {
     c.setAppearance(c.appearance.copyWith(palette: 'custom', custom: result));
   }
   return result;
-}
-
-class _ColorSwatch extends StatelessWidget {
-  final Color color;
-  final bool selected;
-  final VoidCallback onTap;
-  const _ColorSwatch(
-      {required this.color, required this.selected, required this.onTap});
-  @override
-  Widget build(BuildContext context) => InkResponse(
-      key: ValueKey('standard-color-${_colorHex(color)}'),
-      onTap: onTap,
-      radius: Design.px(28),
-      child: Container(
-          width: Design.px(43),
-          height: Design.px(43),
-          decoration: BoxDecoration(
-              color: color,
-              shape: BoxShape.circle,
-              border: Border.all(
-                  color: selected ? Colors.white : Colors.white24,
-                  width: selected ? Design.px(3) : Design.px(1))),
-          child: selected
-              ? const Center(
-                  child: Icon(Icons.check, color: Colors.white, size: 18))
-              : null));
-}
-
-class _SaturationValueField extends StatelessWidget {
-  final HSVColor hsv;
-  final void Function(double saturation, double value) onChanged;
-  const _SaturationValueField({required this.hsv, required this.onChanged});
-
-  @override
-  Widget build(BuildContext context) => AspectRatio(
-      aspectRatio: 3.2,
-      child: LayoutBuilder(builder: (context, box) {
-        void update(Offset point) => onChanged(
-            (point.dx / box.maxWidth).clamp(0, 1),
-            (1 - point.dy / box.maxHeight).clamp(0, 1));
-        return GestureDetector(
-            key: const ValueKey('saturation-value-field'),
-            onTapDown: (event) => update(event.localPosition),
-            onPanStart: (event) => update(event.localPosition),
-            onPanUpdate: (event) => update(event.localPosition),
-            child: ClipRRect(
-                borderRadius: BorderRadius.circular(Design.px(12)),
-                child: CustomPaint(
-                    painter: _SaturationValuePainter(hsv.hue),
-                    foregroundPainter: _PickerThumbPainter(Offset(
-                        hsv.saturation * box.maxWidth,
-                        (1 - hsv.value) * box.maxHeight)))));
-      }));
-}
-
-class _HueField extends StatelessWidget {
-  final double hue;
-  final ValueChanged<double> onChanged;
-  const _HueField({required this.hue, required this.onChanged});
-  @override
-  Widget build(BuildContext context) => SizedBox(
-      height: Design.px(34),
-      child: LayoutBuilder(builder: (context, box) {
-        void update(Offset point) =>
-            onChanged((point.dx / box.maxWidth).clamp(0, 1) * 360);
-        return GestureDetector(
-            key: const ValueKey('hue-field'),
-            onTapDown: (event) => update(event.localPosition),
-            onPanStart: (event) => update(event.localPosition),
-            onPanUpdate: (event) => update(event.localPosition),
-            child: CustomPaint(
-                painter: const _HuePainter(),
-                foregroundPainter: _PickerThumbPainter(
-                    Offset(hue / 360 * box.maxWidth, box.maxHeight / 2))));
-      }));
-}
-
-class _SaturationValuePainter extends CustomPainter {
-  final double hue;
-  const _SaturationValuePainter(this.hue);
-  @override
-  void paint(Canvas canvas, Size size) {
-    final rect = Offset.zero & size;
-    canvas.drawRect(
-        rect,
-        Paint()
-          ..shader = LinearGradient(colors: [
-            Colors.white,
-            HSVColor.fromAHSV(1, hue, 1, 1).toColor()
-          ]).createShader(rect));
-    canvas.drawRect(
-        rect,
-        Paint()
-          ..shader = const LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [Colors.transparent, Colors.black]).createShader(rect));
-  }
-
-  @override
-  bool shouldRepaint(_SaturationValuePainter old) => old.hue != hue;
-}
-
-class _HuePainter extends CustomPainter {
-  const _HuePainter();
-  @override
-  void paint(Canvas canvas, Size size) {
-    final rect = Offset.zero & size;
-    canvas.drawRRect(
-        RRect.fromRectAndRadius(rect, Radius.circular(Design.px(12))),
-        Paint()
-          ..shader = const LinearGradient(colors: [
-            Color(0xFFFF0000),
-            Color(0xFFFFFF00),
-            Color(0xFF00FF00),
-            Color(0xFF00FFFF),
-            Color(0xFF0000FF),
-            Color(0xFFFF00FF),
-            Color(0xFFFF0000),
-          ]).createShader(rect));
-  }
-
-  @override
-  bool shouldRepaint(_HuePainter old) => false;
-}
-
-class _PickerThumbPainter extends CustomPainter {
-  final Offset position;
-  const _PickerThumbPainter(this.position);
-  @override
-  void paint(Canvas canvas, Size size) {
-    final point = Offset(position.dx.clamp(7, size.width - 7),
-        position.dy.clamp(7, size.height - 7));
-    canvas.drawCircle(point, Design.px(8),
-        Paint()..color = Colors.black.withValues(alpha: .35));
-    canvas.drawCircle(
-        point,
-        Design.px(7),
-        Paint()
-          ..color = Colors.white
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = Design.px(2));
-  }
-
-  @override
-  bool shouldRepaint(_PickerThumbPainter old) => old.position != position;
 }
 
 class PageMotionSettings extends StatelessWidget {
@@ -1060,70 +810,62 @@ class PageMotionSettings extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = SurfaceStyle.of(context), c = controller;
     return SingleChildScrollView(
-        child: SettingBlock(
-            title: '桌面翻屏',
-            note: '页面与指示条跟随手势，底栏保持固定',
-            child: LayoutBuilder(
-                builder: (context, box) => Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Wrap(
-                              spacing: Design.px(18),
-                              runSpacing: Design.px(18),
-                              children: [
-                                for (final option in pageEffects)
-                                  SizedBox(
-                                      width: (box.maxWidth - Design.px(36)) / 3,
-                                      child: OutlinedButton(
-                                          key: ValueKey(
-                                              'transition-${option.id}'),
-                                          style: OutlinedButton.styleFrom(
-                                              shape: s.controlShape(
-                                                  selected: c.appearance.pageTransition ==
-                                                      option.id),
-                                              foregroundColor:
-                                                  c.appearance.pageTransition == option.id
-                                                      ? s.accent
-                                                      : s.text,
-                                              backgroundColor:
-                                                  c.appearance.pageTransition ==
+        child: Column(children: [
+      SettingBlock(
+          title: '桌面翻屏',
+          note: '页面与指示条跟随手势，底栏保持固定',
+          child: LayoutBuilder(
+              builder: (context, box) => Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Wrap(
+                            spacing: Design.px(18),
+                            runSpacing: Design.px(18),
+                            children: [
+                              for (final option in pageEffects)
+                                SizedBox(
+                                    width: (box.maxWidth - Design.px(36)) / 3,
+                                    child: OutlinedButton(
+                                        key:
+                                            ValueKey('transition-${option.id}'),
+                                        style: s.selectionStyle(
+                                            c.appearance.pageTransition ==
+                                                option.id),
+                                        onPressed: () => c.setAppearance(
+                                            c.appearance.copyWith(
+                                                pageTransition: option.id)),
+                                        child: Padding(
+                                            padding: EdgeInsets.symmetric(
+                                                vertical: Design.px(24)),
+                                            child: Column(children: [
+                                              Text(option.name,
+                                                  style: TextStyle(
+                                                      fontSize: Design.px(26))),
+                                              SizedBox(height: Design.px(10)),
+                                              Text(option.detail,
+                                                  style: TextStyle(
+                                                      fontSize: Design.px(18),
+                                                      color: s.muted)),
+                                              SizedBox(height: Design.px(12)),
+                                              UniIcon('check',
+                                                  size: Design.px(24),
+                                                  color: c.appearance
+                                                              .pageTransition ==
                                                           option.id
-                                                      ? s.soft
-                                                      : null,
-                                              side: s.controlSide(
-                                                  c.appearance.pageTransition ==
-                                                      option.id)),
-                                          onPressed: () =>
-                                              c.setAppearance(c.appearance.copyWith(pageTransition: option.id)),
-                                          child: Padding(
-                                              padding: EdgeInsets.symmetric(vertical: Design.px(24)),
-                                              child: Column(children: [
-                                                Text(option.name,
-                                                    style: TextStyle(
-                                                        fontSize:
-                                                            Design.px(26))),
-                                                SizedBox(height: Design.px(10)),
-                                                Text(option.detail,
-                                                    style: TextStyle(
-                                                        fontSize: Design.px(18),
-                                                        color: s.muted)),
-                                                SizedBox(height: Design.px(12)),
-                                                UniIcon('check',
-                                                    size: Design.px(24),
-                                                    color: c.appearance
-                                                                .pageTransition ==
-                                                            option.id
-                                                        ? s.accent
-                                                        : Colors.transparent)
-                                              ])))),
-                              ]),
-                          SizedBox(height: Design.px(26)),
-                          Text(
-                              '左右拖动桌面，松手后自动吸附；也可点击页码切换。平移只移动页面图层，适合车机使用。编辑桌面或系统要求减少动态效果时暂停动画。',
-                              style: TextStyle(
-                                  fontSize: Design.px(21),
-                                  color: s.muted,
-                                  height: 1.6)),
-                        ]))));
+                                                      ? s.accent
+                                                      : Colors.transparent)
+                                            ])))),
+                            ]),
+                        SizedBox(height: Design.px(26)),
+                        Text(
+                            '左右拖动桌面，松手后自动吸附；也可点击页码切换。平移只移动页面图层，适合车机使用。系统要求减少动态效果时暂停动画。',
+                            style: TextStyle(
+                                fontSize: Design.px(21),
+                                color: s.muted,
+                                height: 1.6)),
+                      ]))),
+      SizedBox(height: Design.px(16)),
+      SpectrumSettings(controller: c),
+    ]));
   }
 }

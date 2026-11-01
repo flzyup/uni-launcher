@@ -2,6 +2,7 @@ import java.util.*;
 import java.net.SocketTimeoutException;
 import xyz.i4o.uni.launcher.integration.WeatherLocationResolver;
 import xyz.i4o.uni.launcher.integration.WeatherLocationResolver.*;
+import xyz.i4o.uni.launcher.integration.ForecastRequestGate;
 
 public class WeatherLocationResolverTest {
     static int count;
@@ -45,6 +46,11 @@ public class WeatherLocationResolverTest {
         Romanizer homophone=s->s.equals("闵行")||s.equals("民兴")?"minxing":s;
         Location safe=WeatherLocationResolver.resolve("闵行区","上海市",q->q.equals("上海")?Arrays.asList(shanghai):Arrays.asList(minxing),homophone);
         check(safe.place==shanghai&&safe.cityFallback,"same-city homophonic village cannot impersonate district");
+        ForecastRequestGate gate=new ForecastRequestGate();
+        gate.start();long firstA=gate.next();long b=gate.next();long secondA=gate.next();
+        check(!gate.accepts(firstA)&&!gate.accepts(b)&&gate.accepts(secondA),"A-B-A rejects older same-city response");
+        gate.stop();check(!gate.accepts(secondA),"stopping invalidates in-flight responses");
+        gate.start();check(!gate.accepts(secondA),"restarting cannot revive a prior response");
         System.out.println("PASS "+count+" forecast location checks; no network or device access");
     }
 }

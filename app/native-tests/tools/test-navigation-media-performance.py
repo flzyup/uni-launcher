@@ -18,18 +18,19 @@ STUBS = {
 'android/content/Context.java': '''package android.content;
 import android.content.pm.*;import android.content.res.*;import android.media.session.*;import java.util.*;
 public class Context {
- public static final String MEDIA_SESSION_SERVICE="media";
+ public static final String MEDIA_SESSION_SERVICE="media",WINDOW_SERVICE="window";public static final int MODE_PRIVATE=0;
  public final Context app; public final PackageManager pm;public final SharedPreferences prefs;public final Resources resources;public final MediaSessionManager sessions;
  public int permission=0,registrations,launches;private final List<BroadcastReceiver> receivers=new ArrayList<>();private final List<IntentFilter> filters=new ArrayList<>();
  public Context(){app=this;pm=new PackageManager();prefs=new SharedPreferences();resources=new Resources();sessions=new MediaSessionManager();}
  public Context(Context a){app=a;pm=a.pm;prefs=a.prefs;resources=a.resources;sessions=a.sessions;}
  public Context getApplicationContext(){return app;}public PackageManager getPackageManager(){return pm;}public Resources getResources(){return resources;}
- public int checkSelfPermission(String p){return app.permission;}public String getPackageName(){return "xyz.i4o.uni.launcher";}public Object getSystemService(String s){return sessions;}
+ public SharedPreferences getSharedPreferences(String n,int mode){return prefs;}public java.io.File getFilesDir(){return new java.io.File(System.getProperty("java.io.tmpdir"));}
+ public int checkSelfPermission(String p){return app.permission;}public String getPackageName(){return "xyz.i4o.uni.launcher";}public Object getSystemService(String s){return WINDOW_SERVICE.equals(s)?(Object)new android.view.WindowManager(){public android.view.Display getDefaultDisplay(){return new android.view.Display();}}:sessions;}
  public Intent registerReceiver(BroadcastReceiver r,IntentFilter f){registrations++;receivers.add(r);filters.add(f);return null;}
  public void broadcast(String action,String pkg){Intent i=new Intent(action);i.data=android.net.Uri.parse("package:"+pkg);for(int n=0;n<receivers.size();n++){IntentFilter f=filters.get(n);if(f.actions.contains(action)&&f.scheme.equals("package"))receivers.get(n).onReceive(this,i);}}
  public void startActivity(Intent i){launches++;}
 }''',
-'android/content/SharedPreferences.java': '''package android.content;import java.util.*;public class SharedPreferences {private final Map<String,Object> data=new HashMap<>();public void put(String k,Object v){data.put(k,v);}public String getString(String k,String d){return data.containsKey(k)?(String)data.get(k):d;}public boolean getBoolean(String k,boolean d){return data.containsKey(k)?(Boolean)data.get(k):d;}}''',
+'android/content/SharedPreferences.java': '''package android.content;import java.util.*;public class SharedPreferences {private final Map<String,Object> data=new HashMap<>();public void put(String k,Object v){data.put(k,v);}public String getString(String k,String d){return data.containsKey(k)?(String)data.get(k):d;}public long getLong(String k,long d){return data.containsKey(k)?(Long)data.get(k):d;}public boolean getBoolean(String k,boolean d){return data.containsKey(k)?(Boolean)data.get(k):d;}public Editor edit(){return new Editor();}public class Editor{public Editor putString(String k,String v){data.put(k,v);return this;}public Editor putLong(String k,long v){data.put(k,v);return this;}public void apply(){}}}''',
 'android/content/Intent.java': '''package android.content;import android.net.Uri;public class Intent {
  public static final String ACTION_PACKAGE_ADDED="added",ACTION_PACKAGE_REMOVED="removed",ACTION_PACKAGE_CHANGED="changed",ACTION_PACKAGE_REPLACED="replaced",ACTION_VIEW="view";
  public static final int FLAG_ACTIVITY_NEW_TASK=0x10000000,FLAG_ACTIVITY_CLEAR_TOP=0x04000000,FLAG_ACTIVITY_SINGLE_TOP=0x20000000;
@@ -57,11 +58,16 @@ public class Context {
 'android/os/LocaleList.java': '''package android.os;public class LocaleList {private final String tags;public LocaleList(String t){tags=t;}public String toLanguageTags(){return tags;}}''',
 'android/net/Uri.java': '''package android.net;public class Uri {public static Uri parse(String s){return new Uri();}}''',
 'android/os/Build.java': '''package android.os;public class Build {public static class VERSION {public static int SDK_INT=28;}}''',
-'android/os/Handler.java': '''package android.os;public class Handler {public Handler(){}public Handler(Looper l){}}''',
+'android/os/Handler.java': '''package android.os;public class Handler {public static Runnable lastPending;public Handler(){}public Handler(Looper l){}public boolean postDelayed(Runnable r,long d){lastPending=r;return true;}public void removeCallbacks(Runnable r){if(lastPending==r)lastPending=null;}}''',
 'android/os/Looper.java': '''package android.os;public class Looper {public static Looper getMainLooper(){return new Looper();}}''',
 'android/os/SystemClock.java': '''package android.os;public class SystemClock {public static long elapsedRealtime(){return System.nanoTime()/1000000;}public static long uptimeMillis(){return elapsedRealtime();}}''',
 'android/os/Bundle.java': '''package android.os;import java.util.*;public class Bundle {private final Map<String,Object> values=new HashMap<>();public Object get(String k){return values.get(k);}public String getString(String k){return (String)get(k);}public int getInt(String k,int d){Object v=get(k);return v==null?d:(Integer)v;}public String[] getStringArray(String k){return (String[])get(k);}}''',
 'android/app/PendingIntent.java': '''package android.app;import android.content.*;public class PendingIntent {public static final int FLAG_UPDATE_CURRENT=1;public static PendingIntent getActivity(Context c,int code,Intent i,int f){return new PendingIntent();}}''',
+'android/graphics/Rect.java': '''package android.graphics;public class Rect {public final int left,top,right,bottom;public Rect(int l,int t,int r,int b){left=l;top=t;right=r;bottom=b;}@Override public boolean equals(Object o){return o instanceof Rect&&((Rect)o).left==left&&((Rect)o).top==top&&((Rect)o).right==right&&((Rect)o).bottom==bottom;}}''',
+'android/util/DisplayMetrics.java': '''package android.util;public class DisplayMetrics {public int widthPixels=1920,heightPixels=1080;}''',
+'android/view/WindowManager.java': '''package android.view;public interface WindowManager {Display getDefaultDisplay();}''',
+'android/view/Display.java': '''package android.view;public class Display {public void getRealMetrics(android.util.DisplayMetrics m){}}''',
+'xyz/i4o/uni/launcher/overlay/WorkspacePolicy.java': '''package xyz.i4o.uni.launcher.overlay;import android.content.*;public final class WorkspacePolicy {public static int dockTop(Context c,SharedPreferences p){return 888;}}''',
 'android/graphics/Bitmap.java': '''package android.graphics;import java.io.*;public class Bitmap {public enum CompressFormat {JPEG}public boolean isRecycled(){return false;}public int getWidth(){return 128;}public int getHeight(){return 128;}public static Bitmap createScaledBitmap(Bitmap b,int w,int h,boolean f){return b;}public boolean compress(CompressFormat f,int q,OutputStream out){return true;}public void recycle(){}}''',
 'android/util/Base64.java': '''package android.util;public class Base64 {public static final int NO_WRAP=2;public static String encodeToString(byte[] b,int flags){return java.util.Base64.getEncoder().encodeToString(b);}}''',
 'android/util/Log.java': '''package android.util;public class Log {public static int w(String t,String s,Throwable e){return 0;}public static int i(String t,String s,Throwable e){return 0;}}''',
@@ -84,7 +90,7 @@ public class Context {
 'android/media/session/MediaController.java': '''package android.media.session;import java.util.*;import android.media.*;import android.os.*;import android.view.KeyEvent;public class MediaController {
  public final String pkg;public PlaybackState state=new PlaybackState();public MediaMetadata metadata;public final TransportControls controls=new TransportControls();public final List<Callback> callbacks=new ArrayList<>();public final List<KeyEvent> keys=new ArrayList<>();
  public MediaController(String p){pkg=p;metadata=new MediaMetadata.Builder().putText(MediaMetadata.METADATA_KEY_TITLE,"Track "+p).putText(MediaMetadata.METADATA_KEY_ARTIST,"Artist").putLong(MediaMetadata.METADATA_KEY_DURATION,180000).build();}
- public String getPackageName(){return pkg;}public PlaybackState getPlaybackState(){return state;}public MediaMetadata getMetadata(){return metadata;}public Bundle getExtras(){return new Bundle();}public long getFlags(){return 3;}public TransportControls getTransportControls(){return controls;}public boolean dispatchMediaButtonEvent(KeyEvent e){keys.add(e);return true;}
+ public String getPackageName(){return pkg;}public Object getSessionToken(){return this;}public PlaybackState getPlaybackState(){return state;}public MediaMetadata getMetadata(){return metadata;}public Bundle getExtras(){return new Bundle();}public long getFlags(){return 3;}public TransportControls getTransportControls(){return controls;}public boolean dispatchMediaButtonEvent(KeyEvent e){keys.add(e);return true;}
  public void registerCallback(Callback c,Handler h){callbacks.add(c);}public void unregisterCallback(Callback c){callbacks.remove(c);}public void emitPlayback(){for(Callback c:new ArrayList<>(callbacks))c.onPlaybackStateChanged(state);}public void emitMetadata(){for(Callback c:new ArrayList<>(callbacks))c.onMetadataChanged(metadata);}public void emitExtras(){for(Callback c:new ArrayList<>(callbacks))c.onExtrasChanged(new Bundle());}
  public static class Callback {public void onMetadataChanged(MediaMetadata m){}public void onPlaybackStateChanged(PlaybackState s){}public void onExtrasChanged(Bundle b){}public void onSessionDestroyed(){}public void onSessionEvent(String e,Bundle b){}}
  public static class TransportControls {public int next,previous,play,pause;public long seek=-1;public void skipToNext(){next++;}public void skipToPrevious(){previous++;}public void play(){play++;}public void pause(){pause++;}public void seekTo(long p){seek=p;}public int total(){return next+previous+play+pause+(seek<0?0:1);}}
@@ -97,6 +103,7 @@ public class Context {
  public interface Commands {boolean send(String action,String source);}public static OfficialMediaBridge last;public int updates,starts,stops;public MediaController selected;public OfficialMediaBridge(Context c,Commands commands,Runnable changed){last=this;}public void update(MediaController c){updates++;selected=c;}public void start(){starts++;}public void stop(){stops++;}public JSONObject snapshot(){return new JSONObject();}
 }''',
 'xyz/i4o/uni/launcher/integration/MediaAccessService.java': '''package xyz.i4o.uni.launcher.integration;public final class MediaAccessService {}''',
+'xyz/i4o/uni/launcher/integration/LyricsResolver.java': '''package xyz.i4o.uni.launcher.integration;import java.io.File;public final class LyricsResolver {public LyricsResolver(File f,Runnable r){}public String cached(String t,String a,long d){return "";}public void request(String t,String a,long d){}}''',
 }
 
 def run(command, **kwargs):
@@ -118,7 +125,8 @@ def main():
             path = doubles/name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(body)
-        sources = [*doubles.rglob('*.java'), CORE, INTEGRATION/'NeteaseMediaAdapter.java']
+        retention = CORE.parent/'MediaTextRetention.java'
+        sources = [*doubles.rglob('*.java'), CORE, retention, INTEGRATION/'NeteaseMediaAdapter.java']
         tests = ROOT/'app/native-tests/test-performance'
         adapters = [INTEGRATION/'NavigationApps.java', INTEGRATION/'MediaAdapter.java']
         out = temp/'classes';out.mkdir()
@@ -145,7 +153,7 @@ def main():
         # Use Java 8 bootstrap symbols for javac's lambdas, Android API 28 for
         # Android signatures, then let D8 desugar for the production min SDK.
         run([JAVA/'javac', '--release', '8', '-encoding', 'UTF-8', '-cp', platform, '-d', actual,
-             *adapters, INTEGRATION/'NeteaseMediaAdapter.java', INTEGRATION/'OfficialMediaBridge.java', INTEGRATION/'MediaAccessService.java', CORE])
+             *adapters, INTEGRATION/'NeteaseMediaAdapter.java', INTEGRATION/'OfficialMediaBridge.java', INTEGRATION/'MediaAccessService.java', INTEGRATION/'LyricsResolver.java', CORE, retention])
         dex = temp/'dex';dex.mkdir()
         run([JAVA/'java', '-cp', SDK/'cmdline-tools/latest/lib/r8.jar', 'com.android.tools.r8.D8', '--min-api', '24', '--lib', platform, '--output', dex, *actual.rglob('*.class')])
         print('PASS real Android API 28 compilation + D8 (min API 24); no device accessed', flush=True)

@@ -1,8 +1,0 @@
-{
-  "version": "0.6.15",
-  "device": "API28 x86_64 emulator",
-  "scope": "actual release desktop; demo media metadata",
-  "settingsAllStyleNamesVisible": true,
-  "musicCardBodyOpensDetails": true,
-  "realVehicle": false
-}

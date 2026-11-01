@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>UNI 桌面 · 全局条音乐进度动效</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#07111f;color:#f2f6fc;font-family:"Noto Sans CJK SC","Microsoft YaHei",sans-serif}
+.screen{position:relative;width:1920px;height:1080px;overflow:hidden;background:linear-gradient(155deg,#081524,#0d2038 52%,#101629)}
+.eyebrow{position:absolute;left:80px;top:72px;color:#8ba0b8;font-size:20px;letter-spacing:3px}
+h1{position:absolute;left:80px;top:104px;margin:0;font-size:44px;font-weight:600}
+.summary{position:absolute;left:80px;top:172px;width:650px;color:#a9bccf;font-size:21px;line-height:1.7}
+.stage{position:absolute;left:80px;right:80px;top:290px;display:grid;gap:30px}
+.state-label{font-size:19px;color:#9cb0c5;margin:0 0 10px 4px}.state-label strong{color:#f2f6fc;margin-right:10px}
+.dock{position:relative;height:96px;background:#0c1929;border-top:1px solid #31475e;border-bottom:1px solid #1d3045;display:flex;align-items:center;padding:0 24px;gap:16px}
+.nav{width:340px;display:flex;align-items:center;justify-content:space-between;color:#dce7f4;font-size:24px}.nav .home{color:#f3c77d}.nav span{width:42px;text-align:center}
+.sep{width:1px;height:34px;background:#3b5065}
+.climate{height:68px;border:1px solid #405a75;background:#1b3048;display:flex;align-items:center;gap:5px;padding:0 8px;color:#b7c7d9;font-size:16px}.climate b{color:#e8f0fa;font-size:24px;font-weight:400}.climate .on{color:#a7d0ff}.climate .fan:after{content:"✳ AUTO";color:#a7d0ff}
+.music-tool{position:relative;flex:1;min-width:0;height:68px;border:1px solid #405a75;background:#152a41;display:flex;align-items:center;overflow:hidden}
+.progress{position:absolute;left:0;top:0;bottom:0;width:42%;background:linear-gradient(90deg,#83b6ff14,#83b6ff32);border-right:1px solid #f5cf8680}
+.progress:before{content:"";position:absolute;right:0;top:0;bottom:0;width:132px;background:linear-gradient(270deg,#f5cf864d,#83b6ff26 44%,#83b6ff00);transform-origin:right center;animation:spread-left 2.1s ease-in-out infinite}
+.progress:after{content:"";position:absolute;right:0;top:7px;bottom:7px;width:3px;border-radius:3px;background:linear-gradient(180deg,#83b6ff00,#9ad0ff 18%,#f5cf86 50%,#9ad0ff 82%,#83b6ff00);box-shadow:0 0 9px #f5cf8666;animation:pulse 1.8s ease-in-out infinite}
+.content{position:relative;display:flex;flex:1;align-items:center;gap:16px;padding:0 16px;min-width:0}
+.controls{display:flex;align-items:center;gap:20px;font-size:23px;color:#e8f0fa}.play{color:#f3c77d}
+.art{width:52px;height:52px;background:#50627a;display:grid;place-items:center;font-size:20px}
+.song{width:130px;color:#f2f6fc;font-size:16px;line-height:1.45}.song small{color:#a6b6c8}
+.lyric{flex:1;min-width:0;text-align:center;color:#b8c7d8;font-size:19px}
+.uni{width:42px;height:42px;border-radius:7px;background:#0d203b;display:grid;place-items:center;color:#f7faff;font-weight:700}
+.disabled .progress{display:none}.disabled .music-tool{background:#152a41}
+.setting{position:absolute;right:80px;top:118px;width:520px;padding:26px 28px;background:#15283ed9;border:1px solid #526b85}
+.setting:after{content:"";position:absolute;inset:-1px;pointer-events:none;background:linear-gradient(#8caac4,#8caac4) left top/18px 2px no-repeat,linear-gradient(#8caac4,#8caac4) left top/2px 18px no-repeat,linear-gradient(#8caac4,#8caac4) right top/18px 2px no-repeat,linear-gradient(#8caac4,#8caac4) right top/2px 18px no-repeat,linear-gradient(#8caac4,#8caac4) left bottom/18px 2px no-repeat,linear-gradient(#8caac4,#8caac4) left bottom/2px 18px no-repeat,linear-gradient(#8caac4,#8caac4) right bottom/18px 2px no-repeat,linear-gradient(#8caac4,#8caac4) right bottom/2px 18px no-repeat}
+.setting h2{margin:0;font-size:24px}.setting p{margin:10px 0 20px;color:#a2b3c7;font-size:17px;line-height:1.6}
+.row{display:flex;align-items:center;justify-content:space-between;gap:20px}.row strong{font-size:20px}.row span{display:block;margin-top:5px;color:#93a7bb;font-size:15px}
+.toggle{position:relative;width:82px;height:42px;border:1px solid #83b6ff80;background:#83b6ff1c;border-radius:4px}.toggle input{position:absolute;opacity:0;width:100%;height:100%;margin:0;cursor:pointer}.toggle i{position:absolute;left:4px;top:4px;width:32px;height:32px;background:#83b6ff;transition:.18s}.toggle input:checked+i{left:44px}.default{position:absolute;right:28px;top:26px;color:#83b6ff;font-size:14px}
+@keyframes pulse{0%,100%{opacity:.58;transform:scaleY(.84)}50%{opacity:1;transform:scaleY(1)}}
+@keyframes spread-left{0%,100%{transform:scaleX(.48);opacity:.55}50%{transform:scaleX(1);opacity:1}}
+</style></head><body>
+<main class="screen">
+ <div class="eyebrow">GLOBAL DOCK · MUSIC PROGRESS</div>
+ <h1>全局条音乐进度动效</h1>
+ <p class="summary">音乐工具区使用一层很薄的横向背景表示播放进度：背景从左向右推进，进度前沿保持一条细亮边线。边线只做透明度和轻微伸缩呼吸，不使用模糊滤镜。</p>
+ <section class="setting" aria-label="设置预览">
+  <span class="default">默认开启</span>
+  <h2>桌面设置 · 外观与动效</h2>
+  <p>关闭后音乐工具区保留静态底色，不再展示进度背景和前沿边线；音乐控制与歌词不受影响。</p>
+  <div class="row">
+   <div><strong>音乐进度动态背景</strong><span>背景长度同步播放进度</span></div>
+   <label class="toggle"><input type="checkbox" checked id="motion-switch"><i></i></label>
+  </div>
+ </section>
+ <div class="stage">
+  <div>
+   <p class="state-label"><strong>开启 · 默认</strong>背景随播放进度推进，前沿边线轻微呼吸</p>
+   <div class="dock" id="on-dock">
+    <div class="nav"><span>‹</span><span class="home">⌂</span><span>▦</span><span>▢</span><span>⟳<small style="font-size:10px">360</small></span></div><div class="sep"></div>
+    <div class="climate"><span class="on">A/C</span><b>21.0°</b><span class="fan"></span><span class="on">↻</span><b>21.0°</b><span style="color:#f3c77d">⏻</span></div><div class="sep"></div>
+    <div class="music-tool"><div class="progress"></div><div class="content"><div class="controls"><span>◀</span><span class="play">Ⅱ</span><span>▶</span></div><div class="art">♫</div><div class="song">向海而行<br><small>Coastline</small></div><div class="lyric">让今天从容开启</div></div></div><div class="sep"></div><div class="uni">U</div>
+   </div>
+  </div>
+  <div class="disabled">
+   <p class="state-label"><strong>关闭</strong>静态底色，不显示进度与前沿边线</p>
+   <div class="dock">
+    <div class="nav"><span>‹</span><span class="home">⌂</span><span>▦</span><span>▢</span><span>⟳<small style="font-size:10px">360</small></span></div><div class="sep"></div>
+    <div class="climate"><span class="on">A/C</span><b>21.0°</b><span class="fan"></span><span class="on">↻</span><b>21.0°</b><span style="color:#f3c77d">⏻</span></div><div class="sep"></div>
+    <div class="music-tool"><div class="progress"></div><div class="content"><div class="controls"><span>◀</span><span class="play">Ⅱ</span><span>▶</span></div><div class="art">♫</div><div class="song">向海而行<br><small>Coastline</small></div><div class="lyric">让今天从容开启</div></div></div><div class="sep"></div><div class="uni">U</div>
+   </div>
+  </div>
+ </div>
+</main>
+<script>
+const onDock=document.querySelector('#on-dock .progress');let t=0;
+function frame(){t+=.00035;if(t>1)t=0;onDock.style.width=(34+t*30)+'%';requestAnimationFrame(frame)}frame();
+document.getElementById('motion-switch').onchange=e=>{const enabled=e.target.checked;document.querySelector('.stage').classList.toggle('disabled',!enabled)};
+</script>
+</body></html>

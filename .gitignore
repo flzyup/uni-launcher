@@ -11,3 +11,7 @@ __pycache__/
 /archive/webview-android/node_modules/
 
 /car-reports/
+
+# The emulator runs leave screenshots and reports behind.
+/verification/
+/app/verification/

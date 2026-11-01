@@ -46,7 +46,7 @@ public final class SystemStatusAdapter {
         }catch(Exception|LinkageError ignored){}
         if(!running||token!=generation||owner!=worker)return;
         String raw=next.toString();if(!raw.equals(state)){state=raw;main.post(()->{if(running)changed.run();});}
-        if(running)worker.postDelayed(this,2000);
+        if(running)worker.postDelayed(this,xyz.i4o.uni.launcher.LauncherVisibility.visible()?2000:5000);
     }};
     public SystemStatusAdapter(Context context,Runnable changed){this.context=context;this.changed=changed;}
     public void start(){

@@ -20,6 +20,8 @@ String mediaSourceLabel(Map<String, dynamic> state) {
     if (app['package'] == source && source != null)
       return '${app['label'] ?? source}';
   }
+  final label = media['sourceLabel'];
+  if (label is String && label.isNotEmpty) return label;
   return source?.toString() ?? '音乐播放器';
 }
 
@@ -51,21 +53,24 @@ class _MediaCover extends StatelessWidget {
 
 class _MusicMetadata extends StatelessWidget {
   final String title, artist, album;
-  final bool compact;
+  final bool compact, centered;
   const _MusicMetadata(
       {required this.title,
       required this.artist,
       required this.album,
-      this.compact = false});
+      this.compact = false,
+      this.centered = false});
   @override
   Widget build(BuildContext context) {
     final s = SurfaceStyle.of(context);
     return Column(
         key: const ValueKey('music-card-metadata'),
         mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment:
+            centered ? CrossAxisAlignment.center : CrossAxisAlignment.start,
         children: [
           Text(title,
+              textAlign: centered ? TextAlign.center : TextAlign.start,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
@@ -74,6 +79,7 @@ class _MusicMetadata extends StatelessWidget {
                   fontWeight: FontWeight.w500)),
           SizedBox(height: Design.px(compact ? 6 : 10)),
           Text(artist,
+              textAlign: centered ? TextAlign.center : TextAlign.start,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
@@ -81,6 +87,7 @@ class _MusicMetadata extends StatelessWidget {
           if (album.isNotEmpty) ...[
             SizedBox(height: Design.px(4)),
             Text(album,
+                textAlign: centered ? TextAlign.center : TextAlign.start,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
@@ -96,24 +103,199 @@ class _MusicCard extends StatelessWidget {
   final Map<String, dynamic> state;
   const _MusicCard(
       {required this.card, required this.controller, required this.state});
+
   @override
   Widget build(BuildContext context) {
     final demo = state['demo'] == true, media = mapOf(state['media']);
     final compact = card.h <= 2;
-    final lyrics = (card.w == 4 && card.h == 4) || (card.w == 8 && card.h == 6);
+    final tall = card.w == 4 && card.h >= 5;
+    final lyricCard =
+        (card.w == 4 && card.h >= 4) || (card.w == 8 && card.h == 6);
     final large = card.w == 8 && card.h == 6;
     final metadata = _MusicMetadata(
         title: _mediaValue(state, 'title', '向海而行', '暂无播放'),
         artist: _mediaValue(state, 'artist', 'Coastline', '等待媒体会话'),
         album: _mediaValue(state, 'collection', '晨间驾驶歌单', ''),
-        compact: compact);
-    final spectrum = AudioSpectrum(
-        playing: !demo && media['playing'] == true,
-        height: compact
-            ? 24
-            : large
-                ? 58
-                : 34);
+        compact: compact || tall,
+        centered: card.w == 4 && card.h == 4);
+    final double spectrumHeight = compact
+        ? 0.0
+        : tall
+            ? (card.h >= 6 ? 54 : 46)
+            : card.w == 4 && card.h == 4
+                ? 40
+                : large
+                    ? 58
+                    : 34;
+    final spectrum = compact
+        ? const SizedBox.shrink(key: ValueKey('music-card-spectrum-disabled'))
+        : AudioSpectrum(
+            playing: !demo && media['playing'] == true,
+            height: spectrumHeight,
+          );
+    Widget heading() => AnimatedBuilder(
+        animation: controller,
+        builder: (context, _) => controller.editing
+            ? const SizedBox.shrink()
+            : Column(children: [
+                Row(children: [
+                  Expanded(
+                      child: MediaSourceBadge(
+                          controller: controller,
+                          titleBar: true,
+                          compact: true)),
+                  IconAction(
+                      key: const ValueKey('music-app-picker'),
+                      icon: Icons.swap_horiz,
+                      label: '选择音乐应用',
+                      size: Design.px(38),
+                      onTap: () => showMusicPicker(context, controller)),
+                ]),
+                SizedBox(height: Design.px(compact ? 10 : 16)),
+              ]));
+
+    const lyricRowHeight = 44.0;
+    const lyricFontSize = 26.0;
+    int lyricLines(double height, int maximum) {
+      var lines =
+          (height / Design.px(lyricRowHeight)).floor().clamp(1, maximum);
+      if (lines > 1 && lines.isEven) lines--;
+      return lines;
+    }
+
+    Widget lyricsView(int lines, double fontSize) => Center(
+        key: const ValueKey('music-card-lyrics'),
+        child: ShaderMask(
+            key: const ValueKey('music-card-lyrics-fade'),
+            blendMode: BlendMode.dstIn,
+            shaderCallback: (bounds) {
+              final edge = bounds.height > 0
+                  ? (Design.px(24) / bounds.height).clamp(0.0, .2)
+                  : 0.0;
+              return LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: const [
+                  Colors.transparent,
+                  Colors.white,
+                  Colors.white,
+                  Colors.transparent
+                ],
+                stops: [0, edge, 1 - edge, 1],
+              ).createShader(bounds);
+            },
+            child: LyricsView(
+                media: media,
+                visibleLines: lines,
+                lineHeight: lyricRowHeight,
+                fontSize: fontSize,
+                textAlign: TextAlign.center)));
+
+    Widget body(BoxConstraints box) {
+      final compactCover = Design.px(compact
+          ? 86
+          : tall
+              ? 104
+              : 132);
+      if (compact) {
+        return Row(children: [
+          _MediaCover(demo: demo, size: compactCover, media: media),
+          SizedBox(width: Design.px(16)),
+          Expanded(child: metadata),
+        ]);
+      }
+      if (tall) {
+        return Column(children: [
+          Row(children: [
+            _MediaCover(demo: demo, size: compactCover, media: media),
+            SizedBox(width: Design.px(18)),
+            Expanded(child: metadata),
+          ]),
+          SizedBox(height: Design.px(6)),
+          Expanded(child: LayoutBuilder(builder: (context, constraints) {
+            return lyricsView(
+                lyricLines(constraints.maxHeight, 21), lyricFontSize);
+          })),
+          SizedBox(height: Design.px(6)),
+          spectrum,
+        ]);
+      }
+      if (card.w == 4 && card.h == 4) {
+        return Row(children: [
+          Expanded(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                Expanded(child: LayoutBuilder(builder: (context, constraints) {
+                  final size = constraints.biggest.shortestSide;
+                  return Center(
+                      child: _MediaCover(demo: demo, size: size, media: media));
+                })),
+                SizedBox(height: Design.px(8)),
+                Center(child: metadata),
+              ])),
+          SizedBox(width: Design.px(16)),
+          Expanded(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                Expanded(child: LayoutBuilder(builder: (context, constraints) {
+                  return lyricsView(
+                      lyricLines(constraints.maxHeight, 11), lyricFontSize);
+                })),
+                SizedBox(height: Design.px(6)),
+                spectrum,
+              ])),
+        ]);
+      }
+      if (!lyricCard) {
+        return Row(children: [
+          _MediaCover(demo: demo, size: compactCover, media: media),
+          SizedBox(width: Design.px(22)),
+          Expanded(
+              child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                metadata,
+                SizedBox(height: Design.px(12)),
+                spectrum
+              ]))
+        ]);
+      }
+      final largeCover = Design.px(260);
+      return Row(children: [
+        Expanded(
+            flex: 4,
+            child: Center(
+                child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: SizedBox(
+                        width: box.maxWidth * 4 / 9,
+                        child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _MediaCover(
+                                  demo: demo, size: largeCover, media: media),
+                              SizedBox(height: Design.px(18)),
+                              metadata,
+                            ]))))),
+        SizedBox(width: Design.px(26)),
+        Expanded(
+            flex: 5,
+            child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(child: lyricsView(7, lyricFontSize)),
+                  SizedBox(height: Design.px(12)),
+                  spectrum,
+                ])),
+      ]);
+    }
+
     return _CardCanvas(
         minHeight: compact
             ? 190
@@ -129,91 +311,16 @@ class _MusicCard extends StatelessWidget {
             child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Row(children: [
-                    Expanded(
-                        child: MediaSourceBadge(
-                            controller: controller,
-                            titleBar: true,
-                            compact: true)),
-                    IconAction(
-                        key: const ValueKey('music-app-picker'),
-                        icon: Icons.swap_horiz,
-                        label: '选择音乐应用',
-                        size: Design.px(38),
-                        onTap: controller.editing
-                            ? null
-                            : () => showMusicPicker(context, controller)),
-                  ]),
-                  SizedBox(height: Design.px(compact ? 10 : 16)),
-                  Expanded(child: LayoutBuilder(builder: (context, box) {
-                    final cover = Design.px(compact
-                        ? 86
-                        : large
-                            ? 260
-                            : 132);
-                    if (!lyrics) {
-                      return Row(children: [
-                        _MediaCover(demo: demo, size: cover, media: media),
-                        SizedBox(width: Design.px(compact ? 16 : 22)),
-                        Expanded(
-                            child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                              metadata,
-                              SizedBox(height: Design.px(compact ? 6 : 12)),
-                              spectrum,
-                            ])),
-                      ]);
-                    }
-                    return Row(children: [
-                      Expanded(
-                          flex: 4,
-                          child: Center(
-                              child: FittedBox(
-                                  fit: BoxFit.scaleDown,
-                                  alignment: Alignment.centerLeft,
-                                  child: SizedBox(
-                                      width: box.maxWidth * 4 / 9,
-                                      child: Column(
-                                          mainAxisSize: MainAxisSize.min,
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            _MediaCover(
-                                                demo: demo,
-                                                size: cover,
-                                                media: media),
-                                            SizedBox(height: Design.px(18)),
-                                            metadata,
-                                          ]))))),
-                      SizedBox(width: Design.px(26)),
-                      Expanded(
-                          flex: 5,
-                          child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                spectrum,
-                                SizedBox(height: Design.px(12)),
-                                Flexible(
-                                    child: Center(
-                                        key:
-                                            const ValueKey('music-card-lyrics'),
-                                        child: LyricsView(
-                                            media: media,
-                                            visibleLines: large ? 7 : 5,
-                                            lineHeight: large ? 48 : 32,
-                                            fontSize: large ? 28 : 21,
-                                            textAlign: TextAlign.start))),
-                              ])),
-                    ]);
-                  })),
+                  heading(),
+                  Expanded(
+                      child:
+                          LayoutBuilder(builder: (context, box) => body(box))),
                   if (!compact) ...[
                     SizedBox(height: Design.px(10)),
                     MediaProgress(
                         media: media,
-                        onSeek: (v) => controller.command('seek', value: '$v')),
+                        onSeek: (v) =>
+                            controller.command('seek', value: '${'$v'}')),
                   ],
                 ])));
   }
@@ -302,16 +409,18 @@ class MediaPanel extends StatelessWidget {
                               solid: action == 'toggle-play',
                               size: Design.px(58),
                               iconSize: Design.px(28),
-                              onTap: available &&
-                                      (demo ||
-                                          m[action == 'next'
-                                                  ? 'canNext'
-                                                  : action == 'previous'
-                                                      ? 'canPrevious'
-                                                      : 'canToggle'] ==
-                                              true)
+                              onTap: (action == 'toggle-play' && !available)
                                   ? () => controller.command(action)
-                                  : null),
+                                  : available &&
+                                          (demo ||
+                                              m[action == 'next'
+                                                      ? 'canNext'
+                                                      : action == 'previous'
+                                                          ? 'canPrevious'
+                                                          : 'canToggle'] ==
+                                                  true)
+                                      ? () => controller.command(action)
+                                      : null),
                         ],
                       ]),
                 ])));

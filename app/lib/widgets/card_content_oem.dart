@@ -1,5 +1,21 @@
 part of 'card_content.dart';
 
+class _BodyCard extends StatelessWidget {
+  final LauncherCard card;
+  final Map<String, dynamic> native;
+  const _BodyCard({required this.card, required this.native});
+  @override
+  Widget build(BuildContext context) {
+    return _CardCanvas(
+        minHeight: 300,
+        child:
+            Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          _Heading(card.title == '车门状态' ? '车况与胎压' : card.title, '', 'car'),
+          Expanded(child: VehicleStatusDiagram(native: native)),
+        ]));
+  }
+}
+
 String _calendarDetail(Map<String, dynamic> calendar) {
   if (calendar['authorized'] != true) return '轻触授权读取系统日历';
   if (calendar['eventAvailable'] != true) return '系统日历';

@@ -231,15 +231,16 @@ void main() {
     final play = find.byKey(const ValueKey('play-pause'));
     Material material(Finder f) => t.widget<Material>(
         find.descendant(of: f, matching: find.byType(Material)).first);
-    final style = SurfaceStyle.of(t.element(home));
-    expect((material(home).shape! as TechnicalFrameBorder).cornerColor,
-        style.accent);
-    expect((material(play).shape! as TechnicalFrameBorder).cornerColor,
-        style.corner);
-    expect(material(play).color, style.soft);
+    expect(material(home).shape, isNull);
+    expect(material(play).shape, isNull);
+    expect(material(play).color, Colors.transparent);
     final power = find.byKey(const ValueKey('climate-power'));
     expect(material(power).shape, isNull);
     expect(material(power).color, Colors.transparent);
+    final climateGroup = t
+        .widget<GlassSurface>(find.byKey(const ValueKey('dock-climate-frame')));
+    expect(climateGroup.tone, SurfaceTone.soft);
+    expect(climateGroup.shadow, false);
 
     final rect = t.getRect(play),
         dock = t.getRect(find.byKey(const ValueKey('bottom-dock')));
@@ -262,10 +263,17 @@ void main() {
     await t.tap(find.byKey(const ValueKey('tab-system')));
     await t.pumpAndSettle();
     expect(t.getTopLeft(find.byKey(const ValueKey('system-app-controls'))).dy,
-        lessThan(t.getTopLeft(find.text('导航与音乐')).dy));
+        lessThan(t.getTopLeft(find.text('底栏图标大小')).dy));
+    expect(find.text('导航与音乐'), findsNothing);
+    expect(find.text('胎压数据诊断'), findsNothing);
+    expect(find.text('车门数据诊断'), findsNothing);
     expect(find.byKey(const ValueKey('demo-switch')), findsNothing);
     expect(find.byKey(const ValueKey('media-source')), findsOneWidget);
-    expect(find.byType(ExpansionTile), findsNothing);
+    expect(
+        find.descendant(
+            of: find.byKey(const ValueKey('system-app-controls')),
+            matching: find.byType(ExpansionTile)),
+        findsNothing);
     await t.scrollUntilVisible(find.byKey(const ValueKey('media-source')), 260,
         scrollable: find.byType(Scrollable).first);
     expect(find.byKey(const ValueKey('navigation-source')), findsOneWidget);
@@ -286,8 +294,9 @@ void main() {
     final g = FakeGateway();
     const appearance = Appearance(
         themeStyle: 'blueGlass',
-        mode: 'dark',
+        mode: 'smart',
         palette: 'blue',
+        wallpaper: 'precision',
         radius: 24,
         glass: true);
     final dock = LauncherController(g);
@@ -301,6 +310,7 @@ void main() {
     final style =
         SurfaceStyle.of(t.element(find.byKey(const ValueKey('bottom-dock'))));
     expect(style.technicalFrame, true);
+    expect(style.dark, isFalse);
     expect(t.getRect(find.byKey(const ValueKey('bottom-dock'))),
         const Rect.fromLTWH(0, 0, 1920, 96));
     expect(find.byType(BackdropFilter), findsNothing);
@@ -314,6 +324,8 @@ void main() {
     t.view.physicalSize = const Size(1920, 984);
     await t.pumpWidget(GlobalPanelApp(controller: panel));
     await t.pumpAndSettle();
+    expect(
+        SurfaceStyle.of(t.element(find.byType(Scaffold).first)).dark, isFalse);
     expect(find.byTooltip('关闭音乐详情'), findsOneWidget);
     expect(find.byType(BackdropFilter), findsNothing);
     expect(t.takeException(), null);

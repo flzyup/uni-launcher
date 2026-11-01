@@ -5,8 +5,9 @@ import '../theme/launcher_theme.dart';
 import 'glass_surface.dart';
 import 'integration_settings.dart';
 import 'native_slice_builder.dart';
+import 'dock_size_settings.dart';
 
-/// System-owned labels and available audio modes come from the native adapter.
+/// System-owned labels come from the native adapter.
 /// Never invent an enabled setting when this device cannot provide it.
 class SystemSettingsPanel extends StatelessWidget {
   final LauncherController controller;
@@ -22,15 +23,9 @@ class SystemSettingsPanel extends StatelessWidget {
       builder: (context, native) {
         final s = SurfaceStyle.of(context);
         final settings = _map(native['systemSettings']);
-        final audio = _map(settings['navigationAudio']);
         final entries = (settings['entries'] as List? ?? const [])
             .whereType<Map>()
             .map(_map)
-            .toList();
-        final modes = (audio['modes'] as List? ?? const [])
-            .whereType<Map>()
-            .map(_map)
-            .where((m) => m['value'] is int && m['label'] is String)
             .toList();
         final groups = <String, List<Map<String, dynamic>>>{};
         for (final entry in entries) {
@@ -49,6 +44,7 @@ class SystemSettingsPanel extends StatelessWidget {
             return order == 0 ? a.key.compareTo(b.key) : order;
           });
         final rows = <Map<String, dynamic>>[
+          {'officialRoot': true},
           for (final group in orderedGroups) ...[
             {'group': group.key},
             ...group.value,
@@ -60,6 +56,18 @@ class SystemSettingsPanel extends StatelessWidget {
             itemBuilder: (context, index) {
               if (index > 0) {
                 final entry = rows[index - 1];
+                if (entry['officialRoot'] == true) {
+                  return Padding(
+                      padding: EdgeInsets.only(bottom: Design.px(6)),
+                      child: GlassSurface(
+                          padding: EdgeInsets.symmetric(horizontal: Design.px(8)),
+                          child: ListTile(
+                              key: const ValueKey('system-setting-official-root'),
+                              leading: const Icon(Icons.settings_outlined),
+                              title: const Text('原车系统设置'),
+                              trailing: const Icon(Icons.chevron_right),
+                              onTap: () => controller.command('open-official', value: 'settings'))));
+                }
                 if (entry.containsKey('group')) {
                   return Padding(
                       padding: EdgeInsets.symmetric(vertical: Design.px(14)),
@@ -98,55 +106,10 @@ class SystemSettingsPanel extends StatelessWidget {
                           RuntimeSettings(controller: controller),
                         ]),
                     SizedBox(height: Design.px(22)),
-                    GlassSurface(
-                        child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                          Text('导航与音乐',
-                              style: TextStyle(fontSize: Design.px(26))),
-                          SizedBox(height: Design.px(12)),
-                          Text('导航播报时保持音乐音量',
-                              style: TextStyle(
-                                  color: s.muted, fontSize: Design.px(19))),
-                          SizedBox(height: Design.px(18)),
-                          if (audio['available'] == true && modes.isNotEmpty)
-                            Wrap(
-                                spacing: Design.px(14),
-                                runSpacing: Design.px(12),
-                                children: [
-                                  for (final mode in modes)
-                                    ChoiceChip(
-                                        key: ValueKey(
-                                            'navigation-audio-${mode['value']}'),
-                                        label: Text('${mode['label']}'),
-                                        selected:
-                                            mode['value'] == audio['mode'],
-                                        side: s.technicalFrame
-                                            ? s.controlSide(
-                                                mode['value'] == audio['mode'])
-                                            : null,
-                                        shape: s.controlShape(
-                                            selected:
-                                                mode['value'] == audio['mode']),
-                                        onSelected: audio['busy'] == true
-                                            ? null
-                                            : (selected) {
-                                                if (selected)
-                                                  controller.command(
-                                                      'navigation-audio-mode',
-                                                      value:
-                                                          '${mode['value']}');
-                                              })
-                                ])
-                          else
-                            Text('${audio['reason'] ?? '此设备尚未提供导航混音接口'}',
-                                key: const ValueKey(
-                                    'navigation-audio-unavailable'),
-                                style: TextStyle(color: s.muted)),
-                        ])),
+                    DockSizeSettings(controller: controller),
                     SizedBox(height: Design.px(22)),
                     Row(children: [
-                      Text('系统设置入口', style: TextStyle(fontSize: Design.px(26))),
+                      Text('原车系统设置&安卓设置', style: TextStyle(fontSize: Design.px(26))),
                       const Spacer(),
                       TextButton.icon(
                           key: const ValueKey('refresh-system-settings'),

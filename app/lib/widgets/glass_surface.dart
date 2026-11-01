@@ -73,12 +73,15 @@ class GlassSurface extends StatelessWidget {
     return DecoratedBox(
         decoration: BoxDecoration(
             borderRadius: shape,
+            // A wide Gaussian is the single most expensive thing a card puts on
+            // the raster pass here (Adreno 530 measured ~5-7ms per page). The
+            // softer look is preserved at a third of the blur area.
             boxShadow: shadow
                 ? [
                     BoxShadow(
                         color: s.shadow,
-                        offset: Offset(0, Design.px(s.technicalFrame ? 6 : 16)),
-                        blurRadius: Design.px(s.technicalFrame ? 18 : 44))
+                        offset: Offset(0, Design.px(s.technicalFrame ? 5 : 10)),
+                        blurRadius: Design.px(s.technicalFrame ? 12 : 20))
                   ]
                 : null),
         child: ClipRRect(
@@ -118,8 +121,7 @@ class IconAction extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = SurfaceStyle.of(context),
         enabled = onTap != null || onLongPress != null;
-    final fg = !enabled
-        ? s.muted.withValues(alpha: .35)
+    final fg = !enabled ? s.disabled
         : solid && !s.technicalFrame
             ? s.accentText
             : active
@@ -136,10 +138,9 @@ class IconAction extends StatelessWidget {
                 width: size,
                 height: size,
                 child: Material(
-                    shape:
-                        s.technicalFrame && framed && (active || solid || soft)
-                            ? s.controlShape(selected: active && enabled)
-                            : null,
+                    shape: s.technicalFrame && framed && (active || solid || soft)
+                        ? s.controlShape(selected: active && enabled)
+                        : null,
                     color: s.technicalFrame && framed && active && enabled
                         ? s.accent.withValues(alpha: .11)
                         : solid && s.technicalFrame
@@ -155,8 +156,15 @@ class IconAction extends StatelessWidget {
                         borderRadius: BorderRadius.circular(s.controlRadius),
                         onTap: onTap,
                         onLongPress: onLongPress,
-                        highlightColor: s.accent.withValues(alpha: .20),
-                        splashColor: s.accent.withValues(alpha: .12),
+                        highlightColor: s.accent.withValues(alpha: .24),
+                        hoverColor: s.accent.withValues(alpha: .08),
+                        focusColor: s.accent.withValues(alpha: .16),
+                        splashColor: s.accent.withValues(alpha: .16),
+                        overlayColor: WidgetStateProperty.resolveWith<Color>(
+                            (states) => s.accent.withValues(
+                                alpha: states.contains(WidgetState.pressed)
+                                    ? .24
+                                    : .08)),
                         child: Center(
                             child: child ??
                                 DesignIcon(icon,

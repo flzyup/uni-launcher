@@ -222,7 +222,9 @@ void main() {
     await binding.takeScreenshot('flutter-music');
     await tester.tap(find.byTooltip('关闭音乐详情'));
     await settle();
-    await tester.tap(find.byKey(const ValueKey('vehicle')));
+    await tester.tap(find.byKey(const ValueKey('uni-menu')));
+    await settle();
+    await tester.tap(find.byKey(const ValueKey('uni-menu-vehicle')));
     await settle();
     await binding.takeScreenshot('flutter-vehicle');
     await tester.tap(find.byTooltip('关闭车辆信息'));
@@ -266,7 +268,7 @@ void main() {
         (c.native.value['climate'] as Map)['driverVent'] == 3 &&
             (c.native.value['climate'] as Map)['driverHeat'] == 0);
     await binding.takeScreenshot('flutter-seats-vent');
-    await tester.tap(find.byKey(const ValueKey('seat-driverVent-0')));
+    await tester.tap(find.byKey(const ValueKey('seat-driver-off')));
     await settle();
     verify(
         'Seat explicit off confirms without changing passenger heating',

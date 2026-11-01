@@ -167,7 +167,20 @@ public final class OfficialVehicleSensors {
             sample.sampleValid = true;
             if (sample.unit == null) throw new IllegalStateException("UNIT_UNCONFIRMED");
             sample.valid = true; sample.reason = "";
-        } catch (Exception | LinkageError e) { sample.reason = failure(e); }
+        } catch (Exception | LinkageError e) {
+            sample.reason = failure(e);
+            // Diagnostic only: old firmware may expose the public sensor even
+            // when its PA object reports ERROR. Never promote this unchecked
+            // value to a valid sample without independent availability evidence.
+            if (sensors != null && "unqueried".equals(sample.sdkSupport)) try {
+                sample.sdkSupport = String.valueOf(call(sensors, "isSensorSupported", int.class, spec.id));
+                if ("active".equals(sample.sdkSupport)) {
+                    Object mapped = call(sensors, "getSensorLatestValue", int.class, spec.id);
+                    if (mapped instanceof Number && finite(((Number) mapped).doubleValue()))
+                        sample.sdkValue = ((Number) mapped).doubleValue();
+                }
+            } catch (Exception | LinkageError ignored) { }
+        }
         sample.observedAtMs = System.currentTimeMillis();
         return sample;
     }
