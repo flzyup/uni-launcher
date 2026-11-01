@@ -32,6 +32,9 @@ class _LyricsViewState extends State<LyricsView> {
   int active = -1;
   String payload = '';
   bool _tickersEnabled = false;
+  String _layoutSignature = '';
+  List<double> _lineHeights = const [];
+  List<double> _lineOffsets = const [0];
   double get rowHeight => Design.px(widget.lineHeight ?? 36);
   int get visibleLines => widget.visibleLines ?? (widget.compact ? 1 : 3);
   @override
@@ -87,8 +90,12 @@ class _LyricsViewState extends State<LyricsView> {
     if (mounted) setState(() => active = next);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !_tickersEnabled || !scroll.hasClients) return;
-      final target = ((next < 0 ? 0 : next) * rowHeight)
-          .clamp(0.0, scroll.position.maxScrollExtent);
+      final rawTarget = next < 0
+          ? 0.0
+          : next < _lineOffsets.length
+              ? _lineOffsets[next]
+              : next * rowHeight;
+      final target = rawTarget.clamp(0.0, scroll.position.maxScrollExtent);
       if (reset || MediaQuery.disableAnimationsOf(context)) {
         scroll.jumpTo(target);
       } else {
@@ -188,32 +195,59 @@ class _LyricsViewState extends State<LyricsView> {
                       color: s.muted))));
     return Semantics(
         label: '歌词',
-        child: SizedBox(
-            height: rowHeight * count,
-            child: ListView.builder(
-              key: const ValueKey('lyrics-scroll'),
-              controller: scroll,
-              padding:
-                  EdgeInsets.symmetric(vertical: rowHeight * (count - 1) / 2),
-              itemExtent: rowHeight,
-              itemCount: lyrics.lines.length,
-              itemBuilder: (context, i) => Align(
-                  alignment: widget.textAlign == TextAlign.start
-                      ? Alignment.centerLeft
-                      : Alignment.center,
-                  child: Text(lyrics.lines[i].text,
-                      key: ValueKey(
-                          'lyric-line-$i-${active == i ? "active" : "idle"}'),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: widget.textAlign,
-                      style: TextStyle(
-                          fontSize: Design.px(
-                              widget.fontSize ?? (widget.compact ? 20 : 22)),
-                          color: i == active ? s.accent : s.muted,
-                          fontWeight: i == active
-                              ? FontWeight.w500
-                              : FontWeight.w400))),
-            )));
+        child: LayoutBuilder(builder: (context, constraints) {
+          final fontSize =
+              Design.px(widget.fontSize ?? (widget.compact ? 20 : 22));
+          final signature =
+              '$payload|${constraints.maxWidth}|$fontSize|$rowHeight';
+          if (_layoutSignature != signature) {
+            final heights = <double>[];
+            final offsets = <double>[0.0];
+            for (final item in lyrics.lines) {
+              final painter = TextPainter(
+                  text: TextSpan(
+                      text: item.text,
+                      style: TextStyle(fontSize: fontSize, height: 1.18)),
+                  textDirection: TextDirection.ltr)
+                ..layout(maxWidth: constraints.maxWidth);
+              final renderedLines = painter
+                  .computeLineMetrics()
+                  .length
+                  .clamp(1, widget.visibleLines ?? 3);
+              heights.add(rowHeight * renderedLines);
+              offsets.add(offsets.last + heights.last);
+            }
+            _layoutSignature = signature;
+            _lineHeights = heights;
+            _lineOffsets = offsets;
+          }
+          return SizedBox(
+              height: rowHeight * count,
+              child: ListView.builder(
+                key: const ValueKey('lyrics-scroll'),
+                controller: scroll,
+                padding:
+                    EdgeInsets.symmetric(vertical: rowHeight * (count - 1) / 2),
+                itemCount: lyrics.lines.length,
+                itemBuilder: (context, i) => SizedBox(
+                    height: _lineHeights.isEmpty ? rowHeight : _lineHeights[i],
+                    child: Align(
+                        alignment: widget.textAlign == TextAlign.start
+                            ? Alignment.centerLeft
+                            : Alignment.center,
+                        child: Text(lyrics.lines[i].text,
+                            key: ValueKey(
+                                'lyric-line-$i-${active == i ? "active" : "idle"}'),
+                            softWrap: true,
+                            textAlign: widget.textAlign,
+                            style: TextStyle(
+                                fontSize: fontSize,
+                                height: 1.18,
+                                color: i == active ? s.accent : s.muted,
+                                fontWeight: i == active
+                                    ? FontWeight.w500
+                                    : FontWeight.w400)))),
+              ));
+        }));
   }
 }
