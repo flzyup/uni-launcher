@@ -46,6 +46,28 @@ class AmbientPreset {
   final int beatMinGapMs;
   final int jumpHoldMs;
 
+  /// A one-line description of what the preset feels like in the car.
+  ///
+  /// The preset page shows this instead of the parameter list: in a car the
+  /// user picks a mood, not a set of time constants.
+  String get summary {
+    switch (name) {
+      case '均衡':
+        return '颜色跟着频谱缓慢换，亮度随音乐起伏，变化幅度小。';
+      case '夜驾柔和':
+        return '颜色换得很慢，亮度起伏也小，相邻两帧的色差被压得更紧。';
+      case '赛博高对比':
+        return '颜色换得快、饱和度高，亮度起伏大，色相在 120° 的窄带里来回。';
+      case '呼吸感':
+        return '颜色基本停在原地，亮度像呼吸一样慢慢起伏。';
+      case '彩虹':
+        return '色相在整圈上慢慢转，颜色沿着光谱一路换过去。';
+      case '跳跃':
+        return '颜色一帧硬切到 120° 档位，每次起拍再前进一档，换色间隔 380 ms。';
+    }
+    return '所有参数都开放：亮度包络、色相、彩度、跳变、自转各调各的。';
+  }
+
   const AmbientPreset(
     this.name,
     this.attackMs,
