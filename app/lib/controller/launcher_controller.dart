@@ -37,7 +37,12 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
 
   bool previewPlacement(LauncherCard target) {
     final origin = placementOrigin;
-    if (origin == null || origin.id != target.id || target.page >= pageCount)
+    // `pageCount` itself is the trailing scratch page (see _setPage and the
+    // grid list in desktop.dart): a card dropped there becomes a real page on
+    // finishEdit. Rejecting `page == pageCount` here broke placement and
+    // resize for cards added through beginEditAtEnd, which land on exactly
+    // that page while the trailing page is still empty.
+    if (origin == null || origin.id != target.id || target.page > pageCount)
       return false;
     final previous = placementTarget;
     if (previous != null &&
