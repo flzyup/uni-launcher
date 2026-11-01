@@ -124,6 +124,11 @@ void main() {
     expect(find.byKey(const ValueKey('ambient-zone-choreo')), findsNothing);
     // The default values are exactly the 均衡 preset, so it is the readout.
     expect(find.byKey(const ValueKey('ambient-preset-readout')), findsOneWidget);
+    // Preset mode explains the mood in one sentence: no numbers, no
+    // second 自定义 button (the chip in the row is the only way in).
+    expect(find.byKey(const ValueKey('ambient-preset-customize')), findsNothing);
+    expect(find.textContaining('默认观感'), findsOneWidget);
+    expect(find.textContaining('亮度包络'), findsNothing);
 
     await tap(t, find.byKey(const ValueKey('ambient-preset-custom')));
     expect(changes.last.customMode, isTrue);

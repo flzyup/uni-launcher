@@ -251,7 +251,7 @@ class _MotionEngineSection extends StatelessWidget {
         _PresetChips(settings: settings, onChanged: onChanged),
         SizedBox(height: Design.px(14)),
         if (!settings.customMode)
-          _PresetSummary(settings: settings, onChanged: onChanged)
+          _PresetSummary(settings: settings)
         else ...[
           _SliderRow(
               label: '亮度起 attack',
@@ -576,36 +576,21 @@ class _PresetChips extends StatelessWidget {
       );
 }
 
-/// What a preset decided, without the sliders.
+/// What a preset feels like, without the sliders and without the numbers.
 ///
-/// In preset mode the page stays short: the chip row names the preset, this
-/// card lists the values it set, and one button opens the sliders again.
+/// In preset mode the page stays short: the chip row names the preset and
+/// this card says what it does to the light in one sentence. The numbers and
+/// the sliders live in the custom page only.
 class _PresetSummary extends StatelessWidget {
   final AmbientLightSettings settings;
-  final ValueChanged<AmbientLightSettings> onChanged;
 
-  const _PresetSummary({required this.settings, required this.onChanged});
+  const _PresetSummary({required this.settings});
 
   @override
   Widget build(BuildContext context) {
     final s = SurfaceStyle.of(context);
     final index = _presetIndex(settings);
     final preset = index >= 0 ? AmbientPresets.all[index] : null;
-    final rows = <String>[
-      '亮度包络 ${settings.attackMs} / ${settings.decayMs} ms',
-      '色相平滑 ${settings.hueTauMs} ms，限速 ${settings.hueMaxDeg} °/s',
-      '每帧色差上限 ${settings.maxDeltaE.toStringAsFixed(1)} ΔE00',
-      '色相跨度 ${settings.hueSpanDeg}°，彩度上限 '
-          '${(settings.maxChromaHundredths / 100).toStringAsFixed(2)}',
-      if (settings.hueJumpDeg > 0)
-        '色相跳变 ${settings.hueJumpDeg}° 一档'
-            '${settings.jumpHoldMs > 0 ? '，换色间隔 ${settings.jumpHoldMs} ms' : ''}'
-      else
-        '连续平滑（无色相跳变）',
-      if (settings.hueRotateDegPerSec > 0)
-        '色相自转 ${settings.hueRotateDegPerSec} °/s',
-      '底光 ${settings.floor}%，呼吸 ${(settings.breath * 100).round()}%',
-    ];
     return Container(
       key: const ValueKey('ambient-preset-summary'),
       padding: EdgeInsets.all(Design.px(16)),
@@ -619,24 +604,9 @@ class _PresetSummary extends StatelessWidget {
           Text(preset?.name ?? '自定义参数',
               style: TextStyle(fontSize: Design.px(20))),
           SizedBox(height: Design.px(8)),
-          for (final row in rows)
-            Padding(
-              padding: EdgeInsets.only(bottom: Design.px(6)),
-              child: Text(row,
-                  style: TextStyle(fontSize: Design.px(16), color: s.muted)),
-            ),
-          SizedBox(height: Design.px(4)),
           Text(
-            '预设模式不显示滑杆：想让这组参数变成自己的，点「自定义」把它们放出来。',
+            preset?.summary ?? '自定义参数：把所有滑杆都放开，随便调。',
             style: TextStyle(fontSize: Design.px(16), color: s.muted),
-          ),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton(
-              key: const ValueKey('ambient-preset-customize'),
-              onPressed: () => onChanged(settings.copyWith(customMode: true)),
-              child: const Text('自定义'),
-            ),
           ),
         ],
       ),
