@@ -44,7 +44,7 @@ const wallpaperPresets = <WallpaperPreset>[
 class Appearance {
   static const themeStyles = ['classic', 'blueGlass', 'nocturne'];
   static const spectrumStyles = ['bars', 'segments', 'mirror', 'outline'];
-  static const dockSizes = ['small', 'medium', 'large'];
+  static const dockSizes = ['small', 'medium', 'large', 'extraLarge'];
   static const dockLayouts = ['full', 'floating'];
   static const defaultDesktopName = 'LYNK & CO / 05';
   static String normalizeDesktopName(Object? value) {

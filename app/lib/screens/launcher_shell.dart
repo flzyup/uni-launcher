@@ -116,23 +116,44 @@ class _LauncherShellState extends State<LauncherShell> {
                                           controller: controller,
                                           position: pagePosition),
                                       Expanded(
-                                          child: IndexedStack(
-                                              index:
-                                                  controller.settings ? 1 : 0,
+                                          child: Stack(
+                                              fit: StackFit.expand,
                                               children: [
-                                            TickerMode(
-                                                enabled: !controller.settings,
-                                                child: Desktop(
-                                                    controller: controller,
-                                                    position: pagePosition)),
-                                            controller.settings
-                                                ? SettingsScreen(
-                                                    controller: controller,
-                                                    update: controller.gateway
-                                                            is AndroidGateway
-                                                        ? update
-                                                        : null)
-                                                : const SizedBox.shrink(),
+                                            IgnorePointer(
+                                                ignoring: controller.settings,
+                                                child: AnimatedOpacity(
+                                                    opacity: controller.settings
+                                                        ? 0
+                                                        : 1,
+                                                    duration: const Duration(
+                                                        milliseconds: 180),
+                                                    child: TickerMode(
+                                                        enabled: !controller
+                                                            .settings,
+                                                        child: Desktop(
+                                                            controller:
+                                                                controller,
+                                                            position:
+                                                                pagePosition)))),
+                                            IgnorePointer(
+                                                ignoring: !controller.settings,
+                                                child: AnimatedSwitcher(
+                                                    duration: const Duration(
+                                                        milliseconds: 180),
+                                                    child: controller.settings
+                                                        ? SettingsScreen(
+                                                            key: const ValueKey(
+                                                                'settings-page'),
+                                                            controller:
+                                                                controller,
+                                                            update: controller
+                                                                        .gateway
+                                                                    is AndroidGateway
+                                                                ? update
+                                                                : null)
+                                                        : const SizedBox.shrink(
+                                                            key: ValueKey(
+                                                                'settings-hidden')))),
                                           ])),
                                       if (!globalDockActive)
                                         BottomDock(controller: controller),

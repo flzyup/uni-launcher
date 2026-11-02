@@ -32,6 +32,7 @@ void main() {
       ('small', 1.0),
       ('medium', 1.14),
       ('large', 1.3),
+      ('extraLarge', 1.45),
     ]) {
       controller.setAppearance(controller.appearance.copyWith(dockSize: size));
       await tester.pumpAndSettle();
@@ -56,6 +57,7 @@ void main() {
       );
       expect(tester.takeException(), isNull);
     }
-    expect(gateway.saved, contains('"dockSize":"large"'));
+    await controller.persist();
+    expect(gateway.saved, contains('"dockSize":"extraLarge"'));
   });
 }

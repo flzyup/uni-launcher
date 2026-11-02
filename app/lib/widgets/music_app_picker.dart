@@ -17,6 +17,7 @@ List<Map<String, dynamic>> musicAppOptions(Map<String, dynamic> state) {
     for (final raw in (state['apps'] is List ? state['apps'] as List : const [])
         .whereType<Map>())
       if (raw['package'] is String &&
+          raw['enabled'] != false &&
           (raw['isMusic'] == true || sessions.contains(raw['package'])) &&
           seen.add(raw['package'] as String))
         Map<String, dynamic>.from(raw)

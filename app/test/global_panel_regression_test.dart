@@ -7,12 +7,15 @@ import 'package:uni_launcher/model/appearance.dart';
 import 'package:uni_launcher/screens/global_dock_app.dart';
 import 'package:uni_launcher/screens/global_panel_app.dart';
 import 'package:uni_launcher/theme/launcher_theme.dart';
+import 'package:uni_launcher/theme/design_tokens.dart';
 import 'package:uni_launcher/theme/technical_frame.dart';
 import 'package:uni_launcher/widgets/bottom_dock.dart';
 import 'package:uni_launcher/widgets/launcher_dialog.dart';
 import 'package:uni_launcher/widgets/glass_surface.dart';
 import 'package:uni_launcher/widgets/audio_spectrum.dart';
 import 'package:uni_launcher/widgets/card_content.dart';
+import 'package:uni_launcher/widgets/media_artwork.dart';
+import 'package:uni_launcher/widgets/integration_settings.dart';
 import 'package:uni_launcher/model/card_layout.dart';
 import 'package:uni_launcher/widgets/lyrics_view.dart';
 import 'fake_gateway.dart';
@@ -466,6 +469,138 @@ void main() {
     }
   });
 
+  testWidgets('4x4 music metadata stays left under the cover', (t) async {
+    final (c, g) = await setup(t);
+    g.state['media'] = {
+      ...(g.state['media'] as Map<String, dynamic>),
+      'title': '这是一首特别长的歌曲名称用来验证左侧区域跑马灯布局',
+      'collection': '这是一张特别长的专辑名称用来验证左侧区域跑马灯布局'
+    };
+    g.stream.add(Map.of(g.state));
+    await t.pumpWidget(MaterialApp(
+        theme: launcherTheme(SurfaceStyle.from(const Appearance(), true)),
+        home: Scaffold(
+            body: SizedBox(
+                width: 600,
+                height: 530,
+                child: CardContent(
+                    card: const LauncherCard(
+                        'music-left', 'music', '正在播放', 0, 0, 4, 4, 0),
+                    controller: c)))));
+    await t.pump(const Duration(milliseconds: 100));
+
+    final metadata =
+        t.getRect(find.byKey(const ValueKey('music-card-metadata')));
+    final title = t.getRect(find.byKey(const ValueKey('music-card-title')));
+    final album = t.getRect(find.byKey(const ValueKey('music-card-album')));
+    final lyrics = t.getRect(find.byKey(const ValueKey('music-card-lyrics')));
+    final cover = t.getRect(find.byType(MediaArtwork).first);
+    final left =
+        t.getRect(find.byKey(const ValueKey('music-card-left-column')));
+    final right =
+        t.getRect(find.byKey(const ValueKey('music-card-right-column')));
+    expect(left.width / right.width, closeTo(2 / 3, .01));
+    expect(title.left, closeTo(metadata.left, .1));
+    expect(album.left, closeTo(metadata.left, .1));
+    expect(title.top, greaterThan(cover.bottom));
+    expect(album.top, greaterThan(title.bottom));
+    expect(lyrics.left, greaterThan(title.right));
+    expect(
+        find.descendant(
+            of: find.byKey(const ValueKey('music-card-title')),
+            matching: find.byType(ShaderMask)),
+        findsOneWidget);
+    expect(
+        find.descendant(
+            of: find.byKey(const ValueKey('music-card-album')),
+            matching: find.byType(ShaderMask)),
+        findsOneWidget);
+    expect(t.takeException(), isNull);
+  });
+
+  testWidgets('long titles and albums are clipped in every music card size',
+      (t) async {
+    final (c, g) = await setup(t);
+    g.state['media'] = {
+      ...(g.state['media'] as Map<String, dynamic>),
+      'title': '超长的歌曲名称' * 14,
+      'artist': '超长的歌手名称' * 14,
+      'collection': '超长的专辑名称' * 14
+    };
+    g.stream.add(Map.of(g.state));
+    for (final size in [
+      (3, 2, 450.0, 240.0),
+      (4, 2, 600.0, 240.0),
+      (4, 3, 600.0, 390.0),
+      (4, 4, 600.0, 530.0),
+      (4, 5, 600.0, 690.0),
+      (4, 6, 600.0, 820.0),
+      (8, 6, 1200.0, 800.0),
+    ]) {
+      await t.pumpWidget(MaterialApp(
+          theme: launcherTheme(SurfaceStyle.from(const Appearance(), true)),
+          home: Scaffold(
+              body: SizedBox(
+                  width: size.$3,
+                  height: size.$4,
+                  child: CardContent(
+                      card: LauncherCard(
+                          'music', 'music', '音乐', 0, 0, size.$1, size.$2, 0),
+                      controller: c)))));
+      await t.pump(const Duration(milliseconds: 200));
+      for (final key in [
+        'music-card-title',
+        'music-card-artist',
+        'music-card-album'
+      ]) {
+        final field = find.byKey(ValueKey(key));
+        expect(find.descendant(of: field, matching: find.byType(ClipRect)),
+            findsWidgets,
+            reason: '$size $key');
+        final painter = find.byKey(ValueKey('marquee-paint-$key'));
+        expect(painter, findsOneWidget, reason: '$size $key');
+        final bounds = t.getRect(field);
+        final paintBounds = t.getRect(painter);
+        expect(paintBounds.width, greaterThan(60), reason: '$size $key');
+        expect(paintBounds.left, greaterThanOrEqualTo(bounds.left - .1));
+        expect(paintBounds.right, lessThanOrEqualTo(bounds.right + .1));
+      }
+      expect(t.takeException(), isNull, reason: '$size');
+    }
+  });
+
+  testWidgets('every card exposes an unobstructed resize drag target',
+      (t) async {
+    final (c, _) = await setup(t);
+    c.beginEdit();
+    for (final spec in cardSpecs) {
+      bool started = false;
+      final card = LauncherCard(
+          'resize-check', spec.type, spec.label, 0, 0, spec.w, spec.h, 0);
+      await t.pumpWidget(MaterialApp(
+          theme: launcherTheme(SurfaceStyle.from(const Appearance(), true)),
+          home: Scaffold(
+              body: SizedBox(
+                  width: 650,
+                  height: 500,
+                  child: EditableCard(
+                      card: card,
+                      controller: c,
+                      unitX: 80,
+                      unitY: 80,
+                      onPlacementStart: (_, resize, __) =>
+                          started = resize)))));
+      await t.pump(const Duration(milliseconds: 100));
+      final handle = find.byKey(const ValueKey('resize-resize-check'));
+      expect(handle.hitTestable(), findsOneWidget, reason: spec.type);
+      expect(t.getSize(handle).width, closeTo(Design.px(64), .1));
+      await t.drag(handle, const Offset(-40, -30));
+      await t.pump();
+      expect(started, isTrue, reason: spec.type);
+      expect(t.takeException(), isNull, reason: spec.type);
+    }
+  });
+
   testWidgets('music edit strip retains source and playing title', (t) async {
     final (c, _) = await setup(t);
     c.beginEdit();
@@ -569,6 +704,91 @@ void main() {
     expect(t.takeException(), isNull);
   });
 
+  testWidgets('applications page separates enabled and disabled apps',
+      (t) async {
+    final (c, g) = await setup(t);
+    (g.state['apps'] as List).add({
+      'id': 'disabled.map/.Main',
+      'package': 'disabled.map',
+      'label': '已禁用地图',
+      'enabled': false,
+      'canChangeEnabled': true
+    });
+    g.stream.add(Map.of(g.state));
+    await t.pumpWidget(LauncherApp(controller: c));
+    await t.pumpAndSettle();
+    await t.tap(find.byKey(const ValueKey('all-apps')));
+    await t.pumpAndSettle();
+    expect(find.byKey(const ValueKey('apps-enabled-grid')), findsOneWidget);
+    expect(find.text('已禁用地图'), findsNothing);
+    await t.tap(find.byKey(const ValueKey('apps-disabled')));
+    await t.pumpAndSettle();
+    expect(find.text('已禁用地图'), findsOneWidget);
+    await t.longPress(find.byKey(const ValueKey('app-icon-ink-disabled.map')));
+    await t.pumpAndSettle();
+    expect(find.text('启用'), findsOneWidget);
+    await t.tap(find.byKey(const ValueKey('app-menu-toggle-enabled')));
+    await t.pumpAndSettle();
+    expect(g.commands.last['action'], 'app-enable');
+    expect(g.commands.last['value'], 'disabled.map');
+  });
+
+  testWidgets('applications page filters system apps and centers sidebar',
+      (t) async {
+    final (c, g) = await setup(t);
+    (g.state['apps'] as List).addAll(<Map<String, dynamic>>[
+      {
+        'id': 'system.app/.Main',
+        'package': 'system.app',
+        'label': '系统应用',
+        'isSystem': true,
+        'enabled': true
+      },
+      {
+        'id': 'disabled.system/.Main',
+        'package': 'disabled.system',
+        'label': '已禁用系统应用',
+        'isSystem': true,
+        'enabled': false
+      },
+      {
+        'id': 'com.ecars.mycar.inter/.Internal',
+        'package': 'com.ecars.mycar.inter',
+        'label': 'com.ecars.mycar.inter',
+        'enabled': true,
+        'launchable': false
+      },
+    ]);
+    g.stream.add(Map.of(g.state));
+    await t.pumpWidget(LauncherApp(controller: c));
+    await t.pumpAndSettle();
+    await t.tap(find.byKey(const ValueKey('all-apps')));
+    await t.pumpAndSettle();
+    expect(find.byKey(const ValueKey('apps-show-system')), findsOneWidget);
+    expect(
+        find.descendant(
+            of: find.byKey(const ValueKey('apps-show-system')),
+            matching: find.byType(DesignToggle)),
+        findsOneWidget);
+    expect(find.text('系统应用'), findsNothing);
+    expect(find.text('com.ecars.mycar.inter'), findsNothing);
+    final sidebar = t.getRect(find.byKey(const ValueKey('apps-sidebar')));
+    final grid = t.getRect(find.byKey(const ValueKey('apps-enabled-grid')));
+    expect(sidebar.center.dy, closeTo(grid.center.dy, .1));
+    expect(sidebar.height, lessThan(grid.height));
+    await t.tap(find.byKey(const ValueKey('apps-show-system')));
+    await t.pumpAndSettle();
+    expect(find.text('系统应用'), findsOneWidget);
+    expect(find.text('com.ecars.mycar.inter'), findsNothing);
+    await t.tap(find.byKey(const ValueKey('apps-disabled')));
+    await t.pumpAndSettle();
+    expect(find.text('已禁用系统应用'), findsOneWidget);
+    await t.tap(find.byKey(const ValueKey('apps-show-system')));
+    await t.pumpAndSettle();
+    expect(find.text('已禁用系统应用'), findsNothing);
+    expect(t.takeException(), isNull);
+  });
+
   testWidgets('music title opens player and bottom dock selects global panel',
       (t) async {
     final (c, g) = await setup(t, global: true);
@@ -636,7 +856,7 @@ void main() {
   });
 
   testWidgets(
-      'navigation binding entry stays visible with one map and accepts other installed apps',
+      'navigation binding uses discovered maps and excludes unrelated apps',
       (t) async {
     final (c, g) = await setup(t);
     (g.state['apps'] as List).add({
@@ -644,13 +864,18 @@ void main() {
       'package': 'only.map',
       'label': '唯一地图'
     });
+    g.state['integrationPreferences'] = {
+      ...(g.state['integrationPreferences'] as Map<String, dynamic>? ?? {}),
+      'navigationCardTitleHidden': false
+    };
     await c.renameApp('only.map', '通勤导航');
     g.state['navigation'] = {
       'package': 'only.map',
       'preferredPackage': 'only.map',
       'label': '唯一地图',
       'options': [
-        {'package': 'only.map', 'label': '唯一地图'}
+        {'package': 'only.map', 'label': '唯一地图'},
+        {'package': 'custom.map', 'label': '自选导航'}
       ],
       'canEmbed': false
     };
@@ -666,12 +891,56 @@ void main() {
     expect(find.text('选择导航应用'), findsOneWidget);
     expect(find.text('通勤导航'), findsWidgets);
     expect(find.text('唯一地图'), findsNothing);
-    await t.tap(find.byKey(const ValueKey('nav-show-all')));
-    await t.pumpAndSettle();
+    expect(find.byKey(const ValueKey('nav-show-all')), findsNothing);
+    expect(find.byKey(const ValueKey('nav-option-test.player')), findsNothing);
     await t.tap(find.byKey(const ValueKey('nav-option-custom.map')));
     await t.pumpAndSettle();
     expect(g.commands.last['action'], 'select-navigation');
     expect(g.commands.last['value'], 'custom.map');
+  });
+
+  testWidgets('settings use the same navigation options and aligned buttons',
+      (t) async {
+    final (c, g) = await setup(t);
+    g.state['navigation'] = {
+      'preferredPackage': 'auto',
+      'options': [
+        {'package': 'custom.map', 'label': '自选导航'}
+      ]
+    };
+    await c.renameApp('custom.map', '通勤导航');
+    await t.pumpWidget(MaterialApp(
+        theme: launcherTheme(SurfaceStyle.from(const Appearance(), true)),
+        home: Scaffold(
+            body: SizedBox(
+                width: 1400,
+                height: 900,
+                child: IntegrationSettings(
+                    controller: c, native: Map.of(g.state))))));
+    final dropdown = t.widget<DropdownButton<String>>(find.descendant(
+        of: find.byKey(const ValueKey('navigation-source')),
+        matching: find.byType(DropdownButton<String>)));
+    expect(dropdown.items!.map((item) => item.value),
+        containsAll(['auto', 'custom.map']));
+    expect(dropdown.items!.map((item) => item.value),
+        isNot(contains('test.player')));
+    expect(t.getTopLeft(find.text('打开导航应用')).dy,
+        closeTo(t.getTopLeft(find.text('打开关联播放器')).dy, .1));
+    expect(t.takeException(), isNull);
+  });
+
+  testWidgets('nocturne UNI popup uses the opaque sheet background', (t) async {
+    final (c, _) = await setup(t);
+    c.setAppearance(c.appearance.copyWith(themeStyle: 'nocturne'));
+    await t.pumpWidget(LauncherApp(controller: c));
+    await t.pumpAndSettle();
+    await t.tap(find.byKey(const ValueKey('uni-menu')));
+    await t.pumpAndSettle();
+    final popup =
+        t.widget<GlassSurface>(find.byKey(const ValueKey('uni-popup-panel')));
+    expect(popup.sheet, isTrue);
+    expect(find.text('车辆信息'), findsWidgets);
+    expect(t.takeException(), isNull);
   });
 
   testWidgets('local music sheet disables backdrop filters when glass is off',

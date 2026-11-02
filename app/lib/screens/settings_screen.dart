@@ -106,7 +106,7 @@ class SettingsScreen extends StatelessWidget {
                                         (
                                           'system',
                                           Icons.settings_suggest_outlined,
-                                          '原车系统'
+                                          '系统与调试'
                                         ),
                                         ('about', Icons.info_outline, '关于与更新')
                                       ].indexed)
@@ -210,6 +210,18 @@ class DockSettings extends StatelessWidget {
                                   child: Text(layout.$2)))))
               ])),
           SizedBox(height: Design.px(16)),
+          SettingBlock(
+              title: '底部音乐工具条',
+              note: '控制底栏右侧的音乐信息区域',
+              child: DesignSwitchTile(
+                  key: const ValueKey('dock-music-visual-switch'),
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('字幕/频谱区域'),
+                  subtitle: const Text('关闭后保留播放控制、封面、歌曲与歌手'),
+                  value: a.dockMusicVisual,
+                  onChanged: (value) =>
+                      c.setAppearance(a.copyWith(dockMusicVisual: value)))),
+          SizedBox(height: Design.px(16)),
           DockSizeSettings(controller: c),
           SizedBox(height: Design.px(16)),
           DockRuntimeSettings(controller: c),
@@ -290,18 +302,6 @@ class SpectrumSettings extends StatelessWidget {
                 onChanged: (value) => c.setAppearance(
                     c.appearance.copyWith(dockMusicProgressBackground: value))),
           ])),
-      SizedBox(height: Design.px(16)),
-      SettingBlock(
-          title: '底部音乐工具条',
-          note: '控制底栏右侧的音乐信息区域',
-          child: DesignSwitchTile(
-              key: const ValueKey('dock-music-visual-switch'),
-              contentPadding: EdgeInsets.zero,
-              title: const Text('字幕/频谱区域'),
-              subtitle: const Text('关闭后保留播放控制、封面、歌曲与歌手'),
-              value: c.appearance.dockMusicVisual,
-              onChanged: (value) => c.setAppearance(
-                  c.appearance.copyWith(dockMusicVisual: value)))),
     ]);
   }
 }
@@ -363,7 +363,7 @@ class AppearanceSettings extends StatelessWidget {
                         note: '材质与控件外观',
                         child: Row(children: [
                           for (final (index, style) in [
-                            ('blueGlass', '深蓝玻璃'),
+                            ('blueGlass', '玻璃'),
                             ('nocturne', '暗夜'),
                             ('classic', '经典')
                           ].indexed)

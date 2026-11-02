@@ -152,6 +152,45 @@ void main() {
     expect(t.takeException(), isNull);
   });
 
+  testWidgets('enabled dock visual shares space equally with track metadata',
+      (t) async {
+    final (c, _) = await setup(t);
+    await t.pumpWidget(GlobalDockApp(controller: c));
+    await t.pumpAndSettle();
+    final frame = t.getRect(find.byKey(const ValueKey('dock-music-frame')));
+    final metadata = t.getRect(find.byKey(const ValueKey('dock-track-title')));
+    final visual =
+        t.getRect(find.byKey(const ValueKey('dock-music-visual-pages')));
+    expect(metadata.right, lessThan(visual.left));
+    expect(visual.width, closeTo(metadata.width, .1));
+    expect(visual.width, greaterThan(frame.width * .25));
+    expect(t.takeException(), isNull);
+  });
+
+  testWidgets('glass climate and music frames align in both dock layouts',
+      (t) async {
+    final (c, _) = await setup(t);
+    for (final layout in ['floating', 'full']) {
+      for (final visual in [true, false]) {
+        c.setAppearance(c.appearance.copyWith(dockSize: 'extraLarge'));
+        c.setAppearance(c.appearance.copyWith(
+            themeStyle: 'blueGlass',
+            dockLayout: layout,
+            dockMusicVisual: visual));
+        await t.pumpWidget(GlobalDockApp(controller: c));
+        await t.pump(const Duration(milliseconds: 100));
+        final climate =
+            t.getRect(find.byKey(const ValueKey('dock-climate-frame')));
+        final music = t.getRect(find.byKey(const ValueKey('dock-music-frame')));
+        expect(climate.height, closeTo(music.height, .1),
+            reason: '$layout $visual');
+        expect(climate.center.dy, closeTo(music.center.dy, .1),
+            reason: '$layout $visual');
+        expect(t.takeException(), isNull);
+      }
+    }
+  });
+
   testWidgets(
       'style settings use static previews and persist by normal appearance repository',
       (t) async {
@@ -217,7 +256,7 @@ void main() {
     await t.pumpWidget(AnimatedBuilder(
         animation: c,
         builder: (context, _) =>
-            host(SpectrumSettings(controller: c), a: c.appearance)));
+            host(DockSettings(controller: c), a: c.appearance)));
     expect(find.text('底部音乐工具条'), findsOneWidget);
     await t.tap(find.byKey(const ValueKey('dock-music-visual-switch')));
     await t.pumpAndSettle();

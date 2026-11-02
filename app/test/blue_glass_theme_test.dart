@@ -340,6 +340,17 @@ void main() {
     expect(t.takeException(), null);
   });
 
+  test('nocturne selections keep readable accent text', () {
+    final style = SurfaceStyle.from(
+        const Appearance(themeStyle: 'nocturne', palette: 'mint'), true);
+    final selected = style.selectionStyle(true);
+    expect(selected.foregroundColor?.resolve({}), style.accent);
+    expect(selected.backgroundColor?.resolve({}),
+        style.accent.withValues(alpha: .11));
+    expect(
+        selected.side?.resolve({})?.color, style.accent.withValues(alpha: .55));
+  });
+
   testWidgets(
       'selected dock and neutral play share frame; press never moves dock',
       (t) async {
@@ -404,6 +415,8 @@ void main() {
     await t.pumpAndSettle();
     expect(find.byKey(const ValueKey('dock-layout-floating')), findsOneWidget);
     expect(find.byKey(const ValueKey('dock-size-large')), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('dock-music-visual-switch')), findsOneWidget);
     expect(find.byKey(const ValueKey('global-dock')), findsOneWidget);
     expect(find.byKey(const ValueKey('media-source')), findsNothing);
     await t.ensureVisible(find.byKey(const ValueKey('global-dock')));
@@ -434,12 +447,8 @@ void main() {
     await t.pumpAndSettle();
     expect(find.byKey(const ValueKey('transition-slide')), findsOneWidget);
     expect(find.byKey(const ValueKey('spectrum-style-bars')), findsOneWidget);
-    await t.scrollUntilVisible(
-        find.byKey(const ValueKey('dock-music-visual-switch')), 260,
-        scrollable: find.byType(Scrollable).first);
-    await t.pumpAndSettle();
     expect(
-        find.byKey(const ValueKey('dock-music-visual-switch')), findsOneWidget);
+        find.byKey(const ValueKey('dock-music-visual-switch')), findsNothing);
     expect(t.takeException(), null);
   });
   testWidgets(

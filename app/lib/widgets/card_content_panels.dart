@@ -2,14 +2,18 @@ part of 'card_content.dart';
 
 Future<void> showAppsPanel(BuildContext context, LauncherController c) async {
   if (await c.presentGlobalPanel('apps') || !context.mounted) return;
-  await showLauncherSheet<void>(context,
-      title: '全部应用',
-      subtitle: '已安装的应用',
-      closeLabel: '关闭应用列表',
-      width: Design.px(1560),
-      height: Design.px(760),
-      glowType: 'shortcuts',
-      builder: (context) => AppPanel(controller: c));
+  final dock = DockWindowScope.of(context);
+  final route = Navigator.of(context).push(PageRouteBuilder<void>(
+      pageBuilder: (_, __, ___) => _AppsPage(controller: c),
+      transitionDuration: const Duration(milliseconds: 220),
+      reverseTransitionDuration: const Duration(milliseconds: 180),
+      transitionsBuilder: (_, animation, __, child) =>
+          FadeTransition(opacity: animation, child: child)));
+  if (dock?.onPresented != null) {
+    await WidgetsBinding.instance.endOfFrame;
+    if (context.mounted) await dock!.onPresented!();
+  }
+  await route;
 }
 
 Future<void> showMediaPanel(BuildContext context, LauncherController c) async {
@@ -23,44 +27,121 @@ Future<void> showMediaPanel(BuildContext context, LauncherController c) async {
       builder: (context) => MediaPanel(controller: c));
 }
 
-class AppPanel extends StatelessWidget {
+class _AppsPage extends StatelessWidget {
   final LauncherController controller;
-  const AppPanel({super.key, required this.controller});
+  const _AppsPage({required this.controller});
+  @override
+  Widget build(BuildContext context) => Scaffold(
+      backgroundColor: SurfaceStyle.of(context).strong,
+      body: Padding(
+          padding: EdgeInsets.all(Design.px(32)),
+          child: AppPanel(controller: controller, fullPage: true)));
+}
+
+class AppPanel extends StatefulWidget {
+  final LauncherController controller;
+  final bool fullPage;
+  const AppPanel({super.key, required this.controller, this.fullPage = false});
+  @override
+  State<AppPanel> createState() => _AppPanelState();
+}
+
+class _AppPanelState extends State<AppPanel> {
+  bool enabled = true;
+  bool showSystem = false;
   @override
   Widget build(BuildContext context) => NativeSliceBuilder(
-      valueListenable: controller.native,
-      // Vehicle, media and clock updates must not rebuild every visible
-      // application tile; names and the catalog still update immediately.
+      valueListenable: widget.controller.native,
       select: (state) => [state['apps'], state['appNames']],
       builder: (context, state) {
         final s = SurfaceStyle.of(context);
-        final apps = state['apps'] is List ? state['apps'] as List : const [];
-        if (apps.isEmpty)
-          return Center(
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-            UniIcon('apps', size: Design.px(60), color: s.accent),
-            SizedBox(height: Design.px(24)),
-            Text('等待应用列表',
-                style: TextStyle(fontSize: Design.px(25), color: s.muted)),
-          ]));
-        // 卡片在页面切换瞬态可能拿到零宽约束，crossAxisExtent 会算成 0，
-        // GridView 里 0/0 直接抛 "Infinity or NaN toInt"。零宽时先缩成占位，
-        // 等下一帧拿到真实宽度再铺格。
-        return LayoutBuilder(builder: (context, c) {
-          if (c.maxWidth <= 1) return const SizedBox.shrink();
-          return GridView.builder(
-              padding: EdgeInsets.symmetric(vertical: Design.px(32)),
-              itemCount: apps.length,
-              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 7,
-                  mainAxisSpacing: Design.px(40),
-                  crossAxisSpacing: Design.px(12),
-                  mainAxisExtent: Design.px(156)),
-              itemBuilder: (context, i) {
-                return _AppTile(
-                    app: mapOf(apps[i]), controller: controller, index: i);
-              });
-        });
+        final apps = (state['apps'] is List ? state['apps'] as List : const [])
+            .whereType<Map>()
+            .where((app) => (app['enabled'] != false) == enabled)
+            .where((app) => showSystem || app['isSystem'] != true)
+            .where((app) => app['launchable'] != false)
+            .toList();
+        final content =
+            Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          SizedBox(
+              width: Design.px(300),
+              child: Center(
+                  child: GlassSurface(
+                      key: const ValueKey('apps-sidebar'),
+                      padding: EdgeInsets.all(Design.px(14)),
+                      child: Column(mainAxisSize: MainAxisSize.min, children: [
+                        for (final entry in [(true, '已启用'), (false, '已禁用')])
+                          Padding(
+                              padding: EdgeInsets.only(bottom: Design.px(10)),
+                              child: SizedBox(
+                                  width: double.infinity,
+                                  height: Design.px(68),
+                                  child: OutlinedButton(
+                                      key: ValueKey(entry.$1
+                                          ? 'apps-enabled'
+                                          : 'apps-disabled'),
+                                      style:
+                                          s.selectionStyle(enabled == entry.$1),
+                                      onPressed: () =>
+                                          setState(() => enabled = entry.$1),
+                                      child: Text(entry.$2)))),
+                      ])))),
+          SizedBox(width: Design.px(22)),
+          Expanded(
+              child: apps.isEmpty
+                  ? Center(
+                      child: Text(enabled ? '暂无已启用应用' : '暂无已禁用应用',
+                          style: TextStyle(
+                              color: s.muted, fontSize: Design.px(24))))
+                  : LayoutBuilder(builder: (context, box) {
+                      if (box.maxWidth <= 1) return const SizedBox.shrink();
+                      return GridView.builder(
+                          key: ValueKey(enabled
+                              ? 'apps-enabled-grid'
+                              : 'apps-disabled-grid'),
+                          padding:
+                              EdgeInsets.symmetric(vertical: Design.px(32)),
+                          itemCount: apps.length,
+                          gridDelegate:
+                              SliverGridDelegateWithFixedCrossAxisCount(
+                                  crossAxisCount: 7,
+                                  mainAxisSpacing: Design.px(40),
+                                  crossAxisSpacing: Design.px(12),
+                                  mainAxisExtent: Design.px(156)),
+                          itemBuilder: (_, i) => _AppTile(
+                              app: mapOf(apps[i]),
+                              controller: widget.controller,
+                              index: i));
+                    })),
+        ]);
+        if (!widget.fullPage) return content;
+        return Column(children: [
+          Row(children: [
+            IconButton(
+                onPressed: () => Navigator.pop(context),
+                icon: const Icon(Icons.arrow_back),
+                tooltip: '返回'),
+            SizedBox(width: Design.px(20)),
+            Text('全部应用', style: TextStyle(fontSize: Design.px(36))),
+            const Spacer(),
+            Text('显示系统应用', style: TextStyle(fontSize: Design.px(20))),
+            SizedBox(width: Design.px(16)),
+            KeyedSubtree(
+                key: const ValueKey('apps-show-system'),
+                child: s.technicalFrame
+                    ? DesignToggle(
+                        label: '显示系统应用',
+                        value: showSystem,
+                        onChanged: (value) =>
+                            setState(() => showSystem = value))
+                    : Switch(
+                        value: showSystem,
+                        onChanged: (value) =>
+                            setState(() => showSystem = value))),
+          ]),
+          SizedBox(height: Design.px(20)),
+          Expanded(child: content),
+        ]);
       });
 }
 
@@ -89,14 +170,16 @@ class _AppTile extends StatelessWidget {
         settingsEntry = id != null &&
             (id.endsWith('/.DesktopSettings') ||
                 id.endsWith('/xyz.i4o.uni.launcher.DesktopSettings')),
-        tap = id == null
-            ? null
-            : settingsEntry
-                ? () {
-                    if (!controller.isGlobalDock) Navigator.of(context).pop();
-                    controller.openSettings();
-                  }
-                : () => controller.command('launch-app', value: id);
+        tap =
+            id == null || app['enabled'] == false || app['launchable'] == false
+                ? null
+                : settingsEntry
+                    ? () {
+                        if (!controller.isGlobalDock)
+                          Navigator.of(context).pop();
+                        controller.openSettings();
+                      }
+                    : () => controller.command('launch-app', value: id);
     return Column(children: [
       Semantics(
           button: true,
@@ -148,7 +231,7 @@ Future<void> showAppMenu(BuildContext context, LauncherController c,
       title: c.appName(app),
       closeLabel: '关闭应用菜单',
       width: Design.px(520),
-      height: Design.px(400),
+      height: Design.px(480),
       glowType: 'shortcuts',
       builder: (context) => Column(mainAxisSize: MainAxisSize.min, children: [
             ListTile(
@@ -161,6 +244,20 @@ Future<void> showAppMenu(BuildContext context, LauncherController c,
                 leading: const Icon(Icons.info_outline),
                 title: const Text('应用信息'),
                 onTap: () => Navigator.pop(context, 'app-info')),
+            ListTile(
+                key: const ValueKey('app-menu-toggle-enabled'),
+                leading: Icon(app['enabled'] == false
+                    ? Icons.check_circle_outline
+                    : Icons.block),
+                title: Text(app['enabled'] == false ? '启用' : '禁用'),
+                enabled: app['canChangeEnabled'] != false,
+                onTap: app['canChangeEnabled'] == false
+                    ? null
+                    : () => Navigator.pop(
+                        context,
+                        app['enabled'] == false
+                            ? 'app-enable'
+                            : 'app-disable')),
             ListTile(
                 key: const ValueKey('app-menu-uninstall'),
                 leading: const Icon(Icons.delete_outline),
