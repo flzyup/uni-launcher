@@ -50,10 +50,10 @@ void main() {
     expect(t.getRect(find.byKey(const ValueKey('mode-system'))).height,
         closeTo(66, .1));
     expect(find.byType(DesktopPreview), findsOneWidget);
-    final indicator =
-        t.getRect(find.byKey(const ValueKey('tab-indicator-appearance')));
-    expect(indicator.left, closeTo(62, .1));
-    expect(indicator.width, closeTo(96, .1));
+    final category =
+        t.getRect(find.byKey(const ValueKey('tab-appearance')));
+    expect(category.height, closeTo(68, .1));
+    expect(category.width, greaterThan(200));
     await t.ensureVisible(find.byKey(const ValueKey('radius-number-28')));
     await t.pumpAndSettle();
     expect(find.byKey(const ValueKey('radius-number-28')).hitTestable(),
