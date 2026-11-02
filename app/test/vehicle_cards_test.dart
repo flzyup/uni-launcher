@@ -83,7 +83,8 @@ void main() {
       'clockWeather',
       'shortcuts',
       'vehicle',
-      'battery'
+      'battery',
+      'fuel'
     });
     expect(defaultCards().map((c) => c.type), [
       'nav',
@@ -425,5 +426,71 @@ void main() {
       }
     }
     await t.pumpWidget(const SizedBox.shrink());
+  });
+  testWidgets(
+      'FuelCard renders percent, liters, and adapts from BatteryCard for ICE',
+      (t) async {
+    final nativeIce = {
+      'vehicle': {
+        'connected': true,
+        'powertrainType': 'FUEL',
+        'fuelCapacity': 54.0,
+        'fields': {
+          'fuelPercent': {
+            'value': 78.5,
+            'unit': '%',
+            'valid': true,
+            'unitVerified': true,
+            'updatedAtMs': vehicleGalleryNow,
+          },
+          'fuelLiters': {
+            'value': 42.4,
+            'unit': 'L',
+            'valid': true,
+            'unitVerified': true,
+            'updatedAtMs': vehicleGalleryNow,
+          },
+          'range': {
+            'value': 480.0,
+            'unit': 'km',
+            'valid': true,
+            'unitVerified': true,
+            'updatedAtMs': vehicleGalleryNow,
+          },
+          'driveMode': {
+            'value': 'COMFORT',
+            'valid': true,
+            'updatedAtMs': vehicleGalleryNow,
+          }
+        }
+      }
+    };
+
+    expect(detectPowertrain(nativeIce), PowertrainType.ice);
+
+    await t.pumpWidget(surface(BatteryCard(
+        native: nativeIce, title: '动力电池', nowMs: () => vehicleGalleryNow)));
+    await t.pump();
+    expect(find.byType(FuelCard), findsOneWidget);
+    expect(find.text('78.5'), findsOneWidget);
+    expect(find.text('42.4 L'), findsOneWidget);
+    expect(find.text('54 L'), findsOneWidget);
+    expect(find.text('480 km'), findsOneWidget);
+
+    final nativeRangeOnly = {
+      'vehicle': {
+        'connected': true,
+        'fields': {
+          'range': {
+            'value': 380.0,
+            'unit': 'km',
+            'valid': true,
+            'unitVerified': true,
+            'updatedAtMs': vehicleGalleryNow,
+          }
+        }
+      }
+    };
+    expect(detectPowertrain(nativeRangeOnly), PowertrainType.ice);
   });
 }
