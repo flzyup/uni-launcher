@@ -228,6 +228,7 @@ public final class GlobalDockService extends Service {
         /** Last packet signature handed to the sink; see publish(). */
         String sentSignature;
         boolean attached;
+        boolean requestedVisible;
         OverlayWindow(boolean isPanel){
             this.isPanel=isPanel;
             engine=LauncherEngines.create(GlobalDockService.this,isPanel?"globalPanelMain":"globalDockMain",false);
@@ -290,10 +291,22 @@ public final class GlobalDockService extends Service {
         void show(boolean show){
             if(show&&!attached){windows.addView(view,bounds);view.attachToFlutterEngine(engine);attached=true;}
             if(!attached)return;
-            if((view.getVisibility()==View.VISIBLE)==show)return;
-            view.setVisibility(show?View.VISIBLE:View.INVISIBLE);
-            if(show){engine.getLifecycleChannel().appIsResumed();if(isPanel)view.requestFocus();}
-            else engine.getLifecycleChannel().appIsPaused();
+            if(requestedVisible==show)return;
+            requestedVisible=show;
+            view.animate().cancel();
+            if(show){
+                view.setVisibility(View.VISIBLE);
+                engine.getLifecycleChannel().appIsResumed();
+                if(isPanel){view.requestFocus();view.setAlpha(0f);view.animate().alpha(1f).setDuration(180).start();}
+                else view.setAlpha(1f);
+            }else if(isPanel&&visible){
+                view.animate().alpha(0f).setDuration(180).withEndAction(()->{
+                    if(!requestedVisible&&attached){view.setVisibility(View.INVISIBLE);engine.getLifecycleChannel().appIsPaused();}
+                }).start();
+            }else{
+                view.setVisibility(View.INVISIBLE);view.setAlpha(1f);
+                engine.getLifecycleChannel().appIsPaused();
+            }
         }
         void publish(){
             if(sink==null)return;
@@ -374,7 +387,10 @@ public final class GlobalDockService extends Service {
         if(panel.isEmpty())return;
         panel="";panelReady=false;panelBackdrop=null;panelRevision++;main.removeCallbacks(foregroundCheck);update();
         resetRecentItems();
-        if(panelWindow!=null)panelWindow.publish();
+        final OverlayWindow closing=panelWindow;
+        if(closing!=null)main.postDelayed(()->{
+            if(panel.isEmpty()&&panelWindow==closing)closing.publish();
+        },190);
         main.removeCallbacks(releaseIdlePanel);main.postDelayed(releaseIdlePanel,PANEL_IDLE_MS);
     }
     private void resetRecentItems(){recentTaskItems=new JSONArray();recentTasksReady=false;recentTasksRevision++;}
