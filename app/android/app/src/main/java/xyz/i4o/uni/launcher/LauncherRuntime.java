@@ -44,6 +44,7 @@ public final class LauncherRuntime {
     private final SystemSettingsRepository systemSettings;
     private final NavigationAudioAdapter navigationAudio;
     private final LanTransfer transfer;
+    private final DebugBridge debugBridge;
     private final ClimateState simulator=new ClimateState();
     private final Map<Object,Runnable> listeners=new IdentityHashMap<>();
     private JSONArray installed;
@@ -100,6 +101,8 @@ public final class LauncherRuntime {
         long afterAdapters=android.os.SystemClock.uptimeMillis();
         systemSettings=new SystemSettingsRepository(context);navigationAudio=new NavigationAudioAdapter(context);
         transfer=new LanTransfer(context,this::publish);
+        debugBridge=new DebugBridge(context,prefs,this::publish);
+        main.postDelayed(debugBridge::startup,3000);
         long afterSettings=android.os.SystemClock.uptimeMillis();
         // setPreferredPackage() starts MediaAdapter; defer it until the first owner.
         // 应用列表在后台构建，第一帧不被图标扫描/压缩阻塞；完成后主线程替换并补发。
@@ -145,7 +148,8 @@ public final class LauncherRuntime {
                 .put("driverHeat",simulator.driverHeat).put("driverVent",simulator.driverVent).put("passengerHeat",simulator.passengerHeat);
             JSONObject telemetry=vehicle.snapshot();
             if(!prefs.getBoolean("demo",false))climate=telemetry.optJSONObject("climate")==null?new JSONObject():telemetry.getJSONObject("climate");
-            state.put("systemStatus",systemStatus.snapshot()).put("weather",weather.snapshot()).put("calendar",calendar.snapshot()).put("navigation",navigation.snapshot()).put("integrationPreferences",new JSONObject().put("mediaPackage",prefs.getString("mediaPackage","auto")).put("mapTextureScale",prefs.getBoolean("mapTextureScale",false)).put("autoPlayMusic",prefs.getBoolean("autoPlayMusic",false)));
+            state.put("systemStatus",systemStatus.snapshot()).put("weather",weather.snapshot()).put("calendar",calendar.snapshot()).put("navigation",navigation.snapshot()).put("integrationPreferences",new JSONObject().put("mediaPackage",prefs.getString("mediaPackage","auto")).put("mapTextureScale",prefs.getBoolean("mapTextureScale",false)).put("navigationCardTitleHidden",prefs.getBoolean("navigationCardTitleHidden",true)).put("autoPlayMusic",prefs.getBoolean("autoPlayMusic",false)));
+            state.put("debugBridge",debugBridge.snapshot());
             state.put("demo",prefs.getBoolean("demo",false)).put("hideNavigation",prefs.getBoolean("hideNavigation",false))
                 .put("globalNavigation",prefs.getBoolean("globalNavigation",false))
                 .put("globalNavigationGranted",context.checkSelfPermission("android.permission.WRITE_SECURE_SETTINGS")==android.content.pm.PackageManager.PERMISSION_GRANTED)
@@ -221,7 +225,7 @@ public final class LauncherRuntime {
                 }
                 if(p.has("dockMusicProgressBackground")&&!(p.get("dockMusicProgressBackground") instanceof Boolean))return false;
                 if(p.has("wallpaperOverlay")&&!(p.get("wallpaperOverlay") instanceof Boolean))return false;
-                if(!"small".equals(p.optString("dockSize","large"))&&!"medium".equals(p.optString("dockSize"))&&!"large".equals(p.optString("dockSize")))return false;
+                if(!"small".equals(p.optString("dockSize","large"))&&!"medium".equals(p.optString("dockSize"))&&!"large".equals(p.optString("dockSize"))&&!"extraLarge".equals(p.optString("dockSize")))return false;
                 if(!"mint".equals(palette)&&!"blue".equals(palette)&&!"violet".equals(palette)&&!"amber".equals(palette)&&!"rose".equals(palette)&&!"custom".equals(palette))return false;
                 int radius=p.getInt("radius"),pages=data.getInt("pageCount");
                 if(radius<0||radius>40||pages<1||pages>20)return false;
@@ -240,7 +244,6 @@ public final class LauncherRuntime {
                     }
                 }
                 SharedPreferences.Editor editor=prefs.edit().putString("savedDesign",raw);
-                if(data.has("appNames"))editor.putString("appNames",data.getJSONObject("appNames").toString());
                 // 异步写盘：内存立即生效，不阻塞主线程等待磁盘提交；布局变更由
                 // trackDesign 的内容指纹在下次快照时推进 designRevision。
                 editor.apply();
@@ -255,7 +258,10 @@ public final class LauncherRuntime {
             if(zone.length()==0||zone.length()>255||zone.indexOf('\n')>=0||zone.indexOf('\r')>=0||value.length()>96||value.indexOf('\n')>=0||value.indexOf('\r')>=0)return true;
             JSONObject names=storedAppNames();
             if(value.isEmpty())names.remove(zone);else names.put(zone,value);
-            prefs.edit().putString("appNames",names.toString()).apply();publish();return true;
+            if(!prefs.edit().putString("appNames",names.toString()).commit()){
+                toast("应用名称保存失败");return false;
+            }
+            publish();return true;
         }
         if("desktop-page".equals(action)){
             setDesktopContent("0".equals(value));return true;
@@ -273,6 +279,7 @@ public final class LauncherRuntime {
         }
         if("embed-navigation".equals(action)){prefs.edit().putBoolean("embedNavigation",request.optBoolean("enabled",true)).apply();publish();return true;}
         if("map-texture-scale".equals(action)){prefs.edit().putBoolean("mapTextureScale",request.optBoolean("enabled",false)).apply();publish();return true;}
+        if("navigation-card-title-hidden".equals(action)){prefs.edit().putBoolean("navigationCardTitleHidden",request.optBoolean("enabled",true)).apply();publish();return true;}
         if("auto-play-music".equals(action)){prefs.edit().putBoolean("autoPlayMusic",request.optBoolean("enabled",false)).apply();publish();return true;}
         if("refresh-system-settings".equals(action)){new Thread(()->{systemSettings.refresh();navigationAudio.refresh();main.post(()->{settingsRevision++;publish();});},"uni-settings").start();return true;}
         if("open-system-setting".equals(action)){if(!systemSettings.open(value))toast("系统设置入口不可用或权限不足");return true;}
@@ -286,7 +293,15 @@ public final class LauncherRuntime {
             if(!apps.launchPackage(selected))toast("请选择已安装的音乐播放器");return true;
         }
         if("refresh".equals(action)){refreshAppsInBackground();if(!listeners.isEmpty()){media.start();vehicle.stop();vehicle.start();}publish();return true;}
+        if("debug-refresh".equals(action)){debugBridge.refresh();return true;}
+        if("debug-adb".equals(action)||"debug-network".equals(action)){
+            debugBridge.change("debug-network".equals(action),request.optBoolean("enabled",false));return true;
+        }
         if("app-info".equals(action)){if(!apps.showInfo(value))toast("无法打开应用信息");return true;}
+        if("app-enable".equals(action)||"app-disable".equals(action)){
+            if(!apps.setEnabled(value,"app-enable".equals(action)))toast("无法修改应用状态");
+            refreshAppsInBackground();return true;
+        }
         if("request-uninstall".equals(action)){if(!apps.requestUninstall(value))toast("该应用不可卸载");return true;}
         if("launch-app".equals(action)){if(!apps.launch(value))toast("应用未安装或无法启动");return true;}
         if("media-access".equals(action)){try{context.startActivity(new Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));}catch(Exception e){toast("系统没有提供媒体授权入口");}return true;}
