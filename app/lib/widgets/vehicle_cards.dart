@@ -17,82 +17,174 @@ class BatteryCard extends StatelessWidget {
   const BatteryCard(
       {super.key, required this.native, this.title = '动力电池', this.nowMs});
   @override
+  Widget build(BuildContext context) {
+    final powertrain = detectPowertrain(native);
+    if (powertrain == PowertrainType.ice && title == '动力电池') {
+      return FuelCard(native: native, title: '剩余油量', nowMs: nowMs);
+    }
+    return _VehicleFrame(
+        native: native,
+        fields: const ['batteryPercent'],
+        nowMs: nowMs,
+        builder: (context, readings, compact) {
+          final reading = readings.single, s = SurfaceStyle.of(context);
+          final now = nowMs?.call();
+          final energyFlow = () {
+            final vehicle = native['vehicle'];
+            final fields = vehicle is Map ? vehicle['fields'] : null;
+            final field = fields is Map ? fields['energyFlow'] : null;
+            if (field is! Map || field['valid'] != true) return null;
+            return '${field['value']}';
+          }();
+          return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _VehicleHeading(title, '电量', 'battery', compact),
+                Expanded(
+                    child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: _Value(reading,
+                            field: 'batteryPercent',
+                            size: compact ? 56 : 80,
+                            unit: '%',
+                            accent: true))),
+                BatteryLevelBar(value: reading.value),
+                SizedBox(height: Design.px(compact ? 10 : 18)),
+                _Footer('剩余电量', '',
+                    color: reading.available ? s.accent : s.muted),
+                SizedBox(height: Design.px(compact ? 8 : 16)),
+                if (!compact) ...[
+                  EnergyFlowDiagram(state: energyFlow),
+                  SizedBox(height: Design.px(14)),
+                ],
+                Container(height: 1, color: s.edge),
+                SizedBox(height: Design.px(compact ? 8 : 16)),
+                _Footer('驾驶模式',
+                    vehicleStatusLabel(native, 'driveMode', nowMs: now)),
+                SizedBox(height: Design.px(4)),
+                if (compact)
+                  _Footer('能量流',
+                      vehicleStatusLabel(native, 'energyFlow', nowMs: now))
+                else
+                  Row(children: [
+                    Text('能量流',
+                        style:
+                            TextStyle(fontSize: Design.px(16), color: s.muted)),
+                    SizedBox(width: Design.px(12)),
+                    Expanded(
+                        child: Text(
+                            vehicleStatusLabel(native, 'energyFlow', nowMs: now)
+                                .replaceAll('待同步', '—'),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                                fontSize: Design.px(16),
+                                color: vehicleStatusLabel(native, 'energyFlow',
+                                            nowMs: now) ==
+                                        '未连接'
+                                    ? s.muted
+                                    : s.accent))),
+                    Text('外接充电',
+                        style:
+                            TextStyle(fontSize: Design.px(16), color: s.muted)),
+                    SizedBox(width: Design.px(12)),
+                    Text('—',
+                        style:
+                            TextStyle(fontSize: Design.px(16), color: s.muted)),
+                  ]),
+                if (compact) ...[
+                  SizedBox(height: Design.px(4)),
+                  const _Footer('外接充电', '—'),
+                ],
+              ]);
+        });
+  }
+}
+
+class FuelCard extends StatelessWidget {
+  final Map<String, dynamic> native;
+  final String title;
+  final VehicleCardClock? nowMs;
+  const FuelCard(
+      {super.key, required this.native, this.title = '剩余油量', this.nowMs});
+  @override
   Widget build(BuildContext context) => _VehicleFrame(
       native: native,
-      fields: const ['batteryPercent'],
+      fields: const ['fuelPercent', 'fuelLiters'],
       nowMs: nowMs,
       builder: (context, readings, compact) {
-        final reading = readings.single, s = SurfaceStyle.of(context);
+        final percentReading = readings[0], litersReading = readings[1];
+        final s = SurfaceStyle.of(context);
         final now = nowMs?.call();
-        final energyFlow = () {
-          final vehicle = native['vehicle'];
-          final fields = vehicle is Map ? vehicle['fields'] : null;
-          final field = fields is Map ? fields['energyFlow'] : null;
-          if (field is! Map || field['valid'] != true) return null;
-          return '${field['value']}';
-        }();
+        final vehicle =
+            native['vehicle'] is Map ? native['vehicle'] as Map : const {};
+        final capacity = vehicle['fuelCapacity'];
+        final capacityText = capacity is num && capacity > 0
+            ? '${capacity.toStringAsFixed(0)} L'
+            : '—';
+        final rangeReading =
+            VehicleCardReading.fromNative(native, 'range', nowMs: now);
         return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _VehicleHeading(title, '电量', 'battery', compact),
+              _VehicleHeading(title, '油量', 'fuel', compact),
               Expanded(
                   child: Align(
                       alignment: Alignment.centerLeft,
-                      child: _Value(reading,
-                          field: 'batteryPercent',
+                      child: _Value(percentReading,
+                          field: 'fuelPercent',
                           size: compact ? 56 : 80,
                           unit: '%',
                           accent: true))),
-              BatteryLevelBar(value: reading.value),
+              FuelLevelBar(value: percentReading.value),
               SizedBox(height: Design.px(compact ? 10 : 18)),
-              _Footer('剩余电量', '',
-                  color: reading.available ? s.accent : s.muted),
+              _Footer('剩余油量',
+                  litersReading.available ? '${litersReading.display} L' : '',
+                  color: percentReading.available ? s.accent : s.muted),
               SizedBox(height: Design.px(compact ? 8 : 16)),
-              if (!compact) ...[
-                EnergyFlowDiagram(state: energyFlow),
-                SizedBox(height: Design.px(14)),
-              ],
               Container(height: 1, color: s.edge),
               SizedBox(height: Design.px(compact ? 8 : 16)),
+              _Footer('燃油续航',
+                  rangeReading.available ? '${rangeReading.display} km' : '—'),
+              SizedBox(height: Design.px(4)),
               _Footer(
                   '驾驶模式', vehicleStatusLabel(native, 'driveMode', nowMs: now)),
-              SizedBox(height: Design.px(4)),
-              if (compact)
-                _Footer(
-                    '能量流', vehicleStatusLabel(native, 'energyFlow', nowMs: now))
-              else
-                Row(children: [
-                  Text('能量流',
-                      style:
-                          TextStyle(fontSize: Design.px(16), color: s.muted)),
-                  SizedBox(width: Design.px(12)),
-                  Expanded(
-                      child: Text(
-                          vehicleStatusLabel(native, 'energyFlow', nowMs: now)
-                              .replaceAll('待同步', '—'),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                              fontSize: Design.px(16),
-                              color: vehicleStatusLabel(native, 'energyFlow',
-                                          nowMs: now) ==
-                                      '未连接'
-                                  ? s.muted
-                                  : s.accent))),
-                  Text('外接充电',
-                      style:
-                          TextStyle(fontSize: Design.px(16), color: s.muted)),
-                  SizedBox(width: Design.px(12)),
-                  Text('—',
-                      style:
-                          TextStyle(fontSize: Design.px(16), color: s.muted)),
-                ]),
-              if (compact) ...[
+              if (!compact) ...[
                 SizedBox(height: Design.px(4)),
-                const _Footer('外接充电', '—'),
+                _Footer('油箱容积', capacityText),
               ],
             ]);
       });
+}
+
+class FuelLevelBar extends StatelessWidget {
+  final double? value;
+  const FuelLevelBar({super.key, required this.value});
+  @override
+  Widget build(BuildContext context) {
+    final s = SurfaceStyle.of(context);
+    final percent =
+        value != null && value!.isFinite && value! >= 0 && value! <= 100
+            ? value
+            : null;
+    final isLow = percent != null && percent < 15.0;
+    final fillColor = isLow ? const Color(0xFFE57373) : s.accent;
+    return ExcludeSemantics(
+        child: SizedBox(
+            height: Design.px(10),
+            child: ClipRRect(
+                borderRadius: BorderRadius.circular(s.radius * .12),
+                child: Stack(fit: StackFit.expand, children: [
+                  ColoredBox(
+                      key: const ValueKey('fuel-track'),
+                      color: s.muted.withValues(alpha: .16)),
+                  FractionallySizedBox(
+                      alignment: Alignment.centerLeft,
+                      widthFactor: percent == null ? 0 : percent / 100,
+                      child: ColoredBox(
+                          key: const ValueKey('fuel-fill'), color: fillColor)),
+                ]))));
+  }
 }
 
 /// A continuous track: 95% occupies exactly .95 of the available width.

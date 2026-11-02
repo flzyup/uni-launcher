@@ -321,6 +321,15 @@ public final class OfficialCarReader implements VehicleAdapter {
             // in km. Speed stays unconfirmed until a moving comparison.
             JSONObject extraSensors=new OfficialVehicleSensors(sdkCar,signals,
                     OfficialVehicleSensors.Units.confirmed(null, "km", "owner confirmed original UI range km 2026-10-25")).appendTo(fields);
+            if (extraSensors.has("fuelCapacity") && extraSensors.optDouble("fuelCapacity", -1) > 0) {
+                state.put("fuelCapacity", extraSensors.getDouble("fuelCapacity"));
+            } else {
+                float cap = OfficialVehicleSensors.queryFuelCapacity(sdkCar);
+                if (cap > 0) state.put("fuelCapacity", (double) cap);
+            }
+            String pt = extraSensors.optString("powertrainType", "");
+            if (pt.isEmpty() || "UNKNOWN".equals(pt)) pt = OfficialVehicleSensors.queryVehicleType(sdkCar);
+            if (!pt.isEmpty() && !"UNKNOWN".equals(pt)) state.put("powertrainType", pt);
             new OfficialHybridReader(propertyManager).appendTo(fields);
             if (SystemClock.elapsedRealtime() - bodyProbeAt >= 5000 || bodyProbeAt == 0) {
                 bodyProbeAt = SystemClock.elapsedRealtime();

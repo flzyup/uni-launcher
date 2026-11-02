@@ -30,6 +30,7 @@ Future<void> showMusicPicker(BuildContext context, LauncherController c) async {
       subtitle: '选择后音乐卡片和控制将跟随该播放器',
       width: Design.px(760),
       height: Design.px(650),
+      glowType: 'music',
       builder: (_) => MusicAppPicker(controller: c));
   if (selected != null) await c.command('select-player', value: selected);
 }

@@ -244,6 +244,13 @@ mixin _DesktopDrag on State<Desktop> {
                         decoration: BoxDecoration(
                             borderRadius: BorderRadius.circular(s.radius),
                             boxShadow: [
+                              // 暗夜画布近黑，黑投影几乎看不出来；补一圈极淡
+                              // 的强调色外晕，卡片才是「抬起来」而不是「变糊了」。
+                              if (s.nocturne)
+                                BoxShadow(
+                                    color: s.accent.withValues(alpha: .20),
+                                    blurRadius: 30,
+                                    spreadRadius: -4),
                               BoxShadow(
                                   color: s.shadow.withValues(alpha: .35),
                                   blurRadius: 26,
@@ -253,9 +260,14 @@ mixin _DesktopDrag on State<Desktop> {
                             borderRadius: BorderRadius.circular(s.radius),
                             child: _feedbackImage != null
                                 ? ColoredBox(
-                                    color: s.surface.withValues(alpha: 1),
+                                    // 快照是半透明的，必须垫一层不透明底，
+                                    // 否则浮起来的卡片会透出下面的卡片。
+                                    color: s.snapshotBase,
                                     child: RawImage(
                                         image: _feedbackImage,
+                                        // 浮层放大了 2.5%，默认低质量采样会把
+                                        // 文字拖出一圈灰边。
+                                        filterQuality: FilterQuality.medium,
                                         fit: BoxFit.fill))
                                 : GlassSurface(
                                     padding: const EdgeInsets.all(20),

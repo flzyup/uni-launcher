@@ -20,6 +20,7 @@ public final class OfficialVehicleSensorsTest {
         public Pa getPaDiDstToEmpty() { return pa; }
         public Pa getPaDiDstToSrv() { return pa; }
         public Pa getBliHvBattLevelIndicationIhu() { return pa; }
+        public Pa getPaDiFuLvlIndcdVal() { return pa; }
     }
     public static final class Sensors {
         String support = "active";
@@ -31,7 +32,7 @@ public final class OfficialVehicleSensorsTest {
     private static OfficialVehicleSensors.Sample read(Signals signals, Sensors sdk, int index, OfficialVehicleSensors.Units units) {
         return OfficialVehicleSensors.readSample(sdk, signals, OfficialVehicleSensors.SPECS[index], units);
     }
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
         Signals signals = new Signals(); Sensors sdk = new Sensors();
         OfficialVehicleSensors.Units unknown = OfficialVehicleSensors.Units.unconfirmed();
         OfficialVehicleSensors.Units proven = OfficialVehicleSensors.Units.confirmed("m/s", "km", "synthetic test fixture only");
@@ -75,6 +76,16 @@ public final class OfficialVehicleSensorsTest {
         check(read(signals, null, 6, unknown).valid, "PA-only borrowed manager");
         try { OfficialVehicleSensors.Units.confirmed("km/h", "km", ""); throw new AssertionError("missing unit proof"); }
         catch (IllegalArgumentException expected) {}
-        System.out.println("OfficialVehicleSensorsTest passed (PA availability, SDK fallback, range, units and PHEV percentage)");
+                signals.pa = new Pa(Availability.ACTIVE, 0.045d); sdk.value = 45.0;
+        OfficialVehicleSensors.Sample fuel = read(signals, sdk, 7, unknown);
+        check(fuel.valid && Math.abs(fuel.value - 45.0) < 0.001, "fuel liters converted from m3 to L");
+        check("L".equals(fuel.unit), "fuel unit is Liters");
+        check(fuel.spec.id == 1050112, "fuel sensor ID matches 1050112");
+
+        signals.pa = new Pa(Availability.NOT_ACTIVE, 38.0d); sdk.value = 38.0;
+        OfficialVehicleSensors.Sample fuelStationary = read(signals, sdk, 7, unknown);
+        check(fuelStationary.valid && Math.abs(fuelStationary.value - 38.0) < 0.001, "fuel liters accepts NOT_ACTIVE and direct Liters");
+
+        System.out.println("OfficialVehicleSensorsTest passed (PA availability, SDK fallback, range, units, PHEV percentage and fuel liters)");
     }
 }

@@ -106,6 +106,38 @@ void main() {
     await g.dispose();
   });
 
+  test('card added on the trailing scratch page can be placed and resized',
+      () async {
+    final g = FakeGateway();
+    final controller = LauncherController(g);
+    await controller.initialize();
+    // 空桌面点「添加卡片」：编辑态直落尾部草稿页，卡片也落在 page == pageCount
+    // 这一页（草稿页要等 finishEdit 才转正）。此前 previewPlacement 用
+    // `>= pageCount` 判断，把这唯一一条路径整个拦掉，表现就是刚添加的卡片
+    // 按右下角手柄拖不动；退出编辑再长按进来就正常了。
+    controller.cards = [];
+    controller.pageCount = 1;
+    controller.beginEditAtEnd();
+    expect((controller.page, controller.pageCount), (1, 1));
+    expect(controller.add('music'), isTrue);
+    final added = controller.cards.single;
+    expect((added.page, added.w, added.h), (1, 4, 3));
+
+    expect(controller.beginPlacement(added.id, resizing: true), isTrue);
+    expect(controller.previewPlacement(added.copyWith(h: added.h + 1)), isTrue);
+    expect(controller.placementPreview!.single.h, added.h + 1);
+    // 越界页仍然要拦：草稿页之外没有可落的网格。
+    expect(controller.previewPlacement(added.copyWith(page: 2)), isFalse);
+    controller.finishPlacement();
+    expect(controller.cards.single.h, added.h + 1);
+
+    controller.finishEdit();
+    expect(controller.pageCount, 2);
+    expect(controller.cards.single.page, 1);
+    controller.dispose();
+    await g.dispose();
+  });
+
   test('bounded reorder stays valid across repeated full-grid moves', () {
     var cards = fullPage();
     final timer = Stopwatch()..start();
