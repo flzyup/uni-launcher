@@ -6,7 +6,7 @@
 
 | 文件 | 包名 | versionCode | versionName | 签名 | SHA-256 |
 | --- | --- | --- | --- | --- | --- |
-| `UNI-Launcher-0.7.6-arm64-v8a.apk` | `xyz.i4o.uni.launcher` | **2054** | `0.7.6` | AOSP platform 签名 | `3c17cb060d8180bcdefa6cd0b6d92aab4eba60c69217f2a4d577dee89963f0fd` |
+| `UNI-Launcher-0.7.6-arm64-v8a.apk` | `xyz.i4o.uni.launcher` | **2054** | `0.7.6` | AOSP platform 签名 | `f32d5191384b97eb51d17e7474de847ea0427884e248d357a5204d72b5c37325` |
 
 > 这是**唯一需要安装**的包。装到车机后重启桌面。
 
