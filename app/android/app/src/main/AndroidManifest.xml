@@ -1,5 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
   <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS"/>
+  <uses-permission android:name="android.permission.CHANGE_COMPONENT_ENABLED_STATE"/>
+  <uses-permission android:name="android.permission.MANAGE_USB"/>
   <uses-permission android:name="android.permission.BIND_APPWIDGET"/>
   <uses-permission android:name="android.permission.INJECT_EVENTS"/>
   <uses-permission android:name="android.permission.STATUS_BAR"/>
@@ -17,6 +19,7 @@
   <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
   <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+  <uses-permission android:name="android.permission.SET_PREFERRED_APPLICATIONS"/>
   <uses-permission android:name="android.permission.REAL_GET_TASKS"/>
   <uses-permission android:name="android.permission.GET_TASKS"/>
   <uses-permission android:name="android.permission.REMOVE_TASKS"/>
@@ -58,9 +61,12 @@
     </receiver>
     <provider android:name=".integration.OtaFileProvider" android:authorities="xyz.i4o.uni.launcher.ota" android:exported="false" android:grantUriPermissions="true"/>
     <provider android:name=".integration.TransferFileProvider" android:authorities="xyz.i4o.uni.launcher.transfer" android:exported="false" android:grantUriPermissions="true"/>
-    <receiver android:name=".GlobalDockBootReceiver" android:exported="true">
+    <receiver android:name=".GlobalDockBootReceiver" android:exported="true" android:directBootAware="true">
+      <intent-filter><action android:name="android.intent.action.LOCKED_BOOT_COMPLETED"/></intent-filter>
       <intent-filter><action android:name="android.intent.action.BOOT_COMPLETED"/></intent-filter>
+      <intent-filter><action android:name="android.intent.action.USER_UNLOCKED"/></intent-filter>
     </receiver>
+    <receiver android:name=".DefaultHomeAlarmReceiver" android:exported="false"/>
         <meta-data android:name="flutterEmbedding" android:value="2"/>
   </application>
 </manifest>

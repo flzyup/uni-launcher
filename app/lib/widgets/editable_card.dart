@@ -62,7 +62,10 @@ class _EditableCardState extends State<EditableCard> {
                   // Lyrics, gauges and map textures update independently from
                   // the large rounded surface, border and blurred shadow.
                   child: RepaintBoundary(
-                      child: CardContent(card: card, controller: c))),
+                      child: ClipRect(
+                          child: IgnorePointer(
+                              ignoring: c.editing,
+                              child: CardContent(card: card, controller: c))))),
               if (c.editing) ...[
                 Positioned(
                     top: Design.px(8),
@@ -111,30 +114,39 @@ class _EditableCardState extends State<EditableCard> {
                 Positioned(
                     bottom: 0,
                     right: 0,
-                    width: Design.px(48),
-                    height: Design.px(48),
+                    width: Design.px(64),
+                    height: Design.px(64),
                     child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
                         key: ValueKey('resize-${card.id}'),
                         onPanStart: (d) => start(true, d.globalPosition),
                         onPanUpdate: (_) {},
-                        child: Container(
-                            decoration: BoxDecoration(
-                                // 暗夜卡面是近黑，原来的 s.strong(.70) 手柄
-                                // 贴上去几乎看不见，用户会以为「没有大小手柄、
-                                // 拖不动」。这里换成主题强调色的淡底＋描边。
-                                color: s.nocturne
-                                    ? s.accent.withValues(alpha: .18)
-                                    : s.strong.withValues(alpha: .70),
-                                border: s.nocturne
-                                    ? Border.all(
-                                        color: s.accent.withValues(alpha: .45))
-                                    : null,
-                                borderRadius: BorderRadius.only(
-                                    topLeft: Radius.circular(s.controlRadius))),
-                            child: Center(
-                                child: UniIcon('resize',
-                                    size: Design.px(24),
-                                    color: s.nocturne ? s.accent : s.muted))))),
+                        child: Align(
+                            alignment: Alignment.bottomRight,
+                            child: Container(
+                                width: Design.px(44),
+                                height: Design.px(44),
+                                decoration: BoxDecoration(
+                                    // 暗夜卡面是近黑，原来的 s.strong(.70) 手柄
+                                    // 贴上去几乎看不见，用户会以为「没有大小手柄、
+                                    // 拖不动」。这里换成主题强调色的淡底＋描边。
+                                    color: s.nocturne
+                                        ? s.accent.withValues(alpha: .18)
+                                        : s.strong.withValues(alpha: .70),
+                                    border: s.nocturne
+                                        ? Border.all(
+                                            color:
+                                                s.accent.withValues(alpha: .45))
+                                        : null,
+                                    borderRadius: BorderRadius.only(
+                                        topLeft:
+                                            Radius.circular(s.controlRadius))),
+                                child: Center(
+                                    child: UniIcon('resize',
+                                        size: Design.px(24),
+                                        color: s.nocturne
+                                            ? s.accent
+                                            : s.muted)))))),
               ]
             ])));
   }

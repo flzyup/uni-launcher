@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../controller/launcher_controller.dart';
 import '../theme/design_tokens.dart';
 import 'launcher_dialog.dart';
+import 'navigation_options.dart';
 
 Future<void> showNavigationPicker(
     BuildContext context, LauncherController c) async {
@@ -17,33 +18,18 @@ Future<void> showNavigationPicker(
   if (picked != null) await c.command('select-navigation', value: picked);
 }
 
-class NavigationAppPicker extends StatefulWidget {
+class NavigationAppPicker extends StatelessWidget {
   final LauncherController controller;
   const NavigationAppPicker({super.key, required this.controller});
   @override
-  State<NavigationAppPicker> createState() => _NavigationAppPickerState();
-}
-
-class _NavigationAppPickerState extends State<NavigationAppPicker> {
-  bool showAll = false;
-  @override
   Widget build(BuildContext context) =>
       ValueListenableBuilder<Map<String, dynamic>>(
-          valueListenable: widget.controller.native,
+          valueListenable: controller.native,
           builder: (context, n, _) {
             final nav = n['navigation'] as Map? ?? {};
             final selected = nav['preferredPackage'] ?? 'auto';
             final apps = (n['apps'] as List? ?? []).whereType<Map>().toList();
-            final options = <String, Map>{
-              for (final a in (nav['options'] as List? ?? []).whereType<Map>())
-                '${a['package']}': a
-            };
-            if (showAll) {
-              for (final app in apps) {
-                if (app['package'] != null)
-                  options.putIfAbsent('${app['package']}', () => app);
-              }
-            }
+            final options = navigationOptions(controller, n);
             return ListView(children: [
               ListTile(
                   key: const ValueKey('nav-option-auto'),
@@ -56,9 +42,6 @@ class _NavigationAppPickerState extends State<NavigationAppPicker> {
                   final app =
                       apps.where((a) => a['package'] == entry.key).firstOrNull;
                   final bytes = app?['iconBytes'];
-                  final displayApp =
-                      Map<String, dynamic>.from(app ?? entry.value)
-                        ..putIfAbsent('package', () => entry.key);
                   return ListTile(
                       key: ValueKey('nav-option-${entry.key}'),
                       leading: SizedBox(
@@ -69,7 +52,7 @@ class _NavigationAppPickerState extends State<NavigationAppPicker> {
                                   errorBuilder: (_, __, ___) =>
                                       const Icon(Icons.navigation_outlined))
                               : const Icon(Icons.navigation_outlined)),
-                      title: Text(widget.controller.appName(displayApp)),
+                      title: Text(entry.value),
                       trailing: selected == entry.key
                           ? const Icon(Icons.check)
                           : null,
@@ -77,14 +60,7 @@ class _NavigationAppPickerState extends State<NavigationAppPicker> {
                 }),
               if (options.isEmpty)
                 const Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Text('尚未识别到导航应用，可从其他已安装应用中选择')),
-              if (!showAll)
-                TextButton.icon(
-                    key: const ValueKey('nav-show-all'),
-                    icon: const Icon(Icons.apps),
-                    label: const Text('其他已安装应用'),
-                    onPressed: () => setState(() => showAll = true)),
+                    padding: EdgeInsets.all(16), child: Text('尚未识别到已安装的导航应用')),
             ]);
           });
 }

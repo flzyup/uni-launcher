@@ -3,6 +3,7 @@ import '../controller/launcher_controller.dart';
 import '../theme/design_tokens.dart';
 import '../theme/launcher_theme.dart';
 import 'glass_surface.dart';
+import 'navigation_options.dart';
 
 /// Installed-app identity is the key; labels may be duplicated or localized.
 class IntegrationSettings extends StatelessWidget {
@@ -23,13 +24,16 @@ class IntegrationSettings extends StatelessWidget {
       final app = map(raw),
           pkg =
               '${app['package'] ?? app['id']?.toString().split('/').first ?? ''}';
-      if (pkg.isNotEmpty) {
+      if (pkg.isNotEmpty &&
+          app['enabled'] != false &&
+          app['launchable'] != false) {
         apps.putIfAbsent(pkg, () => controller.appName(app));
       }
     }
-    Widget picker(String key, String label, String action, String selected) {
-      final entries = {'auto': '自动选择', ...apps};
-      if (!entries.containsKey(selected)) entries[selected] = '所选应用已卸载';
+    Widget picker(String key, String label, String action, String selected,
+        Map<String, String> choices) {
+      final entries = {'auto': '自动选择', ...choices};
+      if (!entries.containsKey(selected)) entries[selected] = '所选应用不可用';
       return DropdownButtonFormField<String>(
           key: ValueKey(key),
           initialValue: selected,
@@ -56,8 +60,17 @@ class IntegrationSettings extends StatelessWidget {
             child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-              picker('navigation-source', '导航应用', 'select-navigation',
-                  '${nav['preferredPackage'] ?? 'auto'}'),
+              picker(
+                  'navigation-source',
+                  '导航应用',
+                  'select-navigation',
+                  '${nav['preferredPackage'] ?? 'auto'}',
+                  navigationOptions(controller, native)),
+              SizedBox(height: Design.px(10)),
+              TextButton(
+                  onPressed: () => controller.command('launch-navigation'),
+                  child: const Text('打开导航应用')),
+              SizedBox(height: Design.px(10)),
               DesignSwitchTile(
                   key: const ValueKey('embed-navigation'),
                   contentPadding: EdgeInsets.zero,
@@ -74,9 +87,14 @@ class IntegrationSettings extends StatelessWidget {
                   value: prefs['mapTextureScale'] == true,
                   onChanged: (v) =>
                       controller.command('map-texture-scale', enabled: v)),
-              TextButton(
-                  onPressed: () => controller.command('launch-navigation'),
-                  child: const Text('打开导航应用')),
+              DesignSwitchTile(
+                  key: const ValueKey('navigation-card-title-hidden'),
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('隐藏导航卡片标题栏'),
+                  subtitle: const Text('关闭后显示导航应用、切换和全屏按钮'),
+                  value: prefs['navigationCardTitleHidden'] != false,
+                  onChanged: (v) => controller
+                      .command('navigation-card-title-hidden', enabled: v)),
             ])),
         SizedBox(width: Design.px(30)),
         Expanded(
@@ -84,7 +102,11 @@ class IntegrationSettings extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
               picker('media-source', '关联的音乐播放器', 'select-player',
-                  '${prefs['mediaPackage'] ?? 'auto'}'),
+                  '${prefs['mediaPackage'] ?? 'auto'}', apps),
+              SizedBox(height: Design.px(10)),
+              TextButton(
+                  onPressed: () => controller.command('launch-player'),
+                  child: const Text('打开关联播放器')),
               SizedBox(height: Design.px(10)),
               DesignSwitchTile(
                   key: const ValueKey('auto-play-music'),
@@ -99,9 +121,6 @@ class IntegrationSettings extends StatelessWidget {
                   '选择网易云、QQ 音乐或原车音乐后，歌曲、封面、歌词和播放控制均跟随该应用。请先在播放器中播放一首歌曲并授权媒体访问。',
                   style: TextStyle(
                       color: s.muted, fontSize: Design.px(19), height: 1.6)),
-              TextButton(
-                  onPressed: () => controller.command('launch-player'),
-                  child: const Text('打开关联播放器')),
             ]))
       ]),
       if (native['demo'] == true)

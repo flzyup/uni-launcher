@@ -17,11 +17,12 @@ class DockSizeSettings extends StatelessWidget {
             ('small', '小'),
             ('medium', '中'),
             ('large', '大'),
+            ('extraLarge', '超大'),
           ])
             Expanded(
                 child: Padding(
                     padding: EdgeInsets.only(
-                        right: value == 'large' ? 0 : Design.px(14)),
+                        right: value == 'extraLarge' ? 0 : Design.px(14)),
                     child: OutlinedButton(
                         key: ValueKey('dock-size-$value'),
                         style: s.selectionStyle(c.appearance.dockSize == value),

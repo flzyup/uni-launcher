@@ -42,7 +42,7 @@ public final class AppRepository {
         Set<String> players=musicPackages();
         Intent query=new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
         PackageManager pm=context.getPackageManager();
-        List<ResolveInfo> apps=pm.queryIntentActivities(query,0);
+        List<ResolveInfo> apps=pm.queryIntentActivities(query,PackageManager.MATCH_DISABLED_COMPONENTS);
         long afterQuery=android.os.SystemClock.uptimeMillis();
         // loadLabel is a resource lookup per call; the old comparator called it
         // twice for every comparison (~n log n IPCs). Read each label once.
@@ -64,9 +64,13 @@ public final class AppRepository {
         for(Integer index:order){
             ResolveInfo app=apps.get(index);
             try{
-                if(!usable(app.activityInfo))continue;
+                if(app.activityInfo==null||app.activityInfo.applicationInfo==null||!app.activityInfo.exported)continue;
+                boolean enabled=app.activityInfo.applicationInfo.enabled;
+                if(enabled&&!usable(app.activityInfo))continue;
                 String pkg=app.activityInfo.packageName;
                 if(self.equals(pkg)&&!"xyz.i4o.uni.launcher.DesktopSettings".equals(app.activityInfo.name))continue;
+                // Unlabelled internal components are not useful app entries.
+                if(labels[index].isEmpty()||pkg.equals(labels[index]))continue;
                 ComponentName c=new ComponentName(pkg,app.activityInfo.name);
                 String key=c.flattenToString();
                 if(nextAllowed.containsKey(key))continue;
@@ -76,6 +80,8 @@ public final class AppRepository {
                 boolean uninstallable=uninstallAllowed&&!self.equals(pkg)&&!admins.contains(pkg)
                     &&(info==null||(info.flags&(ApplicationInfo.FLAG_SYSTEM|ApplicationInfo.FLAG_UPDATED_SYSTEM_APP))==0);
                 result.put(new JSONObject().put("id",key).put("package",pkg).put("label",labels[index])
+                    .put("enabled",enabled).put("canChangeEnabled",!self.equals(pkg))
+                    .put("isSystem",!self.equals(pkg)&&(info.flags&(ApplicationInfo.FLAG_SYSTEM|ApplicationInfo.FLAG_UPDATED_SYSTEM_APP))!=0)
                     .put("canUninstall",uninstallable).put("isMusic",players.contains(pkg))
                     .put("icon","data:image/webp;base64,"+iconBase64(app,info,pkg,pm)));
             }catch(Exception e){android.util.Log.w("UniApps","Unable to read app icon",e);}
@@ -161,6 +167,15 @@ public final class AppRepository {
         }catch(Exception e){return false;}
     }
     private boolean knownPackage(String pkg){for(ComponentName c:allowed.values())if(c.getPackageName().equals(pkg))return true;return false;}
+    public boolean setEnabled(String pkg,boolean enabled){
+        if(!knownPackage(pkg)||context.getPackageName().equals(pkg))return false;
+        try{
+            PackageManager pm=context.getPackageManager();
+            pm.setApplicationEnabledSetting(pkg,enabled?PackageManager.COMPONENT_ENABLED_STATE_ENABLED:
+                PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER,0);
+            return pm.getApplicationInfo(pkg,PackageManager.MATCH_DISABLED_COMPONENTS).enabled==enabled;
+        }catch(Exception e){android.util.Log.w("UniApps","Unable to change application state",e);return false;}
+    }
     public boolean showInfo(String pkg){
         if(!knownPackage(pkg))return false;
         try{context.startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,

@@ -1,7 +1,7 @@
 name: uni_launcher
 description: Flutter launcher for Lynk & Co head units with native Android integrations.
 publish_to: none
-version: 0.7.2+48
+version: 0.7.6+54
 environment:
   sdk: '>=3.5.0 <4.0.0'
 dependencies:

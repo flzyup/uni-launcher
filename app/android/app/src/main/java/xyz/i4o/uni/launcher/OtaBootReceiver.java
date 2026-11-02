@@ -27,7 +27,12 @@ public final class OtaBootReceiver extends BroadcastReceiver {
         long[] delays={0,1000,6000,11000};
         for(int i=0;i<batches.length;i++) {
             final String action=PREFIX+batches[i];
-            handler.postDelayed(()->app.sendBroadcast(new Intent(action)),delays[i]);
+            handler.postDelayed(()->{
+                try { app.sendBroadcast(new Intent(action)); }
+                catch (SecurityException e) {
+                    android.util.Log.w("UniOta", "Protected boot broadcast: " + action, e);
+                }
+            },delays[i]);
         }
     }
 }

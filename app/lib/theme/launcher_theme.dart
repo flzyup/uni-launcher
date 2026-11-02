@@ -205,12 +205,20 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
   ButtonStyle selectionStyle(bool selected) => OutlinedButton.styleFrom(
       shape: controlShape(selected: selected),
       backgroundColor: selected
-          ? (technicalFrame ? accent.withValues(alpha: .11) : accent)
+          ? (technicalFrame || nocturne
+              ? accent.withValues(alpha: .11)
+              : accent)
           : soft,
-      foregroundColor: selected ? (technicalFrame ? accent : accentText) : text,
+      foregroundColor:
+          selected ? (technicalFrame || nocturne ? accent : accentText) : text,
       side: technicalFrame
           ? controlSide(selected)
-          : BorderSide(color: selected ? Colors.transparent : edge));
+          : BorderSide(
+              color: selected
+                  ? (nocturne
+                      ? accent.withValues(alpha: .55)
+                      : Colors.transparent)
+                  : edge));
 
   /// Weak control-level border for dense rows such as climate mode and seat
   /// steps: a simple rounded outline so secondary cards keep the hierarchy.
@@ -253,9 +261,24 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
       other.edge == edge &&
       other.shadow == shadow;
   @override
-  int get hashCode => Object.hash(dark, glass, technicalFrame, nocturne, radius,
-      spectrumStyle, accent, accentText, seed, text, muted, disabled, surface,
-      strong, soft, edge, shadow);
+  int get hashCode => Object.hash(
+      dark,
+      glass,
+      technicalFrame,
+      nocturne,
+      radius,
+      spectrumStyle,
+      accent,
+      accentText,
+      seed,
+      text,
+      muted,
+      disabled,
+      surface,
+      strong,
+      soft,
+      edge,
+      shadow);
 }
 
 SurfaceStyle? _cachedStyle;

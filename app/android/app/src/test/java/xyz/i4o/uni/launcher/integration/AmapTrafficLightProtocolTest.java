@@ -28,6 +28,8 @@ public class AmapTrafficLightProtocolTest {
         String raw="{\"ts\":0,\"lights\":[{\"direction\":1,\"status\":2,\"countdown\":60},{\"direction\":8,\"status\":4,\"countdown\":24}]}";
         JSONArray items=AmapTrafficLightProtocol.cruise(raw);
         assertEquals(2,items.length());assertEquals(24,items.getJSONObject(1).getInt("countdownSeconds"));
+        assertEquals("green",items.getJSONObject(0).getString("lamp"));
+        assertTrue(items.getJSONObject(0).getBoolean("lampVerified"));
         assertEquals(0,AmapTrafficLightProtocol.cruise("{\"lights\":[]}").length());
         assertNull(AmapTrafficLightProtocol.cruise("{\"lights\":[{\"direction\":1,\"status\":2},{}]}"));
         assertNull(AmapTrafficLightProtocol.cruise("{\"lights\":\"bad\"}"));
@@ -43,8 +45,8 @@ public class AmapTrafficLightProtocolTest {
         assertEquals("straight",lights.getJSONObject(1).getString("direction"));
         assertEquals("green",lights.getJSONObject(1).getString("lamp"));
         assertEquals("right",lights.getJSONObject(2).getString("direction"));
-        assertEquals("unknown",lights.getJSONObject(2).getString("lamp"));
-        assertFalse(lights.getJSONObject(2).getBoolean("lampVerified"));
+        assertEquals("green",lights.getJSONObject(2).getString("lamp"));
+        assertTrue(lights.getJSONObject(2).getBoolean("lampVerified"));
         assertFalse(lights.getJSONObject(3).getBoolean("directionVerified"));
         assertEquals(4,lights.length());
     }

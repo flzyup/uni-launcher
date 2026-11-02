@@ -69,27 +69,27 @@ class _MusicMetadata extends StatelessWidget {
         crossAxisAlignment:
             centered ? CrossAxisAlignment.center : CrossAxisAlignment.start,
         children: [
-          Text(title,
+          MarqueeText(
+              key: const ValueKey('music-card-title'),
+              data: title,
               textAlign: centered ? TextAlign.center : TextAlign.start,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
               style: TextStyle(
                   fontSize: Design.px(compact ? 25 : 30),
                   height: 1.2,
                   fontWeight: FontWeight.w500)),
           SizedBox(height: Design.px(compact ? 6 : 10)),
-          Text(artist,
+          MarqueeText(
+              key: const ValueKey('music-card-artist'),
+              data: artist,
               textAlign: centered ? TextAlign.center : TextAlign.start,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
               style: TextStyle(
                   fontSize: Design.px(compact ? 17 : 20), color: s.muted)),
           if (album.isNotEmpty) ...[
             SizedBox(height: Design.px(4)),
-            Text(album,
+            MarqueeText(
+                key: const ValueKey('music-card-album'),
+                data: album,
                 textAlign: centered ? TextAlign.center : TextAlign.start,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                     fontSize: Design.px(compact ? 16 : 18), color: s.muted)),
           ],
@@ -117,7 +117,7 @@ class _MusicCard extends StatelessWidget {
         artist: _mediaValue(state, 'artist', 'Coastline', '等待媒体会话'),
         album: _mediaValue(state, 'collection', '晨间驾驶歌单', ''),
         compact: compact || tall,
-        centered: card.w == 4 && card.h == 4);
+        centered: false);
     final double spectrumHeight = compact
         ? 0.0
         : tall
@@ -223,29 +223,36 @@ class _MusicCard extends StatelessWidget {
       if (card.w == 4 && card.h == 4) {
         return Row(children: [
           Expanded(
+              flex: 2,
               child: Column(
+                  key: const ValueKey('music-card-left-column'),
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                Expanded(child: LayoutBuilder(builder: (context, constraints) {
-                  final size = constraints.biggest.shortestSide;
-                  return Center(
-                      child: _MediaCover(demo: demo, size: size, media: media));
-                })),
-                SizedBox(height: Design.px(8)),
-                Center(child: metadata),
-              ])),
+                    Expanded(
+                        child: LayoutBuilder(builder: (context, constraints) {
+                      final size = constraints.biggest.shortestSide;
+                      return Center(
+                          child: _MediaCover(
+                              demo: demo, size: size, media: media));
+                    })),
+                    SizedBox(height: Design.px(8)),
+                    metadata,
+                  ])),
           SizedBox(width: Design.px(16)),
           Expanded(
+              flex: 3,
               child: Column(
+                  key: const ValueKey('music-card-right-column'),
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                Expanded(child: LayoutBuilder(builder: (context, constraints) {
-                  return lyricsView(
-                      lyricLines(constraints.maxHeight, 11), lyricFontSize);
-                })),
-                SizedBox(height: Design.px(6)),
-                spectrum,
-              ])),
+                    Expanded(
+                        child: LayoutBuilder(builder: (context, constraints) {
+                      return lyricsView(
+                          lyricLines(constraints.maxHeight, 11), lyricFontSize);
+                    })),
+                    SizedBox(height: Design.px(6)),
+                    spectrum,
+                  ])),
         ]);
       }
       if (!lyricCard) {

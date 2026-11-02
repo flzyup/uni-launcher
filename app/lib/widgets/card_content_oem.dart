@@ -403,6 +403,7 @@ class _ShortcutCard extends StatelessWidget {
             ? controller.native.value['apps'] as List
             : const [])
         .whereType<Map>()
+        .where((a) => a['enabled'] != false && a['launchable'] != false)
         .map((a) => Map<String, dynamic>.from(a))
         .toList();
     final byId = {

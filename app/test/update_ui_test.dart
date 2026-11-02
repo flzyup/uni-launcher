@@ -35,6 +35,8 @@ void main() {
     expect(find.text('Felix'), findsOneWidget);
     expect(find.text('十一'), findsOneWidget);
     expect(find.text('ChainStrong'), findsOneWidget);
+    expect(find.text('冰点'), findsOneWidget);
+    expect(find.text('是鱿鱼不是犹豫'), findsOneWidget);
     await t.tap(find.text('打开'));
     await t.pumpAndSettle();
     expect(find.text('当前  0.6.19'), findsOneWidget);

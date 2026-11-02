@@ -12,6 +12,7 @@ import 'file_transfer_popup.dart';
 import 'uni_icon.dart';
 import 'dock_climate_button.dart';
 import 'media_artwork.dart';
+import 'marquee_text.dart';
 import '../model/vehicle_data.dart';
 import 'vehicle_readout.dart';
 import 'climate_panel.dart';
@@ -21,6 +22,7 @@ export 'climate_panel.dart' show showClimatePanel;
 double _dockContentScale(String size) => switch (size) {
       'medium' => 1.14,
       'large' => 1.3,
+      'extraLarge' => 1.45,
       _ => 1.0,
     };
 
@@ -121,18 +123,18 @@ class BottomDock extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('${media['title'] ?? '暂无播放'}',
+              MarqueeText(
+                  key: const ValueKey('dock-track-marquee'),
+                  data: '${media['title'] ?? '暂无播放'}',
                   style: TextStyle(
                       fontSize: Design.px(23 * dockScale),
-                      fontWeight: FontWeight.w500),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis),
+                      fontWeight: FontWeight.w500)),
               SizedBox(height: Design.px(4)),
-              Text('${media['artist'] ?? '等待媒体会话'}',
+              MarqueeText(
+                  key: const ValueKey('dock-artist-marquee'),
+                  data: '${media['artist'] ?? '等待媒体会话'}',
                   style: TextStyle(
-                      fontSize: Design.px(16 * dockScale), color: s.muted),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis)
+                      fontSize: Design.px(16 * dockScale), color: s.muted))
             ]);
         final Widget musicInfo = InkWell(
             key: const ValueKey('music-info'),
@@ -149,7 +151,7 @@ class BottomDock extends StatelessWidget {
                           fallbackSize: Design.px(30)))),
               SizedBox(width: Design.px(16)),
               showMusicVisual
-                  ? Expanded(flex: 5, child: trackMetadata)
+                  ? Expanded(child: trackMetadata)
                   : ConstrainedBox(
                       constraints: BoxConstraints(maxWidth: Design.px(320)),
                       child: trackMetadata),
@@ -278,86 +280,99 @@ class BottomDock extends StatelessWidget {
                       gap(),
                       _DockMusicRegion(
                           expanded: showMusicVisual,
-                          compactWidth: Design.px(680 + (dockScale - 1) * 120),
-                          child: GlassSurface(
-                              key: const ValueKey('dock-music-frame'),
-                              radius: s.controlRadius,
-                              shadow: false,
-                              // 暗夜下这一块不画表面：胶囊已经是不透明背板，
-                              // 再叠一层白玻璃会在胶囊里亮出一块方形。
-                              flat: true,
-                              tone: SurfaceTone.soft,
-                              padding: EdgeInsets.zero,
-                              child: DockMusicProgressBackground(
-                                  enabled:
-                                      c.appearance.dockMusicProgressBackground,
-                                  media: media,
-                                  child: Padding(
-                                      padding: EdgeInsets.symmetric(
-                                          horizontal: Design.px(12)),
-                                      child: Row(children: [
-                                        SizedBox(
-                                            width: Design.px(194),
-                                            child: Row(
-                                                mainAxisAlignment:
-                                                    MainAxisAlignment
-                                                        .spaceBetween,
-                                                children: [
-                                                  action(
-                                                      'previous',
-                                                      Icons
-                                                          .skip_previous_outlined,
-                                                      '上一首',
-                                                      canPlay &&
-                                                              (demo ||
-                                                                  media['canPrevious'] ==
-                                                                      true)
-                                                          ? () => c.command(
-                                                              'previous')
-                                                          : null,
-                                                      width: 60),
-                                                  IconAction(
-                                                      key: const ValueKey(
-                                                          'play-pause'),
-                                                      icon: playing
-                                                          ? Icons.pause
-                                                          : Icons.play_arrow,
-                                                      label:
-                                                          playing ? '暂停' : '播放',
-                                                      size: Design.px(58),
-                                                      iconSize: Design.px(
-                                                          29 * dockScale),
-                                                      framed: false,
-                                                      foregroundColor: s.accent,
-                                                      onTap: media[
-                                                                  'available'] ==
-                                                              true
-                                                          ? (canToggle
-                                                              ? () => c.command(
-                                                                  'toggle-play')
-                                                              : null)
-                                                          : () => c.command(
-                                                              'toggle-play')),
-                                                  action(
-                                                      'next',
-                                                      Icons.skip_next_outlined,
-                                                      '下一首',
-                                                      canPlay &&
-                                                              (demo ||
-                                                                  media['canNext'] ==
-                                                                      true)
-                                                          ? () =>
-                                                              c.command('next')
-                                                          : null,
-                                                      width: 60)
-                                                ])),
-                                        SizedBox(width: Design.px(20)),
-                                        showMusicVisual
-                                            ? Expanded(child: musicInfo)
-                                            : Flexible(
-                                                fit: FlexFit.loose,
-                                                child: musicInfo)
-                                      ]))))),
+                          compactWidth: Design.px(
+                              680 + (dockScale.clamp(1.0, 1.3) - 1) * 120),
+                          child: Center(
+                              child: SizedBox(
+                                  height: Design.px(72),
+                                  width: double.infinity,
+                                  child: GlassSurface(
+                                      key: const ValueKey('dock-music-frame'),
+                                      radius: s.controlRadius,
+                                      shadow: false,
+                                      // 暗夜下这一块不画表面：胶囊已经是不透明背板，
+                                      // 再叠一层白玻璃会在胶囊里亮出一块方形。
+                                      flat: true,
+                                      tone: SurfaceTone.soft,
+                                      padding: EdgeInsets.zero,
+                                      child: DockMusicProgressBackground(
+                                          enabled: c.appearance
+                                              .dockMusicProgressBackground,
+                                          media: media,
+                                          child: Padding(
+                                              padding: EdgeInsets.symmetric(
+                                                  horizontal: Design.px(12)),
+                                              child: Row(children: [
+                                                SizedBox(
+                                                    width: Design.px(194),
+                                                    child: Row(
+                                                        mainAxisAlignment:
+                                                            MainAxisAlignment
+                                                                .spaceBetween,
+                                                        children: [
+                                                          action(
+                                                              'previous',
+                                                              Icons
+                                                                  .skip_previous_outlined,
+                                                              '上一首',
+                                                              canPlay &&
+                                                                      (demo ||
+                                                                          media['canPrevious'] ==
+                                                                              true)
+                                                                  ? () => c.command(
+                                                                      'previous')
+                                                                  : null,
+                                                              width: 60),
+                                                          IconAction(
+                                                              key: const ValueKey(
+                                                                  'play-pause'),
+                                                              icon: playing
+                                                                  ? Icons.pause
+                                                                  : Icons
+                                                                      .play_arrow,
+                                                              label: playing
+                                                                  ? '暂停'
+                                                                  : '播放',
+                                                              size:
+                                                                  Design.px(58),
+                                                              iconSize:
+                                                                  Design.px(29 *
+                                                                      dockScale),
+                                                              framed: false,
+                                                              foregroundColor: s
+                                                                  .accent,
+                                                              onTap: media[
+                                                                          'available'] ==
+                                                                      true
+                                                                  ? (canToggle
+                                                                      ? () => c
+                                                                          .command(
+                                                                              'toggle-play')
+                                                                      : null)
+                                                                  : () => c.command(
+                                                                      'toggle-play')),
+                                                          action(
+                                                              'next',
+                                                              Icons
+                                                                  .skip_next_outlined,
+                                                              '下一首',
+                                                              canPlay &&
+                                                                      (demo ||
+                                                                          media['canNext'] ==
+                                                                              true)
+                                                                  ? () =>
+                                                                      c.command(
+                                                                          'next')
+                                                                  : null,
+                                                              width: 60)
+                                                        ])),
+                                                SizedBox(width: Design.px(20)),
+                                                showMusicVisual
+                                                    ? Expanded(child: musicInfo)
+                                                    : Flexible(
+                                                        fit: FlexFit.loose,
+                                                        child: musicInfo)
+                                              ]))))))),
                       gap(),
                       IconAction(
                           key: const ValueKey('uni-menu'),
@@ -436,6 +451,7 @@ class _UniDockPopupRoute extends PopupRoute<String> {
             width: Design.px(340),
             child: GlassSurface(
                 key: const ValueKey('uni-popup-panel'),
+                sheet: true,
                 radius: s.controlRadius,
                 shadow: true,
                 padding: EdgeInsets.all(Design.px(10)),
@@ -469,15 +485,7 @@ class _UniDockPopupRoute extends PopupRoute<String> {
   @override
   Widget buildTransitions(BuildContext context, Animation<double> animation,
       Animation<double> secondaryAnimation, Widget child) {
-    final t = Curves.easeOutCubic.transform(animation.value);
-    return FadeTransition(
-        opacity: animation,
-        child: Transform.translate(
-            offset: Offset(0, (1 - t) * Design.px(14)),
-            child: Transform.scale(
-                alignment: Alignment.bottomRight,
-                scale: .94 + .06 * t,
-                child: child)));
+    return FadeTransition(opacity: animation, child: child);
   }
 }
 
