@@ -101,7 +101,8 @@ class VehicleCardReading {
     if (updated > 0 && age > 5000) return missing(VehicleReadingState.stale);
     final unit = '${field['unit'] ?? ''}'.replaceAll('μ', 'µ');
     final allowed = switch (key) {
-      'batteryPercent' => const ['%'],
+      'batteryPercent' || 'fuelPercent' => const ['%'],
+      'fuelLiters' => const ['L'],
       'pm25' => const ['µg/m³'],
       'aqi' => const [''],
       'speed' => const ['km/h', 'mph', 'm/s'],
@@ -130,10 +131,55 @@ class VehicleCardReading {
         value is! num ||
         !value.isFinite ||
         value < 0 ||
-        (key == 'batteryPercent' && value > 100)) {
+        (const ['batteryPercent', 'fuelPercent'].contains(key) &&
+            value > 100)) {
       return missing(VehicleReadingState.unavailable);
     }
     return VehicleCardReading._(
         value.toDouble(), unit, VehicleReadingState.live, updated);
   }
+}
+
+enum PowertrainType { ice, ev, phev }
+
+PowertrainType detectPowertrain(Map<String, dynamic> native, {int? nowMs}) {
+  final vehicle =
+      native['vehicle'] is Map ? native['vehicle'] as Map : const {};
+  final declared = '${vehicle['powertrainType'] ?? ''}';
+  if (declared == 'FUEL') return PowertrainType.ice;
+  if (declared == 'BEV') return PowertrainType.ev;
+  if (declared == 'PHEV' ||
+      declared == 'HEV' ||
+      declared == 'MHEV' ||
+      declared == 'EREV') {
+    return PowertrainType.phev;
+  }
+  final fields =
+      vehicle['fields'] is Map ? vehicle['fields'] as Map : const {};
+  final hasBattery = _isFieldUsable(fields, 'batteryPercent', nowMs);
+  final hasFuel = _isFieldUsable(fields, 'fuelPercent', nowMs) ||
+      _isFieldUsable(fields, 'fuelLiters', nowMs);
+  final hasRange = _isFieldUsable(fields, 'range', nowMs);
+  final capacity = vehicle['fuelCapacity'];
+  final hasFuelCapacity = capacity is num && capacity > 0;
+
+  if (hasBattery && hasFuel) return PowertrainType.phev;
+  if (hasFuel) return PowertrainType.ice;
+  if (hasBattery) return PowertrainType.ev;
+  if (!hasBattery && (hasFuelCapacity || hasRange)) {
+    return PowertrainType.ice;
+  }
+  return PowertrainType.phev;
+}
+
+bool _isFieldUsable(Map fields, String key, int? nowMs) {
+  final f = fields[key];
+  if (f is! Map || f['valid'] != true) return false;
+  final stamp = f['updatedAtMs'];
+  if (stamp is! num || !stamp.isFinite || stamp <= 0) return false;
+  if (nowMs != null) {
+    final age = nowMs - stamp;
+    if (age < -1000 || age > 5000) return false;
+  }
+  return true;
 }

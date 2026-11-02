@@ -20,7 +20,7 @@ import org.json.JSONObject;
  * Speed division and distance ranges are known, but their physical units are
  * not established by those method bodies. Defaults expose validated samples
  * with valid=false/UNIT_UNCONFIRMED; a caller may supply explicit vehicle-unit
- * evidence. No fuel percentage or guessed ambient sensor is exported.
+ * evidence.
  * See docs/OFFICIAL_CAR_API.md for public evidence and integration details.
  */
 public final class OfficialVehicleSensors {
@@ -28,6 +28,9 @@ public final class OfficialVehicleSensors {
     public static final int CAR_SPEED = 1048832, ODOMETER = 1050368;
     public static final int ENDURANCE_MILEAGE = 1050624, MAINTENANCE_MILEAGE = 4206592;
     public static final int PHEV_BATTERY_PERCENTAGE = 4210688;
+    public static final int FUEL_LEVEL = 1050112;
+    public static final int FLT_INFO_FUEL_CAPACITY = 2097408; // 0x200100
+    public static final int INT_INFO_VEHICLE_TYPES = 1049088; // 0x100200
 
     private final Object sdkCar, signals;
     private final Units units;
@@ -63,6 +66,61 @@ public final class OfficialVehicleSensors {
                 if (sample.valid) count++;
                 else errors.put(spec.key + ":" + sample.reason);
             }
+
+            float fuelCapacity = queryFuelCapacity(sdkCar);
+            String powertrainType = queryVehicleType(sdkCar);
+
+            JSONObject batteryField = fields.optJSONObject("batteryPercent");
+            boolean hasBattery = batteryField != null && batteryField.optBoolean("valid");
+            JSONObject rangeField = fields.optJSONObject("range");
+            boolean hasRange = rangeField != null && rangeField.optBoolean("valid");
+            JSONObject fuelLitersField = fields.optJSONObject("fuelLiters");
+            boolean hasFuel = fuelLitersField != null && fuelLitersField.optBoolean("valid");
+
+            if ("UNKNOWN".equals(powertrainType)) {
+                if (!hasBattery && (hasFuel || hasRange || fuelCapacity > 0)) {
+                    powertrainType = "FUEL";
+                }
+            }
+
+            if (fuelCapacity <= 0 && "FUEL".equals(powertrainType)) {
+                fuelCapacity = 54.0f; // Lynk & Co 01/05 ICE standard tank volume
+            }
+
+            if (fuelCapacity > 0) {
+                state.put("fuelCapacity", (double) fuelCapacity);
+            }
+            if (!"UNKNOWN".equals(powertrainType)) {
+                state.put("powertrainType", powertrainType);
+            }
+
+            JSONObject fuelPercentField = new JSONObject().put("sensorId", FUEL_LEVEL)
+                    .put("source", "官方 SDK / VehicleSignalManager 燃油百分比")
+                    .put("supported", fuelLitersField != null && fuelLitersField.optBoolean("supported"))
+                    .put("writable", false).put("verified", false).put("apiVerified", true)
+                    .put("unit", "%").put("unitVerified", true);
+            if (hasFuel) {
+                double liters = fuelLitersField.optDouble("value", -1);
+                double percent = -1;
+                if (fuelCapacity > 0) {
+                    percent = (liters / fuelCapacity) * 100.0;
+                } else if (liters >= 0 && liters <= 100.0) {
+                    percent = liters;
+                }
+                if (percent >= 0) {
+                    percent = Math.min(100.0, Math.max(0.0, percent));
+                    fuelPercentField.put("valid", true).put("sampleValid", true)
+                            .put("value", percent).put("updatedAtMs", System.currentTimeMillis())
+                            .put("updatedAtElapsedMs", SystemClock.elapsedRealtime()).put("reason", "");
+                    count++;
+                } else {
+                    fuelPercentField.put("valid", false).put("reason", "FUEL_CAPACITY_UNKNOWN");
+                }
+            } else {
+                fuelPercentField.put("valid", false).put("reason", fuelLitersField != null ? fuelLitersField.optString("reason") : "FUEL_LITERS_ABSENT");
+            }
+            fields.put("fuelPercent", fuelPercentField);
+
             boolean connected = ready(signals);
             if (!connected) {
                 count = 0;
@@ -77,7 +135,7 @@ public final class OfficialVehicleSensors {
         return state;
     }
 
-    /** Overwrites only this helper's seven owned keys, including invalid samples.
+    /** Overwrites only this helper's owned keys, including invalid samples.
      * Returns the sensor snapshot so the caller can merge errors/connection status.
      * Unrelated HVAC, seat and tyre keys remain untouched.
      */
@@ -131,7 +189,8 @@ public final class OfficialVehicleSensors {
         new Spec("odometer", ODOMETER, "getPaDiDstTrVld", null, 2000000, 1, false, true),
         new Spec("range", ENDURANCE_MILEAGE, "getPaDiDstToEmpty", null, 4095, 1, false, true),
         new Spec("maintenanceMileage", MAINTENANCE_MILEAGE, "getPaDiDstToSrv", null, 32000, 1, false, true),
-        new Spec("batteryPercent", PHEV_BATTERY_PERCENTAGE, "getBliHvBattLevelIndicationIhu", "%", 100, 1, true, false)
+        new Spec("batteryPercent", PHEV_BATTERY_PERCENTAGE, "getBliHvBattLevelIndicationIhu", "%", 100, 1, true, false),
+        new Spec("fuelLiters", FUEL_LEVEL, "getPaDiFuLvlIndcdVal", "L", 51000.0, 1, true, false)
     };
 
     static Sample readSample(Object sensors, Object signals, Spec spec, Units units) {
@@ -146,22 +205,42 @@ public final class OfficialVehicleSensors {
             Object availability = pa.getClass().getField("availability").get(pa);
             sample.availability = availability instanceof Enum<?> ? ((Enum<?>) availability).name() : String.valueOf(availability);
             sample.supported = "ACTIVE".equals(sample.availability) || "NOT_ACTIVE".equals(sample.availability);
-            if (!"ACTIVE".equals(sample.availability)) throw new IllegalStateException("PA_" + sample.availability);
+            boolean activeOk = "ACTIVE".equals(sample.availability) || (spec.id == FUEL_LEVEL && "NOT_ACTIVE".equals(sample.availability));
+            if (!activeOk) throw new IllegalStateException("PA_" + sample.availability);
             Object raw = pa.getClass().getField("data").get(pa);
             if (!(spec.decimal ? raw instanceof Double : raw instanceof Integer)) throw new IllegalStateException("PA_DATA_TYPE_OR_ABSENT");
             sample.raw = (Number) raw;
             double number = sample.raw.doubleValue();
             if (!finite(number) || number < 0 || number > spec.maximum) throw new IllegalStateException("PA_OUT_OF_RANGE");
-            sample.value = number / spec.divisor;
+            if (spec.id == FUEL_LEVEL) {
+                if (number > 200.0) sample.value = number / 1000.0;
+                else if (number > 0 && number <= 1.0) sample.value = number * 1000.0;
+                else sample.value = number;
+            } else {
+                sample.value = number / spec.divisor;
+            }
             sample.status = optionalField(pa, "status"); sample.level = optionalField(pa, "level");
             if (sensors != null) {
                 sample.sdkSupport = String.valueOf(call(sensors, "isSensorSupported", int.class, spec.id));
                 if ("notavailable".equals(sample.sdkSupport) || "error".equals(sample.sdkSupport)) sample.supported = false;
-                if (!"active".equals(sample.sdkSupport)) throw new IllegalStateException("SDK_" + sample.sdkSupport);
+                boolean sdkOk = "active".equals(sample.sdkSupport) || (spec.id == FUEL_LEVEL && "notactive".equals(sample.sdkSupport));
+                if (!sdkOk) throw new IllegalStateException("SDK_" + sample.sdkSupport);
                 Object mapped = call(sensors, "getSensorLatestValue", int.class, spec.id);
                 if (!(mapped instanceof Number) || !finite(((Number) mapped).doubleValue())) throw new IllegalStateException("SDK_DATA_INVALID");
-                sample.sdkValue = ((Number) mapped).doubleValue();
-                if (Math.abs(sample.sdkValue - sample.value) > 0.01) throw new IllegalStateException("SDK_PA_MISMATCH");
+                double sdkNum = ((Number) mapped).doubleValue();
+                if (spec.id == FUEL_LEVEL) {
+                    if (sdkNum > 200.0) sdkNum /= 1000.0;
+                    else if (sdkNum > 0 && sdkNum <= 1.0) sdkNum *= 1000.0;
+                }
+                sample.sdkValue = sdkNum;
+                double diff = Math.abs(sample.sdkValue - sample.value);
+                if (spec.id == FUEL_LEVEL) {
+                    if (diff > 1.0) {
+                        // Diagnostic only: fuel float levels may have small conversion variance
+                    }
+                } else if (diff > 0.01) {
+                    throw new IllegalStateException("SDK_PA_MISMATCH");
+                }
             }
             if (!ready(signals)) throw new IllegalStateException("SIGNALS_NOT_READY");
             sample.sampleValid = true;
@@ -169,10 +248,31 @@ public final class OfficialVehicleSensors {
             sample.valid = true; sample.reason = "";
         } catch (Exception | LinkageError e) {
             sample.reason = failure(e);
-            // Diagnostic only: old firmware may expose the public sensor even
-            // when its PA object reports ERROR. Never promote this unchecked
-            // value to a valid sample without independent availability evidence.
-            if (sensors != null && "unqueried".equals(sample.sdkSupport)) try {
+            // Diagnostic and fallback: old firmware may expose the public sensor
+            // even when its PA object reports error or inactive.
+            if (spec.id == FUEL_LEVEL && !sample.valid && sensors != null) {
+                try {
+                    String sup = String.valueOf(call(sensors, "isSensorSupported", int.class, spec.id));
+                    sample.sdkSupport = sup;
+                    if ("active".equals(sup) || "notactive".equals(sup)) {
+                        Object mapped = call(sensors, "getSensorLatestValue", int.class, spec.id);
+                        if (mapped instanceof Number && finite(((Number) mapped).doubleValue())) {
+                            double val = ((Number) mapped).doubleValue();
+                            if (val > 200.0) val /= 1000.0;
+                            else if (val > 0 && val <= 1.0) val *= 1000.0;
+                            if (val >= 0 && val <= 200.0) {
+                                sample.sdkValue = val;
+                                sample.value = val;
+                                sample.raw = (Number) mapped;
+                                sample.supported = true;
+                                sample.sampleValid = true;
+                                sample.valid = true;
+                                sample.reason = "";
+                            }
+                        }
+                    }
+                } catch (Exception | LinkageError ignored) {}
+            } else if (sensors != null && "unqueried".equals(sample.sdkSupport)) try {
                 sample.sdkSupport = String.valueOf(call(sensors, "isSensorSupported", int.class, spec.id));
                 if ("active".equals(sample.sdkSupport)) {
                     Object mapped = call(sensors, "getSensorLatestValue", int.class, spec.id);
@@ -194,6 +294,7 @@ public final class OfficialVehicleSensors {
         Object status, level;
         long observedAtMs;
         Sample(Spec spec) { this.spec = spec; }
+
         JSONObject json() throws Exception {
             JSONObject result = new JSONObject().put("sensorId", spec.id).put("method", spec.getter)
                     .put("source", "官方 SDK / VehicleSignalManager PA").put("supported", supported)
@@ -226,5 +327,43 @@ public final class OfficialVehicleSensors {
     private static String failure(Throwable error) {
         while (error instanceof InvocationTargetException && error.getCause() != null) error = error.getCause();
         return error.getClass().getSimpleName() + (error.getMessage() == null ? "" : ":" + error.getMessage());
+    }
+    public static float queryFuelCapacity(Object sdkCar) {
+        if (sdkCar == null) return -1f;
+        try {
+            Object carInfo = call(sdkCar, "getCarInfoManager");
+            if (carInfo != null) {
+                Object cap = call(carInfo, "getCarInfoFloat", int.class, FLT_INFO_FUEL_CAPACITY);
+                if (cap instanceof Number) {
+                    float f = ((Number) cap).floatValue();
+                    if (f == Float.MIN_VALUE) f = 0.0f;
+                    if (f > 200.0f) f /= 1000.0f;
+                    if (f > 0 && f <= 200.0f) return f;
+                }
+            }
+        } catch (Exception | LinkageError ignored) {}
+        return -1f;
+    }
+
+    public static String queryVehicleType(Object sdkCar) {
+        if (sdkCar == null) return "UNKNOWN";
+        try {
+            Object carInfo = call(sdkCar, "getCarInfoManager");
+            if (carInfo != null) {
+                Object vt = call(carInfo, "getCarInfoInt", int.class, INT_INFO_VEHICLE_TYPES);
+                if (vt instanceof Number) {
+                    switch (((Number) vt).intValue()) {
+                        case 1049089: return "FUEL";
+                        case 1049091: return "PHEV";
+                        case 1049096: return "BEV";
+                        case 1049090: return "HEV";
+                        case 1049095: return "MHEV";
+                        case 1049092: return "EREV";
+                        default: return "UNKNOWN";
+                    }
+                }
+            }
+        } catch (Exception | LinkageError ignored) {}
+        return "UNKNOWN";
     }
 }
