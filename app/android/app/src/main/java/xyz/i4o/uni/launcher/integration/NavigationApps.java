@@ -21,6 +21,8 @@ public final class NavigationApps {
     private final Context context;
     private final SharedPreferences prefs;
     private final PackageQueries queries;
+    private String autoCandidate="";
+    private long autoResolvedAt;
     public NavigationApps(Context context,SharedPreferences prefs){
         this.context=context.getApplicationContext();
         if(this.context==null)throw new IllegalArgumentException("Application context required");
@@ -34,6 +36,31 @@ public final class NavigationApps {
     public String selected(){
         String saved=prefs.getString("navigationPackage","auto");
         if(!"auto".equals(saved))return saved;
+        long now=android.os.SystemClock.elapsedRealtime();
+        if(autoCandidate.isEmpty()||now-autoResolvedAt>=1000){
+            autoCandidate=resolveAuto();autoResolvedAt=now;
+        }
+        return autoCandidate;
+    }
+    private String resolveAuto(){
+        try{
+            android.app.ActivityManager manager=(android.app.ActivityManager)
+                context.getSystemService(Context.ACTIVITY_SERVICE);
+            if(manager!=null){
+                // REAL_GET_TASKS still exposes map tasks here. Prefer the most
+                // recently active installed map so the official and yh AMap APKs
+                // can coexist without forcing a manual source selection.
+                for(android.app.ActivityManager.RunningTaskInfo task:manager.getRunningTasks(32)){
+                    String pkg=task.topActivity==null?"":task.topActivity.getPackageName();
+                    for(String p:CANDIDATES)if(p.equals(pkg)&&queries.get(p).launch!=null)return p;
+                }
+                for(android.app.ActivityManager.RecentTaskInfo task:manager.getRecentTasks(32,0)){
+                    String pkg=task.baseIntent==null||task.baseIntent.getComponent()==null?"":
+                        task.baseIntent.getComponent().getPackageName();
+                    for(String p:CANDIDATES)if(p.equals(pkg)&&queries.get(p).launch!=null)return p;
+                }
+            }
+        }catch(Exception|LinkageError ignored){}
         for(String p:CANDIDATES)if(queries.get(p).launch!=null)return p;
         return "";
     }
@@ -116,12 +143,21 @@ public final class NavigationApps {
         org.json.JSONArray list=new org.json.JSONArray();
         try{
             LinkedHashMap<String,String> seen=new LinkedHashMap<>();
-            if(!selected.isEmpty()&&queries.get(selected).launch!=null){
-                seen.put(selected,labelOf(selected));
-            }
             for(String p:CANDIDATES){
                 if(seen.containsKey(p))continue;
                 if(queries.get(p).launch!=null)seen.put(p,labelOf(p));
+            }
+            // Discover apps that actually declare map or turn-by-turn intent
+            // handling. Require an enabled exported handler and a launchable app.
+            PackageManager pm=context.getPackageManager();
+            for(String uri:new String[]{"geo:0,0?q=0,0","google.navigation:q=0,0"}){
+                Intent intent=new Intent(Intent.ACTION_VIEW,android.net.Uri.parse(uri));
+                for(android.content.pm.ResolveInfo match:pm.queryIntentActivities(intent,PackageManager.MATCH_DEFAULT_ONLY)){
+                    android.content.pm.ActivityInfo info=match.activityInfo;
+                    if(info==null||!info.exported||!info.enabled||!info.applicationInfo.enabled)continue;
+                    String pkg=info.packageName;
+                    if(queries.get(pkg).launch!=null)seen.putIfAbsent(pkg,labelOf(pkg));
+                }
             }
             for(java.util.Map.Entry<String,String> e:seen.entrySet()){
                 list.put(new JSONObject().put("package",e.getKey()).put("label",e.getValue()));

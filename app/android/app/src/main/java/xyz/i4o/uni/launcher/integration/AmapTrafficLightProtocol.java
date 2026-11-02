@@ -41,10 +41,10 @@ public final class AmapTrafficLightProtocol {
                 // ElecticCameraInfo direction/type -> FloatViewUtils arrays.
                 // TYPE_DIRECTIONS=[0,left_night,straight_night,right_night].
                 String dir=direction==1?"left":direction==2?"straight":direction==3?"right":"unknown";
-                // TYPE_BGS[0]=red_night, [1]=green_night. Index 2 also
-                // uses green in that floating UI, but its meaning is not
-                // established; do not promote it to a green signal here.
-                String lamp=status==0?"red":status==1?"green":"unknown";
+                // TYPE_BGS[0]=red_night, [1]=green_night. The yh floating UI
+                // also renders index 2 with its green background, so keep that
+                // observed display mapping for this display-only channel.
+                String lamp=status==0?"red":status==1||status==2?"green":"unknown";
                 signal.put("direction",dir).put("lamp",lamp)
                     .put("directionVerified",!"unknown".equals(dir))
                     .put("lampVerified",!"unknown".equals(lamp));

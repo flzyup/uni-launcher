@@ -335,36 +335,40 @@ class _EmbeddedNavigationCardState extends State<EmbeddedNavigationCard> {
     scheduleSync();
     final failed =
         status['phase'] == 'failed' || status['phase'] == 'unavailable';
+    final prefs = c.native.value['integrationPreferences'];
+    final hideTitle =
+        prefs is Map ? prefs['navigationCardTitleHidden'] != false : true;
     return Column(children: [
-      Padding(
-          padding: EdgeInsets.symmetric(
-              horizontal: Design.px(24), vertical: Design.px(14)),
-          child: Row(children: [
-            UniIcon('nav', color: s.accent, size: Design.px(25)),
-            SizedBox(width: Design.px(12)),
-            Expanded(
-                child: InkWell(
-                    key: const ValueKey('nav-title-open'),
-                    onTap: () => c.command('launch-navigation'),
-                    child: Row(mainAxisSize: MainAxisSize.min, children: [
-                      Flexible(
-                          child: Text(displayName,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(fontSize: Design.px(23)))),
-                    ]))),
-            IconAction(
-                key: const ValueKey('nav-app-picker'),
-                icon: Icons.swap_horiz,
-                label: '选择导航应用',
-                size: Design.px(38),
-                onTap: () => showNavigationPicker(context, c)),
-            IconAction(
-                icon: Icons.open_in_full,
-                label: '全屏打开导航',
-                size: Design.px(38),
-                onTap: () => c.command('launch-navigation')),
-          ])),
+      if (!hideTitle)
+        Padding(
+            padding: EdgeInsets.symmetric(
+                horizontal: Design.px(24), vertical: Design.px(14)),
+            child: Row(children: [
+              UniIcon('nav', color: s.accent, size: Design.px(25)),
+              SizedBox(width: Design.px(12)),
+              Expanded(
+                  child: InkWell(
+                      key: const ValueKey('nav-title-open'),
+                      onTap: () => c.command('launch-navigation'),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        Flexible(
+                            child: Text(displayName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(fontSize: Design.px(23)))),
+                      ]))),
+              IconAction(
+                  key: const ValueKey('nav-app-picker'),
+                  icon: Icons.swap_horiz,
+                  label: '选择导航应用',
+                  size: Design.px(38),
+                  onTap: () => showNavigationPicker(context, c)),
+              IconAction(
+                  icon: Icons.open_in_full,
+                  label: '全屏打开导航',
+                  size: Design.px(38),
+                  onTap: () => c.command('launch-navigation')),
+            ])),
       Expanded(
           child: canEmbed && (!failed || textureId != null)
               ? LayoutBuilder(

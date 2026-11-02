@@ -53,21 +53,26 @@ public final class AmapTrafficLightAdapter {
     private void expireSignal(){clear("expired");changed.run();}
     private void receive(Intent intent){
         if(!started||intent==null)return;
-        navigationChanged();
+        String configured=selected.get();
+        // Auto mode can resolve to the official AMap while the owner is driving
+        // the yh build. The cruise action is unique to that build, so accept its
+        // richer channel for any AMap selection; keep it away from Baidu/Tencent.
+        boolean cruise=AmapTrafficLightProtocol.CRUISE.equals(intent.getAction());
+        if(!configured.startsWith("com.autonavi."))return;
+        sourcePackage=cruise?AmapTrafficLightProtocol.MODIFIED_PACKAGE:configured;
         // Broadcasts have no verified sender identity. Association filters the
         // protocol family, not a security principal; these are display-only hints.
         if(!sourcePackage.startsWith("com.autonavi."))return;
         JSONArray incoming=null;String channel="";
         try{
-            if(AmapTrafficLightProtocol.STANDARD.equals(intent.getAction())){
+            if(!cruise){
                 Bundle extras=intent.getExtras();if(extras==null)return;
                 JSONObject raw=new JSONObject();
                 for(String key:new String[]{"KEY_TYPE","dir","trafficLightStatus","redLightCountDownSeconds","waitRound","greenLightLastSecond"}){
                     Object v=extras.get(key);if(v instanceof Number)raw.put(key,v);
                 }
                 incoming=AmapTrafficLightProtocol.standard(raw);channel="standard";
-            }else if(AmapTrafficLightProtocol.CRUISE.equals(intent.getAction())
-                    &&AmapTrafficLightProtocol.MODIFIED_PACKAGE.equals(sourcePackage)){
+            }else{
                 incoming=AmapTrafficLightProtocol.cruise(intent.getStringExtra("data"));channel="cruise";
             }
         }catch(RuntimeException|org.json.JSONException ignored){return;}
