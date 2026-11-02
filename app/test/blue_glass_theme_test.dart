@@ -6,13 +6,133 @@ import 'package:uni_launcher/launcher_app.dart';
 import 'package:uni_launcher/model/appearance.dart';
 import 'package:uni_launcher/screens/global_dock_app.dart';
 import 'package:uni_launcher/screens/global_panel_app.dart';
+import 'package:uni_launcher/widgets/scene_background.dart';
 import 'package:uni_launcher/theme/design_tokens.dart';
 import 'package:uni_launcher/theme/launcher_theme.dart';
 import 'package:uni_launcher/theme/technical_frame.dart';
 import 'package:uni_launcher/widgets/glass_surface.dart';
+import 'package:uni_launcher/widgets/bottom_dock.dart';
 import 'fake_gateway.dart';
 
 void main() {
+  testWidgets('dock layout is centered and uses the card radius', (t) async {
+    t.view.physicalSize = const Size(1920, 1080);
+    t.view.devicePixelRatio = 1;
+    final gateway = FakeGateway(), controller = LauncherController(gateway);
+    await controller.initialize();
+    addTearDown(() async {
+      await t.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+      await gateway.dispose();
+      t.view.resetPhysicalSize();
+      t.view.resetDevicePixelRatio();
+    });
+    for (final theme in Appearance.themeStyles) {
+      for (final radius in [0.0, 25.0]) {
+        final appearance = Appearance(
+            themeStyle: theme, radius: radius, dockLayout: 'floating');
+        controller.setAppearance(appearance, save: false);
+        await t.pumpWidget(MaterialApp(
+            theme: launcherTheme(SurfaceStyle.from(appearance, true)),
+            home: Scaffold(
+                body: Align(
+                    alignment: Alignment.bottomCenter,
+                    child: BottomDock(controller: controller)))));
+        await t.pumpAndSettle();
+        final strip = t.getRect(find.byKey(const ValueKey('bottom-dock')));
+        final surface = t.getRect(find.byKey(const ValueKey('dock-surface')));
+        expect(surface.center.dy, closeTo(strip.center.dy, .01));
+        final widget =
+            t.widget<GlassSurface>(find.byKey(const ValueKey('dock-surface')));
+        expect(widget.radius, SurfaceStyle.from(appearance, true).radius);
+        expect(widget.dockFramed, isTrue);
+        expect(t.takeException(), isNull);
+      }
+    }
+    final full = controller.appearance.copyWith(dockLayout: 'full');
+    controller.setAppearance(full, save: false);
+    await t.pumpWidget(MaterialApp(
+        theme: launcherTheme(SurfaceStyle.from(full, true)),
+        home: Scaffold(
+            body: Align(
+                alignment: Alignment.bottomCenter,
+                child: BottomDock(controller: controller)))));
+    await t.pumpAndSettle();
+    expect(t.getRect(find.byKey(const ValueKey('dock-surface'))),
+        t.getRect(find.byKey(const ValueKey('bottom-dock'))));
+    expect(Appearance.fromJson(full.toJson()).dockLayout, 'full');
+    expect(t.takeException(), isNull);
+  });
+
+  testWidgets('global dock extends wallpaper and adapts only climate width',
+      (t) async {
+    t.view.physicalSize = const Size(1920, 1080);
+    t.view.devicePixelRatio = 1;
+    final gateway = FakeGateway(), controller = LauncherController(gateway);
+    await controller.initialize();
+    addTearDown(() async {
+      await t.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+      await gateway.dispose();
+      t.view.resetPhysicalSize();
+      t.view.resetDevicePixelRatio();
+    });
+    controller.setAppearance(
+        controller.appearance.copyWith(wallpaper: 'coastal'),
+        save: false);
+    await t.pumpWidget(GlobalDockApp(controller: controller));
+    await t.pumpAndSettle();
+    expect(find.byType(SceneBackground), findsOneWidget);
+    expect(t.widget<Scaffold>(find.byType(Scaffold)).backgroundColor,
+        Colors.transparent);
+    expect(find.byType(ClipRect), findsWidgets);
+    expect(find.byType(OverflowBox), findsOneWidget);
+
+    Widget dockAt(double width) => MaterialApp(
+        theme: launcherTheme(SurfaceStyle.from(controller.appearance, true)),
+        home: Scaffold(
+            body: Align(
+                alignment: Alignment.bottomCenter,
+                child: SizedBox(
+                    width: width,
+                    height: Design.px(96),
+                    child: BottomDock(controller: controller)))));
+    await t.pumpWidget(dockAt(1600));
+    await t.pumpAndSettle();
+    final music = t.getRect(find.byKey(const ValueKey('dock-music-frame'))),
+        climate = t.getRect(find.byKey(const ValueKey('dock-climate-frame'))),
+        uni = t.getRect(find.byKey(const ValueKey('uni-menu')));
+    expect(music.width, closeTo(722.051, .1));
+    await t.pumpWidget(dockAt(1420));
+    await t.pumpAndSettle();
+    final narrowMusic =
+            t.getRect(find.byKey(const ValueKey('dock-music-frame'))),
+        narrowClimate =
+            t.getRect(find.byKey(const ValueKey('dock-climate-frame'))),
+        narrowUni = t.getRect(find.byKey(const ValueKey('uni-menu')));
+    expect(narrowMusic.width, lessThan(music.width));
+    expect(narrowUni.width, closeTo(uni.width, .1));
+    expect(climate.width - narrowClimate.width, closeTo(69.231, .1));
+
+    await t.pumpWidget(dockAt(1600));
+    await t.pumpAndSettle();
+    controller.setAppearance(
+        controller.appearance.copyWith(dockMusicVisual: false),
+        save: false);
+    await t.pumpWidget(dockAt(1600));
+    await t.pumpAndSettle();
+    expect(find.byKey(const ValueKey('dock-music-visual-pages')), findsNothing);
+    final compactMusic =
+        t.getRect(find.byKey(const ValueKey('dock-music-frame')));
+    final expandedClimate =
+        t.getRect(find.byKey(const ValueKey('dock-climate-frame')));
+    expect(compactMusic.width, lessThan(music.width));
+    expect(expandedClimate.width, greaterThan(climate.width));
+    expect(Appearance.fromJson(controller.appearance.toJson()).dockMusicVisual,
+        isFalse);
+    expect(t.takeException(), isNull);
+  });
+
   test('new defaults use square blue glass; old preferences and styles survive',
       () {
     expect(const Appearance().themeStyle, 'blueGlass');
@@ -255,36 +375,71 @@ void main() {
     expect(t.widget<IconAction>(home.last).active, false);
   });
 
-  testWidgets('system tab retains player selection and navigation bar controls',
+  testWidgets('settings categories split dock, connections and system',
       (t) async {
     final (c, g) = await launch(t);
     c.openSettings();
     await t.pumpAndSettle();
-    await t.tap(find.byKey(const ValueKey('tab-system')));
+    final tabIds = [
+      'appearance',
+      'dock',
+      'connections',
+      'motion',
+      'ambient',
+      'system',
+      'about'
+    ];
+    var previousTab = t.getRect(find.byKey(const ValueKey('tab-appearance')));
+    for (final id in tabIds.skip(1)) {
+      final tab = t.getRect(find.byKey(ValueKey('tab-$id')));
+      expect(tab.left, closeTo(previousTab.left, .1));
+      expect(tab.top, greaterThan(previousTab.top));
+      previousTab = tab;
+    }
+    expect(t.getRect(find.byKey(const ValueKey('tab-appearance'))).left,
+        lessThan(Design.px(260)));
+    expect(find.byKey(const ValueKey('dock-layout-floating')), findsNothing);
+
+    await t.tap(find.byKey(const ValueKey('tab-dock')));
     await t.pumpAndSettle();
-    expect(t.getTopLeft(find.byKey(const ValueKey('system-app-controls'))).dy,
-        lessThan(t.getTopLeft(find.text('底栏图标大小')).dy));
-    expect(find.text('导航与音乐'), findsNothing);
-    expect(find.text('胎压数据诊断'), findsNothing);
-    expect(find.text('车门数据诊断'), findsNothing);
-    expect(find.byKey(const ValueKey('demo-switch')), findsNothing);
-    expect(find.byKey(const ValueKey('media-source')), findsOneWidget);
-    expect(
-        find.descendant(
-            of: find.byKey(const ValueKey('system-app-controls')),
-            matching: find.byType(ExpansionTile)),
-        findsNothing);
-    await t.scrollUntilVisible(find.byKey(const ValueKey('media-source')), 260,
-        scrollable: find.byType(Scrollable).first);
-    expect(find.byKey(const ValueKey('navigation-source')), findsOneWidget);
-    await t.scrollUntilVisible(find.byKey(const ValueKey('global-dock')), 260,
-        scrollable: find.byType(Scrollable).first);
-    await t.pumpAndSettle();
+    expect(find.byKey(const ValueKey('dock-layout-floating')), findsOneWidget);
+    expect(find.byKey(const ValueKey('dock-size-large')), findsOneWidget);
+    expect(find.byKey(const ValueKey('global-dock')), findsOneWidget);
+    expect(find.byKey(const ValueKey('media-source')), findsNothing);
     await t.ensureVisible(find.byKey(const ValueKey('global-dock')));
     await t.pumpAndSettle();
     await t.tap(find.byKey(const ValueKey('global-dock')));
     await t.pumpAndSettle();
     expect(g.commands, contains(containsPair('action', 'global-dock')));
+
+    await t.tap(find.byKey(const ValueKey('tab-connections')));
+    await t.pumpAndSettle();
+    expect(find.byKey(const ValueKey('media-source')), findsOneWidget);
+    expect(find.byKey(const ValueKey('navigation-source')), findsOneWidget);
+    expect(find.byKey(const ValueKey('global-dock')), findsNothing);
+
+    await t.tap(find.byKey(const ValueKey('tab-system')));
+    await t.pumpAndSettle();
+    expect(find.byKey(const ValueKey('system-setting-official-root')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('media-source')), findsNothing);
+    expect(find.byKey(const ValueKey('global-dock')), findsNothing);
+    await t.scrollUntilVisible(
+        find.byKey(const ValueKey('refresh-system-settings')), 260,
+        scrollable: find.byType(Scrollable).first);
+    await t.pumpAndSettle();
+    expect(find.text('原车系统设置&安卓设置'), findsOneWidget);
+
+    await t.tap(find.byKey(const ValueKey('tab-motion')));
+    await t.pumpAndSettle();
+    expect(find.byKey(const ValueKey('transition-slide')), findsOneWidget);
+    expect(find.byKey(const ValueKey('spectrum-style-bars')), findsOneWidget);
+    await t.scrollUntilVisible(
+        find.byKey(const ValueKey('dock-music-visual-switch')), 260,
+        scrollable: find.byType(Scrollable).first);
+    await t.pumpAndSettle();
+    expect(
+        find.byKey(const ValueKey('dock-music-visual-switch')), findsOneWidget);
     expect(t.takeException(), null);
   });
   testWidgets(

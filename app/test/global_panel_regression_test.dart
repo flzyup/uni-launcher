@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:uni_launcher/controller/launcher_controller.dart';
 import 'package:uni_launcher/launcher_app.dart';
@@ -694,5 +695,35 @@ void main() {
     await t.tap(find.byKey(const ValueKey('music-info')));
     await t.pumpAndSettle();
     expect(find.byType(BackdropFilter), findsWidgets);
+  });
+
+  testWidgets('long music card lyric wraps instead of ellipsizing', (t) async {
+    final (c, g) = await setup(t);
+    const longLine = '这一句歌词特别长，需要在音乐卡片中自动换行显示，不能在宽度不足时直接使用省略号截断';
+    g.state['media'] = {
+      ...(g.state['media'] as Map<String, dynamic>),
+      'lyrics': '[00:00]$longLine',
+      'positionMs': 0
+    };
+    g.stream.add(Map.of(g.state));
+    await t.pumpWidget(MaterialApp(
+        theme: launcherTheme(SurfaceStyle.from(const Appearance(), true)),
+        home: Scaffold(
+            body: Center(
+                child: SizedBox(
+                    width: 320,
+                    height: 180,
+                    child: LyricsView(
+                        media: c.native.value['media'] as Map<String, dynamic>,
+                        visibleLines: 3,
+                        lineHeight: 44,
+                        fontSize: 26,
+                        textAlign: TextAlign.center))))));
+    await t.pumpAndSettle();
+    final paragraph = t.renderObject<RenderParagraph>(find.text(longLine));
+    expect(paragraph.maxLines, isNull);
+    expect(paragraph.overflow, isNot(TextOverflow.ellipsis));
+    expect(paragraph.size.height, greaterThan(44));
+    expect(t.takeException(), isNull);
   });
 }

@@ -12,6 +12,7 @@ Future<void> showNavigationPicker(
       subtitle: '保存在地图卡片中，点击标题即可打开',
       width: Design.px(760),
       height: Design.px(650),
+      glowType: 'nav',
       builder: (_) => NavigationAppPicker(controller: c));
   if (picked != null) await c.command('select-navigation', value: picked);
 }

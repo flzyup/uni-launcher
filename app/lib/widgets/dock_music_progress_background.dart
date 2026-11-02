@@ -115,6 +115,13 @@ class _DockMusicProgressPainter extends CustomPainter {
     if (dividerX < 1) return;
 
     final accent = style.accent;
+    // 进度染色沿用经典主题的满高整块渐变，只多一层按音乐块圆角的裁剪：
+    // 外层 GlassSurface 的裁剪盖得住四角、盖不住中间这两条 drawRect，胶囊
+    // 里就会亮出一个直角方框（用户反馈「音乐外面那个框」）。
+    canvas.save();
+    canvas.clipRRect(RRect.fromRectAndRadius(
+        Offset.zero & size, Radius.circular(style.controlRadius)));
+
     final fill = Paint()
       ..shader = ui.Gradient.linear(Offset.zero, Offset(dividerX, 0), [
         accent.withValues(alpha: .05),
@@ -149,6 +156,7 @@ class _DockMusicProgressPainter extends CustomPainter {
           ..color = lineColor.withValues(alpha: animate ? .92 : .70)
           ..strokeWidth = 0
           ..style = PaintingStyle.fill);
+    canvas.restore();
   }
 
   @override

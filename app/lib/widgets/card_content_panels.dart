@@ -8,6 +8,7 @@ Future<void> showAppsPanel(BuildContext context, LauncherController c) async {
       closeLabel: '关闭应用列表',
       width: Design.px(1560),
       height: Design.px(760),
+      glowType: 'shortcuts',
       builder: (context) => AppPanel(controller: c));
 }
 
@@ -18,6 +19,7 @@ Future<void> showMediaPanel(BuildContext context, LauncherController c) async {
       titleWidget: MediaSourceBadge(controller: c, titleBar: true),
       closeLabel: '关闭音乐详情',
       width: Design.px(1040),
+      glowType: 'music',
       builder: (context) => MediaPanel(controller: c));
 }
 
@@ -147,6 +149,7 @@ Future<void> showAppMenu(BuildContext context, LauncherController c,
       closeLabel: '关闭应用菜单',
       width: Design.px(520),
       height: Design.px(400),
+      glowType: 'shortcuts',
       builder: (context) => Column(mainAxisSize: MainAxisSize.min, children: [
             ListTile(
                 key: const ValueKey('app-menu-rename'),
@@ -174,6 +177,7 @@ Future<void> showAppMenu(BuildContext context, LauncherController c,
         closeLabel: '关闭应用重命名',
         width: Design.px(680),
         height: Design.px(390),
+        glowType: 'shortcuts',
         builder: (_) => _AppNameEditor(initial: c.appName(app)));
     if (name != null && app['package'] != null) {
       await c.renameApp('${app['package']}', name);

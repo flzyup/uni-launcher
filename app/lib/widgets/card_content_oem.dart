@@ -422,6 +422,7 @@ class _ShortcutCard extends StatelessWidget {
           subtitle: '选择最多 $capacity 个应用',
           width: Design.px(900),
           height: Design.px(700),
+          glowType: 'shortcuts',
           builder: (_) => _ShortcutPicker(
               apps: available,
               initial: card.shortcutApps,

@@ -142,7 +142,7 @@ void main() {
     final climate = t.getRect(find.byKey(const ValueKey('dock-climate-frame')));
     final music = t.getRect(find.byKey(const ValueKey('dock-music-frame')));
     expect(climate.width, greaterThan(0));
-    expect(music.width, greaterThan(climate.width));
+    expect(music.width, closeTo(866.462, .1));
 
     c.setAppearance(c.appearance.copyWith(dockMusicProgressBackground: false));
     await t.pump(const Duration(milliseconds: 100));
@@ -207,6 +207,27 @@ void main() {
     final loaded = LauncherController(restored);
     await loaded.initialize();
     expect(loaded.appearance.dockMusicProgressBackground, isFalse);
+    loaded.dispose();
+    await restored.dispose();
+    expect(t.takeException(), isNull);
+  });
+
+  testWidgets('dock music visual setting toggles and persists', (t) async {
+    final (c, g) = await setup(t);
+    await t.pumpWidget(AnimatedBuilder(
+        animation: c,
+        builder: (context, _) =>
+            host(SpectrumSettings(controller: c), a: c.appearance)));
+    expect(find.text('底部音乐工具条'), findsOneWidget);
+    await t.tap(find.byKey(const ValueKey('dock-music-visual-switch')));
+    await t.pumpAndSettle();
+    expect(c.appearance.dockMusicVisual, isFalse);
+    await c.persist();
+    expect(jsonDecode(g.saved!)['preferences']['dockMusicVisual'], isFalse);
+    final restored = FakeGateway()..state['savedDesign'] = g.saved;
+    final loaded = LauncherController(restored);
+    await loaded.initialize();
+    expect(loaded.appearance.dockMusicVisual, isFalse);
     loaded.dispose();
     await restored.dispose();
     expect(t.takeException(), isNull);
