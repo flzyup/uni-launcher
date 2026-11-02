@@ -5,10 +5,14 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
-/// OTA endpoint and COS download hosts are supplied by the release build.
-const otaBase = String.fromEnvironment('UNI_OTA_URL');
-const otaHosts = String.fromEnvironment('UNI_OTA_DOWNLOAD_HOSTS');
-const otaHttpHosts = String.fromEnvironment('UNI_OTA_HTTP_DOWNLOAD_HOSTS');
+/// Production API and download endpoints; builds may override these explicitly.
+const otaBase =
+    String.fromEnvironment('UNI_OTA_URL', defaultValue: 'https://ota.i4o.xyz');
+const otaHosts = String.fromEnvironment('UNI_OTA_DOWNLOAD_HOSTS',
+    defaultValue:
+        'share-ota.circleai.tech,share-1383848229.cos.ap-shanghai.myqcloud.com');
+const otaHttpHosts = String.fromEnvironment('UNI_OTA_HTTP_DOWNLOAD_HOSTS',
+    defaultValue: 'share-ota.circleai.tech');
 const otaPlatform =
     String.fromEnvironment('UNI_OTA_PLATFORM', defaultValue: 'unknown');
 const _bridge = MethodChannel('xyz.i4o.uni.launcher/platform');
@@ -16,7 +20,14 @@ const _otaEvents = MethodChannel('xyz.i4o.uni.launcher/ota-events');
 const _maxUpdateBytes = 512 * 1024 * 1024;
 const _partialMaxAge = Duration(days: 7);
 const _completedMaxAge = Duration(days: 30);
-const defaultContributors = ['卢AI玩', 'Felix', '十一', 'ChainStrong'];
+const defaultContributors = [
+  '卢AI玩',
+  'Felix',
+  '十一',
+  'ChainStrong',
+  '冰点',
+  '是鱿鱼不是犹豫'
+];
 
 @visibleForTesting
 bool isTrustedDownload(Uri uri, Set<String> hosts, Set<String> httpHosts) =>
@@ -36,7 +47,10 @@ class UpdateController extends ChangeNotifier with WidgetsBindingObserver {
   List<String> contributors = List.of(defaultContributors);
   String state = 'idle', error = '';
   double progress = 0;
-  bool enabled = false, cancelled = false, foreground = true, dialogOpen = false;
+  bool enabled = false,
+      cancelled = false,
+      foreground = true,
+      dialogOpen = false;
   int intervalMinutes = 30;
   bool _ready = false, _bootRequested = false, _startupChecked = false;
   bool _silentResult = false;
@@ -75,7 +89,8 @@ class UpdateController extends ChangeNotifier with WidgetsBindingObserver {
       enabled = info['enabled'] == true;
       final savedInterval = (info['intervalMinutes'] as num?)?.toInt();
       intervalMinutes = const [30, 120, 720, 1440].contains(savedInterval)
-          ? savedInterval! : 30;
+          ? savedInterval!
+          : 30;
       final dismissedMs = (info['dismissedAt'] as num?)?.toInt() ?? 0;
       dismissedVersion = (info['dismissedVersion'] as num?)?.toInt();
       if (dismissedMs > 0)
@@ -111,9 +126,11 @@ class UpdateController extends ChangeNotifier with WidgetsBindingObserver {
 
   void _schedulePeriodic() {
     timer?.cancel();
-    timer = enabled ? Timer.periodic(Duration(minutes: intervalMinutes), (_) {
-      check();
-    }) : null;
+    timer = enabled
+        ? Timer.periodic(Duration(minutes: intervalMinutes), (_) {
+            check();
+          })
+        : null;
   }
 
   bool get _mayPrompt {
@@ -137,8 +154,11 @@ class UpdateController extends ChangeNotifier with WidgetsBindingObserver {
     foreground =
         s == AppLifecycleState.resumed || s == AppLifecycleState.inactive;
     if (foreground && state == 'permission') _resumeInstallIfAllowed();
-    if (foreground && state == 'found' && !_silentResult && !dialogOpen && _mayPrompt)
-      onAvailable?.call();
+    if (foreground &&
+        state == 'found' &&
+        !_silentResult &&
+        !dialogOpen &&
+        _mayPrompt) onAvailable?.call();
   }
 
   Future<void> _resumeInstallIfAllowed() async {
@@ -229,8 +249,12 @@ class UpdateController extends ChangeNotifier with WidgetsBindingObserver {
           throw const FormatException('更新信息无效');
         release = r;
         state = 'found';
-        if (!_disposed && !manual && !silent && foreground && !dialogOpen && _mayPrompt)
-          onAvailable?.call();
+        if (!_disposed &&
+            !manual &&
+            !silent &&
+            foreground &&
+            !dialogOpen &&
+            _mayPrompt) onAvailable?.call();
       } else {
         release = null;
         state = data['reason'] == 'no_compatible_release'

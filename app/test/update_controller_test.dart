@@ -8,16 +8,34 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:uni_launcher/ota/update_controller.dart';
 
 void main() {
+  test('production API and download hosts have separate defaults', () {
+    expect(otaBase, 'https://ota.i4o.xyz');
+    final hosts = otaHosts.split(',').toSet();
+    final httpHosts = otaHttpHosts.split(',').toSet();
+    expect(
+        isTrustedDownload(
+            Uri.parse('http://share-ota.circleai.tech/file'), hosts, httpHosts),
+        isTrue);
+    expect(
+        isTrustedDownload(
+            Uri.parse('http://ota.i4o.xyz/file'), hosts, httpHosts),
+        isFalse);
+  });
   testWidgets('startup checks once with periodic checks disabled by default',
       (tester) async {
     const bridge = MethodChannel('xyz.i4o.uni.launcher/platform');
-    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     final dir = (await tester.runAsync(
         () => Directory.systemTemp.createTemp('uni-update-schedule-')))!;
     messenger.setMockMethodCallHandler(bridge, (call) async {
-      if (call.method == 'otaInfo') return {
-        'directory': dir.path, 'versionCode': 1, 'sdk': 28, 'abis': ['arm64-v8a']
-      };
+      if (call.method == 'otaInfo')
+        return {
+          'directory': dir.path,
+          'versionCode': 1,
+          'sdk': 28,
+          'abis': ['arm64-v8a']
+        };
       return null;
     });
     final u = UpdateController();
@@ -26,8 +44,10 @@ void main() {
     expect(u.intervalMinutes, 30);
     await tester.runAsync(() async {
       final done = Completer<void>();
-      messenger.handlePlatformMessage('xyz.i4o.uni.launcher/ota-events',
-          const StandardMethodCodec().encodeMethodCall(const MethodCall('boot-check')),
+      messenger.handlePlatformMessage(
+          'xyz.i4o.uni.launcher/ota-events',
+          const StandardMethodCodec()
+              .encodeMethodCall(const MethodCall('boot-check')),
           (_) => done.complete());
       await done.future;
     });
