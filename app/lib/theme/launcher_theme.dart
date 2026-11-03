@@ -35,6 +35,7 @@ abstract final class Nocturne {
     'air': Color(0x576FD3FF),
     'cleanup': Color(0x476FD3FF),
     'battery': Color(0x573BE2C0),
+    'fuel': Color(0x573BE2C0),
     'tpms': Color(0x574E8CF8),
     'body': Color(0x574E8CF8),
     'clock': Color(0x578E6CFF),

@@ -55,6 +55,7 @@ IconData cardIcon(String type) =>
       'tpms': Icons.tire_repair_outlined,
       'body': Icons.directions_car_outlined,
       'battery': Icons.battery_std_outlined,
+      'fuel': Icons.local_gas_station_outlined,
       'air': Icons.air,
       'ride': Icons.local_taxi_outlined,
       'clock': Icons.schedule,
@@ -75,6 +76,7 @@ String cardSymbol(String type) =>
       'tpms': 'tire',
       'body': 'car',
       'battery': 'battery',
+      'fuel': 'fuel',
       'air': 'air',
       'vehicle': 'car',
       'shortcuts': 'apps',
@@ -107,7 +109,7 @@ class CardContent extends StatelessWidget {
             'weather' || 'clockWeather' => ['weather'],
             'calendar' => ['calendar'],
             'member' => ['systemStatus'],
-            'battery' || 'air' || 'vehicle' || 'tpms' || 'body' || 'ride' => [
+            'battery' || 'fuel' || 'air' || 'vehicle' || 'tpms' || 'body' || 'ride' => [
                 'vehicle'
               ],
             'shortcuts' => ['apps', 'appNames'],
@@ -154,6 +156,7 @@ class CardContent extends StatelessWidget {
           'clockWeather' => _ClockWeatherCardEntry(
               card: card, controller: controller, native: native),
           'battery' => BatteryCard(native: native, title: card.title),
+          'fuel' => FuelCard(native: native, title: card.title),
           'air' => AirQualityCard(
               native: native,
               title: card.title == '空气质量' ? '车内空气' : card.title),

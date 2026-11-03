@@ -11,6 +11,7 @@ const _libraryDescriptions = {
   'tpms': '原车四轮胎压信息',
   'body': '四轮胎压与车门、尾门状态',
   'battery': '电量、混动与充电状态',
+  'fuel': '\u5269\u4f59\u6cb9\u91cf\u4e0e\u71c3\u6cb9\u7eed\u822a',
   'air': '车内 PM2.5 与独立 AQI 读数',
   'clock': '时间、日期与星期',
   'clockWeather': '时钟与天气组合，可切换四种布局',
@@ -243,7 +244,7 @@ class _CardEditorState extends State<_CardEditor> {
     final previewCity = draft.type == 'weather' &&
         widget.controller.native.value['demo'] == true;
     final vehicleCard =
-        const {'battery', 'air', 'vehicle'}.contains(draft.type);
+        const {'battery', 'fuel', 'air', 'vehicle'}.contains(draft.type);
     final sizes = draft.type == 'trafficLight'
         ? <(int, int)>[(4, 2), (4, 3)]
         : draft.type == 'shortcuts'

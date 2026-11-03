@@ -205,7 +205,8 @@ public final class OfficialVehicleSensors {
             Object availability = pa.getClass().getField("availability").get(pa);
             sample.availability = availability instanceof Enum<?> ? ((Enum<?>) availability).name() : String.valueOf(availability);
             sample.supported = "ACTIVE".equals(sample.availability) || "NOT_ACTIVE".equals(sample.availability);
-            boolean activeOk = "ACTIVE".equals(sample.availability) || (spec.id == FUEL_LEVEL && "NOT_ACTIVE".equals(sample.availability));
+            boolean activeOk = "ACTIVE".equals(sample.availability)
+                    || ((spec.id == FUEL_LEVEL || spec.id == CAR_SPEED) && "NOT_ACTIVE".equals(sample.availability));
             if (!activeOk) throw new IllegalStateException("PA_" + sample.availability);
             Object raw = pa.getClass().getField("data").get(pa);
             if (!(spec.decimal ? raw instanceof Double : raw instanceof Integer)) throw new IllegalStateException("PA_DATA_TYPE_OR_ABSENT");
@@ -216,6 +217,8 @@ public final class OfficialVehicleSensors {
                 if (number > 200.0) sample.value = number / 1000.0;
                 else if (number > 0 && number <= 1.0) sample.value = number * 1000.0;
                 else sample.value = number;
+            } else if (spec.id == CAR_SPEED && "km/h".equals(sample.unit)) {
+                sample.value = (number / spec.divisor) * 3.6;
             } else {
                 sample.value = number / spec.divisor;
             }
@@ -223,7 +226,8 @@ public final class OfficialVehicleSensors {
             if (sensors != null) {
                 sample.sdkSupport = String.valueOf(call(sensors, "isSensorSupported", int.class, spec.id));
                 if ("notavailable".equals(sample.sdkSupport) || "error".equals(sample.sdkSupport)) sample.supported = false;
-                boolean sdkOk = "active".equals(sample.sdkSupport) || (spec.id == FUEL_LEVEL && "notactive".equals(sample.sdkSupport));
+                boolean sdkOk = "active".equals(sample.sdkSupport)
+                        || ((spec.id == FUEL_LEVEL || spec.id == CAR_SPEED) && "notactive".equals(sample.sdkSupport));
                 if (!sdkOk) throw new IllegalStateException("SDK_" + sample.sdkSupport);
                 Object mapped = call(sensors, "getSensorLatestValue", int.class, spec.id);
                 if (!(mapped instanceof Number) || !finite(((Number) mapped).doubleValue())) throw new IllegalStateException("SDK_DATA_INVALID");
@@ -231,6 +235,8 @@ public final class OfficialVehicleSensors {
                 if (spec.id == FUEL_LEVEL) {
                     if (sdkNum > 200.0) sdkNum /= 1000.0;
                     else if (sdkNum > 0 && sdkNum <= 1.0) sdkNum *= 1000.0;
+                } else if (spec.id == CAR_SPEED && "km/h".equals(sample.unit)) {
+                    sdkNum *= 3.6;
                 }
                 sample.sdkValue = sdkNum;
                 double diff = Math.abs(sample.sdkValue - sample.value);
@@ -250,7 +256,7 @@ public final class OfficialVehicleSensors {
             sample.reason = failure(e);
             // Diagnostic and fallback: old firmware may expose the public sensor
             // even when its PA object reports error or inactive.
-            if (spec.id == FUEL_LEVEL && !sample.valid && sensors != null) {
+            if ((spec.id == FUEL_LEVEL || spec.id == CAR_SPEED) && !sample.valid && sensors != null) {
                 try {
                     String sup = String.valueOf(call(sensors, "isSensorSupported", int.class, spec.id));
                     sample.sdkSupport = sup;
@@ -258,16 +264,29 @@ public final class OfficialVehicleSensors {
                         Object mapped = call(sensors, "getSensorLatestValue", int.class, spec.id);
                         if (mapped instanceof Number && finite(((Number) mapped).doubleValue())) {
                             double val = ((Number) mapped).doubleValue();
-                            if (val > 200.0) val /= 1000.0;
-                            else if (val > 0 && val <= 1.0) val *= 1000.0;
-                            if (val >= 0 && val <= 200.0) {
-                                sample.sdkValue = val;
-                                sample.value = val;
-                                sample.raw = (Number) mapped;
-                                sample.supported = true;
-                                sample.sampleValid = true;
-                                sample.valid = true;
-                                sample.reason = "";
+                            if (spec.id == FUEL_LEVEL) {
+                                if (val > 200.0) val /= 1000.0;
+                                else if (val > 0 && val <= 1.0) val *= 1000.0;
+                                if (val >= 0 && val <= 200.0) {
+                                    sample.sdkValue = val;
+                                    sample.value = val;
+                                    sample.raw = (Number) mapped;
+                                    sample.supported = true;
+                                    sample.sampleValid = true;
+                                    sample.valid = true;
+                                    sample.reason = "";
+                                }
+                            } else if (spec.id == CAR_SPEED && sample.unit != null) {
+                                if ("km/h".equals(sample.unit)) val *= 3.6;
+                                if (val >= 0 && val <= 450.0) {
+                                    sample.sdkValue = val;
+                                    sample.value = val;
+                                    sample.raw = (Number) mapped;
+                                    sample.supported = true;
+                                    sample.sampleValid = true;
+                                    sample.valid = true;
+                                    sample.reason = "";
+                                }
                             }
                         }
                     }

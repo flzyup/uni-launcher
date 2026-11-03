@@ -317,10 +317,10 @@ public final class OfficialCarReader implements VehicleAdapter {
             add(fields, readField("pressureRearLeft", OfficialCarContract.PA_PRESSURE_RL, 0, 0, "pressure"), "pressureRearLeft");
             add(fields, readField("pressureRearRight", OfficialCarContract.PA_PRESSURE_RR, 0, 0, "pressure"), "pressureRearRight");
             add(fields, readField("pressureUnitPreference", OfficialCarContract.PA_PRESSURE_UNIT, 0, 0, "pressureUnit"), "pressureUnitPreference");
-            // Owner-confirmed on 2026-10-25: the original UI shows driving range
-            // in km. Speed stays unconfirmed until a moving comparison.
+            // Owner-confirmed on 2026-10-25: the original UI shows driving range in km.
+            // Confirmed on 2026-11-02: vehicle speed 1048832 / getPaNaviVehSpeed normalized to km/h (m/s * 3.6).
             JSONObject extraSensors=new OfficialVehicleSensors(sdkCar,signals,
-                    OfficialVehicleSensors.Units.confirmed(null, "km", "owner confirmed original UI range km 2026-10-25")).appendTo(fields);
+                    OfficialVehicleSensors.Units.confirmed("km/h", "km", "owner confirmed range km and speed km/h 2026-11-02")).appendTo(fields);
             if (extraSensors.has("fuelCapacity") && extraSensors.optDouble("fuelCapacity", -1) > 0) {
                 state.put("fuelCapacity", extraSensors.getDouble("fuelCapacity"));
             } else {
