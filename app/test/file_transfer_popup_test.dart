@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:uni_launcher/controller/launcher_controller.dart';
 import 'package:uni_launcher/launcher_app.dart';
@@ -10,7 +11,7 @@ import 'fake_gateway.dart';
 /// 手机端只能把链接入队；真正开始下载必须由车机上的点击触发。
 void main() {
   Map<String, dynamic> transferPacket(List<dynamic> links,
-          [List<dynamic> files = const []]) =>
+          [List<dynamic> files = const [], List<dynamic> texts = const []]) =>
       {
         'running': true,
         'ip': '192.168.1.5',
@@ -19,7 +20,11 @@ void main() {
         'mode': 'wifi',
         'files': files,
         'links': links,
+        'texts': texts,
       };
+
+  Map<String, dynamic> note(String id, String text) =>
+      {'id': id, 'text': text, 'time': 1793000000000};
 
   Map<String, dynamic> link(String id, String host, String name,
           {String status = 'queued', String error = ''}) =>
@@ -38,13 +43,15 @@ void main() {
       {'name': name, 'size': 1024, 'time': 1793000000000};
 
   Future<(LauncherController, FakeGateway)> openPanel(WidgetTester t,
-      {required List<dynamic> links, List<dynamic> files = const []}) async {
+      {required List<dynamic> links,
+      List<dynamic> files = const [],
+      List<dynamic> texts = const []}) async {
     t.view.physicalSize = const Size(1920, 1080);
     t.view.devicePixelRatio = 1;
     final g = FakeGateway();
     g.state = {
       ...g.state,
-      'transfer': transferPacket(links, files)
+      'transfer': transferPacket(links, files, texts)
     };
     final c = LauncherController(g);
     await c.initialize();
@@ -154,7 +161,58 @@ void main() {
 
   testWidgets('空列表给出一次说明', (t) async {
     await openPanel(t, links: const []);
-    expect(find.text('还没有文件，扫码上传或让手机发送链接'), findsOneWidget);
+    expect(find.text('还没有文件，扫码上传或让手机发送链接/文本'), findsOneWidget);
+    expect(t.takeException(), null);
+  });
+
+  testWidgets('手机发来的文本点一下就进剪贴板', (t) async {
+    final copied = <String>[];
+    t.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform, (call) async {
+      if (call.method == 'Clipboard.setData') {
+        copied.add('${(call.arguments as Map)['text']}');
+      }
+      return null;
+    });
+    addTearDown(() => t.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, null));
+
+    await openPanel(t, links: const [], texts: [
+      note('t1', '天安门东停车场 A 区 B1'),
+      note('t2', '取件码 8848'),
+    ]);
+    expect(find.text('手机发来的文本（2）'), findsOneWidget);
+    expect(find.text('取件码 8848'), findsOneWidget);
+
+    // 点整块文本复制
+    await t.tap(find.byKey(const ValueKey('transfer-text-t2')));
+    await t.pump();
+    expect(copied, ['取件码 8848']);
+    expect(find.text('已复制 ✓'), findsOneWidget);
+    // 1.6s 后回到「点击复制」
+    await t.pump(const Duration(milliseconds: 1700));
+    expect(find.text('点击复制'), findsNWidgets(2));
+  });
+
+  testWidgets('文本行能删除、能清空', (t) async {
+    final (_, g) = await openPanel(t, links: const [], texts: [
+      note('t1', '一段话'),
+    ]);
+    await t.tap(find.descendant(
+        of: find.byKey(const ValueKey('transfer-text-t1')),
+        matching: find.text('删除')));
+    await t.pump();
+    expect(
+        g.commands,
+        contains(predicate((Map<String, dynamic> m) =>
+            m['action'] == 'transfer-text-remove' && m['value'] == 't1')));
+
+    await t.tap(find.text('清空'));
+    await t.pump();
+    expect(
+        g.commands,
+        contains(predicate(
+            (Map<String, dynamic> m) => m['action'] == 'transfer-text-clear')));
     expect(t.takeException(), null);
   });
 }

@@ -44,6 +44,7 @@ public final class LauncherRuntime {
     private final SystemSettingsRepository systemSettings;
     private final NavigationAudioAdapter navigationAudio;
     private final LanTransfer transfer;
+    private final QuarkPan quark;
     private final DebugBridge debugBridge;
     private final ClimateState simulator=new ClimateState();
     private final Map<Object,Runnable> listeners=new IdentityHashMap<>();
@@ -101,6 +102,9 @@ public final class LauncherRuntime {
         long afterAdapters=android.os.SystemClock.uptimeMillis();
         systemSettings=new SystemSettingsRepository(context);navigationAudio=new NavigationAudioAdapter(context);
         transfer=new LanTransfer(context,this::publish);
+        quark=new QuarkPan(context,this::publish);transfer.attach(quark);
+        // 夸克会话落盘在 filesDir/quark/session.json，读盘与静默刷新都推后到首帧之后。
+        main.postDelayed(()->new Thread(quark::restore,"uni-quark-restore").start(),2500);
         debugBridge=new DebugBridge(context,prefs,this::publish);
         main.postDelayed(debugBridge::startup,3000);
         long afterSettings=android.os.SystemClock.uptimeMillis();
@@ -178,6 +182,7 @@ public final class LauncherRuntime {
             }
             state.put("runtimeOwnerCount",listeners.size()).put("media",mediaState)
                 .put("transfer",transfer.snapshot())
+                .put("quark",quark.snapshot())
                 .put("partial",!(wantApps&&wantDesign&&wantMedia));
 
             if(wantApps)cursor.apps=appsRevision;
@@ -312,6 +317,24 @@ public final class LauncherRuntime {
         // 手机只负责把地址交上来；下载由车机上的点击触发，避免车机被外部驱动流量。
         if("transfer-link-download".equals(action)){if(!transfer.downloadLink(value))toast("链接无效或任务已不存在");publish();return true;}
         if("transfer-link-remove".equals(action)){transfer.removeLink(value);publish();return true;}
+        // 手机发来的文本：复制在 Dart 侧做（剪贴板），这里只负责增删。
+        if("transfer-text-remove".equals(action)){transfer.removeText(value);publish();return true;}
+        if("transfer-text-clear".equals(action)){transfer.clearTexts();publish();return true;}
+        // ---- 夸克网盘：扫码登录、列目录，真正下载仍由车机点「下载」触发 ----
+        if("quark-login".equals(action)||"quark-login-refresh".equals(action)){quark.startLogin();publish();return true;}
+        if("quark-logout".equals(action)){quark.logout();publish();return true;}
+        if("quark-open".equals(action)){
+            String raw=value==null?"":value;
+            int sep=raw.indexOf('|');
+            quark.open(sep>=0?raw.substring(0,sep):raw,sep>=0?raw.substring(sep+1):"");
+            publish();return true;
+        }
+        if("quark-list".equals(action)){quark.open(value,"");publish();return true;}
+        if("quark-more".equals(action)){quark.more();publish();return true;}
+        if("quark-enqueue".equals(action)){
+            if(quark.enqueue(value,transfer)==0)toast("没有可下载的文件，或夸克登录已失效");
+            publish();return true;
+        }
         if("official-widget".equals(action)){
             if(catalog.providers(value).isEmpty()){toast("没有对应的原厂卡片");return true;}
             context.startActivity(new Intent(context,OfficialWidgetActivity.class).putExtra("type",value).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));return true;
