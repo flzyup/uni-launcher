@@ -119,17 +119,22 @@ public final class NeteaseMediaAdapter {
                 return true;
             }
             int key;
+            boolean wantsPlay=false;
             if ("next".equals(action)) key = KeyEvent.KEYCODE_MEDIA_NEXT;
             else if ("previous".equals(action)) key = KeyEvent.KEYCODE_MEDIA_PREVIOUS;
-            else if ("play".equals(action)) key = KeyEvent.KEYCODE_MEDIA_PLAY;
+            else if ("play".equals(action)) {wantsPlay=true;key=KeyEvent.KEYCODE_MEDIA_PLAY;}
             else if ("pause".equals(action)) key = KeyEvent.KEYCODE_MEDIA_PAUSE;
             else if ("toggle-play".equals(action)) {
                 PlaybackState state = controller.getPlaybackState();
+                wantsPlay = state == null || state.getState() != PlaybackState.STATE_PLAYING;
                 key = state == null ? KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE
                         : state.getState() == PlaybackState.STATE_PLAYING
                         ? KeyEvent.KEYCODE_MEDIA_PAUSE : KeyEvent.KEYCODE_MEDIA_PLAY;
             } else return false;
             if ((controller.getFlags() & MediaSession.FLAG_HANDLES_MEDIA_BUTTONS) == 0) return false;
+            // Playing from a no-focus state is rejected by the broadcast receiver.
+            // TransportControls reaches the app's onPlay callback, which requests focus.
+            if (wantsPlay) {controller.getTransportControls().play();return true;}
             long now = SystemClock.uptimeMillis();
             // The actual NetEase receiver ignores DOWN and consumes only UP.
             controller.dispatchMediaButtonEvent(new KeyEvent(now, now, KeyEvent.ACTION_DOWN, key, 0));

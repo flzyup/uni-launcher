@@ -53,6 +53,9 @@ public final class MediaAdapter {
     /** A transport callback can be accepted then ignored by a background player.
      * Remember only a play request; pause cancels the wake check. */
     private static final long PLAY_CONFIRM_MS=800;
+    /** A wheel source selection must not launch an app; retry its live session. */
+    private static final long ONLINE_SWITCH_RETRY_MS=400;
+    private static final int ONLINE_SWITCH_RETRIES=10;
     private Object pendingPlayToken;
     private String pendingPlaySource="";
     private int pendingPlayStage;
@@ -60,19 +63,37 @@ public final class MediaAdapter {
         public void run(){
             Object token=pendingPlayToken;if(token==null)return;
             PlaybackState state=controller==null?null:controller.getPlaybackState();
-            if(state!=null&&state.getState()==PlaybackState.STATE_PLAYING){clearPlayFallback();return;}
-            // Buffering/connecting is genuine progress from a live receiver.
-            if(state!=null&&(state.getState()==6||state.getState()==8)){
-                handler.postDelayed(this,PLAY_CONFIRM_MS);return;
-            }
             boolean sameSession=controller!=null&&token.equals(controller.getSessionToken())
                     &&pendingPlaySource.equals(controller.getPackageName());
+            if(sameSession&&state!=null&&state.getState()==PlaybackState.STATE_PLAYING){clearPlayFallback();return;}
+            // Buffering/connecting is genuine progress from a live receiver.
+            if(sameSession&&state!=null&&(state.getState()==6||state.getState()==8)){
+                handler.postDelayed(this,PLAY_CONFIRM_MS);return;
+            }
             if(pendingPlayStage==0){
                 pendingPlayStage=1;launchSource(pendingPlaySource);
                 handler.postDelayed(this,PLAY_CONFIRM_MS);return;
             }
             clearPlayFallback();
             if(sameSession)sendPlay(controller);
+        }
+    };
+    private MediaController onlineSwitchController;
+    private String onlineSwitchSource="";
+    private int onlineSwitchAttempts;
+    private final Runnable onlineSwitchRetry=new Runnable(){
+        public void run(){
+            MediaController target=onlineSwitchController;
+            if(target==null)return;
+            PlaybackState state=target.getPlaybackState();
+            if(state!=null&&(state.getState()==PlaybackState.STATE_PLAYING||state.getState()==6||state.getState()==8)){
+                if(state.getState()==PlaybackState.STATE_PLAYING)clearOnlineSwitch(true);
+                else handler.postDelayed(this,ONLINE_SWITCH_RETRY_MS);
+                return;
+            }
+            if(onlineSwitchAttempts++>=ONLINE_SWITCH_RETRIES){clearOnlineSwitch(false);return;}
+            dispatchOnlinePlay(target);
+            handler.postDelayed(this,ONLINE_SWITCH_RETRY_MS);
         }
     };
     private String sourceLabel(String pkg){
@@ -107,11 +128,16 @@ public final class MediaAdapter {
         lyrics=new LyricsResolver(new File(context.getFilesDir(),"media-lyrics"),changed);
         listener=new ComponentName(context,MediaAccessService.class);
         officialBridge=new OfficialMediaBridge(context,(action,source)->{
+            if("select-online".equals(action))return selectOnline(source);
+            if("select-bluetooth".equals(action))return selectBluetooth();
             if(controller==null||!source.equals(controller.getPackageName()))return false;
             if("play".equals(action)){setPlaying(true);return true;}
             if("pause".equals(action)){setPlaying(false);return true;}
             return command(action);
         },changed);
+        String savedOnline=lastTrackPrefs.getString("lastOnlineSource", "");
+        if(!isOnlinePlayer(savedOnline)&&isOnlinePlayer(lastSource))savedOnline=lastSource;
+        officialBridge.setOnlineSource(isOnlinePlayer(savedOnline)?savedOnline:"");
         steeringSession=new MediaSession(context,"UNI steering media bridge");
         steeringSession.setFlags(MediaSession.FLAG_HANDLES_MEDIA_BUTTONS|MediaSession.FLAG_HANDLES_TRANSPORT_CONTROLS);
         steeringSession.setCallback(new MediaSession.Callback(){
@@ -152,7 +178,34 @@ public final class MediaAdapter {
             }
             int selected=MediaSourcePolicy.selectSessions(preferred,lastSource,packages,playing,metadata,current);
             MediaController next=selected>=0?observed.get(selected):null;
+            MediaController switching=onlineSwitchController;
+            if(switching!=null){
+                MediaController live=null;
+                for(MediaController candidate:observed)if(candidate.getSessionToken().equals(switching.getSessionToken())){live=candidate;break;}
+                if(live==null){clearOnlineSwitch(false);}
+                else{
+                    next=live;
+                    PlaybackState state=live.getPlaybackState();
+                    if(state!=null&&state.getState()==PlaybackState.STATE_PLAYING)clearOnlineSwitch(true);
+                }
+            }
+            if(!isOnlinePlayer(lastTrackPrefs.getString("lastOnlineSource", ""))){
+                String only="";
+                for(String pkg:packages)if(isOnlinePlayer(pkg)){
+                    if(only.isEmpty())only=pkg;
+                    else if(!only.equals(pkg)){only="";break;}
+                }
+                if(!only.isEmpty()){
+                    lastTrackPrefs.edit().putString("lastOnlineSource",only).apply();
+                    officialBridge.setOnlineSource(only);
+                }
+            }
             if(next!=null)lastSource=next.getPackageName();
+            if(next!=null&&isOnlinePlayer(next.getPackageName())){
+                String source=next.getPackageName();
+                if(!source.equals(lastTrackPrefs.getString("lastOnlineSource", "")))lastTrackPrefs.edit().putString("lastOnlineSource",source).apply();
+                officialBridge.setOnlineSource(source);
+            }
             if(next==null||controller==null||!next.getSessionToken().equals(controller.getSessionToken())){lastCover=null;coverData="";artworkDirty=true;}
             controller=next;
             netease.setController(controller);
@@ -163,10 +216,91 @@ public final class MediaAdapter {
         boolean playing=state!=null&&state.getState()==PlaybackState.STATE_PLAYING;
         if(play!=playing)command("toggle-play");
     }
+    private static boolean isOnlinePlayer(String source){
+        return NeteaseMediaAdapter.PACKAGE.equals(source)||"com.tencent.qqmusiccar".equals(source)||"com.tencent.qqmusic".equals(source);
+    }
+    private boolean selectOnline(String source){
+        if(!isOnlinePlayer(source))return false;
+        clearOnlineSwitch(false);
+        for(MediaController candidate:observed){
+            if(!source.equals(candidate.getPackageName()))continue;
+            onlineSwitchController=candidate;onlineSwitchSource=source;onlineSwitchAttempts=0;
+            controller=candidate;netease.setController(candidate);lastSource=source;
+            officialBridge.update(candidate);officialBridge.claimCurrent();
+            dispatchOnlinePlay(candidate);
+            handler.removeCallbacks(onlineSwitchRetry);
+            handler.postDelayed(onlineSwitchRetry,ONLINE_SWITCH_RETRY_MS);
+            changed.run();
+            return true;
+        }
+        return false;
+    }
+    private boolean selectBluetooth(){
+        for(MediaController candidate:observed){
+            if(!"com.android.bluetooth".equals(candidate.getPackageName()))continue;
+            MediaController previous=controller;
+            if(previous!=null&&isOnlinePlayer(previous.getPackageName()))pauseController(previous);
+            clearOnlineSwitch(false);
+            onlineSwitchController=candidate;onlineSwitchSource=candidate.getPackageName();onlineSwitchAttempts=0;
+            controller=candidate;netease.setController(candidate);lastSource=candidate.getPackageName();
+            officialBridge.update(candidate);officialBridge.claimCurrent();
+            dispatchOnlinePlay(candidate);
+            handler.removeCallbacks(onlineSwitchRetry);
+            handler.postDelayed(onlineSwitchRetry,ONLINE_SWITCH_RETRY_MS);
+            changed.run();
+            return true;
+        }
+        return false;
+    }
+    private void pauseController(MediaController target){
+        try{
+            target.getTransportControls().pause();
+        }catch(RuntimeException ignored){}
+    }
+    private void dispatchOnlinePlay(MediaController target){
+        try{
+            if(NeteaseMediaAdapter.supports(target)){
+                NeteaseMediaAdapter adapter=new NeteaseMediaAdapter(()->{});
+                adapter.setController(target);adapter.command("play");adapter.stop();
+            }else{
+                PlaybackState state=target.getPlaybackState();
+                if(state==null||(state.getActions()&(PlaybackState.ACTION_PLAY|PlaybackState.ACTION_PLAY_PAUSE))==0)return;
+                target.getTransportControls().play();
+            }
+        }catch(RuntimeException ignored){}
+    }
+    private void clearOnlineSwitch(boolean keepSelection){
+        handler.removeCallbacks(onlineSwitchRetry);
+        onlineSwitchController=null;onlineSwitchSource="";onlineSwitchAttempts=0;
+        if(!keepSelection)choose();
+    }
     /** Mirror the selected source into a standard active MediaSession. The
      * steering-wheel dispatcher can now target transport callbacks and the
      * instrument cluster can consume the same title/artist/playback state. */
     private void syncSteeringSession(){
+        // The platform's A2DP sink owns the Bluetooth transport. Mirroring it
+        // creates a competing media-button session and can steal wheel keys
+        // after the phone reconnects. Respect an actively playing Bluetooth
+        // session even when the UI is pinned to a paused online player.
+        boolean bluetoothSelected=controller!=null&&"com.android.bluetooth".equals(controller.getPackageName());
+        boolean bluetoothPlaying=false;
+        for(MediaController candidate:observed){
+            if(!"com.android.bluetooth".equals(candidate.getPackageName()))continue;
+            PlaybackState state=candidate.getPlaybackState();
+            if(state!=null&&state.getState()==PlaybackState.STATE_PLAYING){bluetoothPlaying=true;break;}
+        }
+        PlaybackState selectedState=controller==null?null:controller.getPlaybackState();
+        if(bluetoothSelected){
+            officialBridge.update(controller);
+            steeringSession.setActive(false);
+            return;
+        }
+        boolean onlineSwitchActive=onlineSwitchController!=null;
+        if(!onlineSwitchActive&&bluetoothPlaying&&(selectedState==null||selectedState.getState()!=PlaybackState.STATE_PLAYING)){
+            officialBridge.update(null);
+            steeringSession.setActive(false);
+            return;
+        }
         officialBridge.update(controller);
         if(controller==null){steeringSession.setActive(false);return;}
         try{
