@@ -130,6 +130,21 @@ void main() {
     expect(reading(native, 'range').unit, 'km');
     field(native, 'speed')['unit'] = 'mph';
     expect(reading(native, 'speed').unit, 'mph');
+    // Scheme B: vehicle speed km/h cluster offset, zero deadband and integer rounding
+    field(native, 'speed').addAll({'value': 0.0, 'unit': 'km/h'});
+    expect(reading(native, 'speed').display, '0');
+    field(native, 'speed')['value'] = 0.4;
+    expect(reading(native, 'speed').display, '0');
+    field(native, 'speed')['value'] = 1.2;
+    expect(reading(native, 'speed').display, '2');
+    field(native, 'speed')['value'] = 10.0;
+    expect(reading(native, 'speed').display, '12');
+    field(native, 'speed')['value'] = 38.1;
+    expect(reading(native, 'speed').display, '40');
+    field(native, 'speed')['value'] = 58.2;
+    expect(reading(native, 'speed').display, '60');
+    field(native, 'speed')['value'] = 117.8;
+    expect(reading(native, 'speed').display, '120');
   });
 
   test(

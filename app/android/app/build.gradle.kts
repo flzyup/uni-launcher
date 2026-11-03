@@ -53,7 +53,8 @@ android {
             // 车控通道与音乐律动氛围灯全都用不了。
             //
             // 实车包用 tools/sign_car_apk.py 单独签名，私钥不入库。
-            storeFile = file(System.getenv("UNI_SIGNING_STORE") ?: "/data/tools/linkco-android/uni-debug.keystore")
+            val officialStore = file("/data/tools/linkco-android/uni-debug.keystore")
+            storeFile = file(System.getenv("UNI_SIGNING_STORE") ?: if (officialStore.exists()) officialStore.absolutePath else "${System.getProperty("user.home")}/.android/uni-debug.keystore")
             storePassword = "android"
             keyAlias = "uni-debug"
             keyPassword = "android"

@@ -52,6 +52,11 @@ public final class OfficialVehicleSensorsTest {
         signals.pa = new Pa(Availability.ACTIVE, 1250); sdk.value = 12.5;
         check(read(signals, sdk, 2, unknown).sampleValid && !read(signals, sdk, 2, unknown).valid, "speed unit unconfirmed");
         check(read(signals, sdk, 2, proven).value == 12.5, "speed divide100 exactly once");
+        OfficialVehicleSensors.Units kmhUnits = OfficialVehicleSensors.Units.confirmed("km/h", "km", "speed km/h proof");
+        check(Math.abs(read(signals, sdk, 2, kmhUnits).value - 45.0) < 0.001, "speed converted from m/s to km/h (12.5 * 3.6)");
+        check("km/h".equals(read(signals, sdk, 2, kmhUnits).unit), "speed unit is km/h");
+        signals.pa = new Pa(Availability.NOT_ACTIVE, 0); sdk.value = 0;
+        check(read(signals, sdk, 2, kmhUnits).valid && read(signals, sdk, 2, kmhUnits).value == 0.0, "stationary speed zero with NOT_ACTIVE is valid");
         signals.pa = new Pa(Availability.ACTIVE, 0); sdk.value = 0;
         check(read(signals, sdk, 3, proven).valid, "zero odometer");
         signals.pa = new Pa(Availability.ACTIVE, 4096); sdk.value = 0;

@@ -77,7 +77,15 @@ class VehicleCardReading {
         VehicleReadingState.unavailable => '暂无数据',
       };
   String get display {
-    if (value == null) return '—';
+    if (value == null) return '\u2014';
+    if (unit == 'km/h') {
+      if (value! <= 0.5) return '0';
+      final offset = value! < 3.0 ? (value! - 0.5) * (2.0 / 2.5) : 2.0;
+      return (value! + offset).round().toString();
+    }
+    if (unit == 'mph') {
+      return value!.round().toString();
+    }
     final text = value!.toStringAsFixed(1);
     return text.endsWith('.0') ? text.substring(0, text.length - 2) : text;
   }
