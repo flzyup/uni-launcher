@@ -19,14 +19,15 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import org.json.JSONObject;
 
-/** IP753 MediaCenter registration: DIM source selection and wheel callbacks do
- * not use Android MediaSession. Only the selected third-party online source is
- * registered here; OEM radio/USB/BT clients retain ownership of their sources.
+/** MediaCenter registration: DIM source selection and wheel callbacks do
+ * not use Android MediaSession. Publish the selected supported player or the
+ * active platform Bluetooth session; radio and USB remain with their owners.
  * OEM Binder calls run off the UI thread; synchronous getters use an immutable
  * cached sample and never wait for that same UI thread. */
 public final class OfficialMediaBridge {
     public interface Commands { boolean send(String action,String source); }
     private static final int ONLINE=6;
+    private static final int BLUETOOTH=2;
     private final Context context;
     private final Commands commands;
     private final Runnable changed;
@@ -38,6 +39,7 @@ public final class OfficialMediaBridge {
     private volatile int callbackCount;
     private volatile String lastCallback="";
     private volatile int generation;
+    private volatile String onlineSource="";
     private Object api,client,playback,wireClient,wirePlayback,mediaInfo;
     private Class<?> mediaInfoType;
     private String lastTrack="";
@@ -50,11 +52,40 @@ public final class OfficialMediaBridge {
     private boolean initialized;
     private String lastSource="";
     private boolean lastPlaying;
+    private int registeredType=-1;
     private long lastProgressAt;
 
     public OfficialMediaBridge(Context context,Commands commands,Runnable changed){
         this.context=context.getApplicationContext();this.commands=commands;this.changed=changed;
     }
+    public void setOnlineSource(String source){
+        String next=source==null?"":source;
+        if(next.equals(onlineSource))return;
+        onlineSource=next;
+        if(running)worker.execute(()->publish(sample));
+    }
+    /** Claim the current sample's source without fabricating playback state. */
+    public void claimCurrent(){
+        if(!running)return;
+        worker.execute(()->{
+            if(!running||!registered||token==null||!sample.available)return;
+            try{
+                playClaimed=Boolean.TRUE.equals(invoke("requestPlay",token));
+                if(playClaimed){
+                    invoke("updateCurrentSourceType",token,sample.type);
+                    playbackAccepted=Boolean.TRUE.equals(invoke("updateMusicPlaybackState",token,wirePlayback));
+                }
+                reason=playbackAccepted?"":"原车媒体未接受音源切换";
+                notifyChanged();
+            }catch(Exception|LinkageError e){reason="原车音源切换失败："+root(e).getClass().getSimpleName();android.util.Log.w("UniOemMedia",reason,e);}
+        });
+    }
+    private int[] sourceTypes(Sample current){
+        if(!current.available)return new int[0];
+        return !onlineSource.isEmpty()?new int[]{BLUETOOTH,ONLINE}:new int[]{current.type};
+    }
+    private String sourceTypesKey(Sample current){return java.util.Arrays.toString(sourceTypes(current));}
+    private String registeredTypes="";
     public void update(MediaController controller){
         Sample next=Sample.from(context,controller);
         if(!next.available&&running&&sample.available){
@@ -108,7 +139,7 @@ public final class OfficialMediaBridge {
                 }
                 @Override public void onServiceDisconnected(ComponentName name){
                     if(session!=generation)return;
-                    apiReady=false;registered=false;playbackAccepted=false;playClaimed=false;token=null;reason="原车媒体服务已断开";notifyChanged();
+                    apiReady=false;registered=false;registeredType=-1;registeredTypes="";playbackAccepted=false;playClaimed=false;token=null;reason="原车媒体服务已断开";notifyChanged();
                 }
             };
             reason="正在连接原车媒体中心";
@@ -122,7 +153,7 @@ public final class OfficialMediaBridge {
             token=invoke("registerMusic",wireClient);
             registered=token!=null;
             reason=registered?"":"原车媒体注册未返回令牌";
-            if(registered)invoke("updateMediaSourceTypeList",token,new int[]{ONLINE});
+            if(registered){registeredType=sample.type;invoke("updateMediaSourceTypeList",token,sourceTypes(sample));registeredTypes=sourceTypesKey(sample);}
             android.util.Log.i("UniOemMedia","Registered="+registered);
         }catch(Exception|LinkageError e){reason="原车媒体注册失败："+root(e).getClass().getSimpleName();android.util.Log.w("UniOemMedia",reason,e);}
         notifyChanged();
@@ -134,12 +165,14 @@ public final class OfficialMediaBridge {
         if(!registered&&apiReady)register();
         if(!registered)return;
         try{
+            String types=sourceTypesKey(next);
+            if(registeredType!=next.type||!registeredTypes.equals(types)){invoke("updateMediaSourceTypeList",token,sourceTypes(next));registeredType=next.type;registeredTypes=types;}
             boolean stateChanged=next.playing!=lastPlaying;
             boolean acquire=next.playing&&(!lastPlaying||!next.source.equals(lastSource));
             lastSource=next.source;lastPlaying=next.playing;
             if(acquire){
                 playClaimed=Boolean.TRUE.equals(invoke("requestPlay",token));
-                if(playClaimed)invoke("updateCurrentSourceType",token,ONLINE);
+                if(playClaimed)invoke("updateCurrentSourceType",token,next.type);
             }
             String track=next.source+"\n"+next.title+"\n"+next.artist+"\n"+next.duration;
             boolean trackChanged=!track.equals(lastTrack);
@@ -147,7 +180,7 @@ public final class OfficialMediaBridge {
                 java.lang.reflect.Method wrap=Class.forName("com.ecarx.sdk.mediacenter.MediaBeanHelper",true,clientType.getClassLoader()).getDeclaredMethod("getIMediaList",java.util.List.class);
                 wrap.setAccessible(true);
                 Object queue=wrap.invoke(null,Collections.singletonList(mediaInfo));
-                invoke("updatePlaylist",token,ONLINE,queue);lastTrack=track;
+                invoke("updatePlaylist",token,next.type,queue);lastTrack=track;
             }
             if(trackChanged||stateChanged||acquire)playbackAccepted=Boolean.TRUE.equals(invoke("updateMusicPlaybackState",token,wirePlayback));
             long now=android.os.SystemClock.elapsedRealtime();
@@ -161,17 +194,31 @@ public final class OfficialMediaBridge {
         Sample current=sample;
         switch(method.getName()){
             case "getCurrentProgress":return current.position;
-            case "getCurrentSourceType":return current.available?ONLINE:-1;
-            case "getMediaSourceTypeList":return new int[]{ONLINE};
+            case "getCurrentSourceType":return current.available?current.type:-1;
+            case "getMediaSourceTypeList":return sourceTypes(current);
             case "getMusicPlaybackInfo":return playback;
             // The standard session exposes a real current item, not necessarily the
             // player's complete queue. Supply only that item to DIM.
-            case "getPlaylist":return current.available&&args!=null&&args.length>0&&args[0] instanceof Number&&((Number)args[0]).intValue()==ONLINE?Collections.singletonList(mediaInfo):Collections.emptyList();
+            case "getPlaylist":return current.available&&args!=null&&args.length>0&&args[0] instanceof Number&&((Number)args[0]).intValue()==current.type?Collections.singletonList(mediaInfo):Collections.emptyList();
             case "onNext":return dispatch("next");
             case "onPrevious":return dispatch("previous");
             case "onPlay":return dispatch("play");
             case "onPause":return dispatch("pause");
-            case "onSourceSelected":return args!=null&&args.length>0&&args[0] instanceof Number&&((Number)args[0]).intValue()==ONLINE&&dispatch("play");
+            case "onSourceSelected":
+                if(!current.available||args==null||args.length==0||!(args[0] instanceof Number))return false;
+                int selected=((Number)args[0]).intValue();
+                if(selected==current.type)return dispatch("play");
+                if(selected==ONLINE&&current.type==BLUETOOTH&&!onlineSource.isEmpty()){
+                    String source=onlineSource;int session=generation;
+                    main.post(()->{if(running&&session==generation&&source.equals(onlineSource))commands.send("select-online",source);});
+                    return true;
+                }
+                if(selected==BLUETOOTH&&current.type==ONLINE&&!onlineSource.isEmpty()){
+                    int session=generation;
+                    main.post(()->{if(running&&session==generation)commands.send("select-bluetooth","com.android.bluetooth");});
+                    return true;
+                }
+                return false;
             default:return defaultValue(method.getReturnType());
         }
     }
@@ -191,7 +238,7 @@ public final class OfficialMediaBridge {
             case "getAlbum":return s.album;
             case "getDuration":return s.duration;
             case "getPlayingItemPositionInQueue":return 0;
-            case "getSourceType":return ONLINE;
+            case "getSourceType":return s.type;
             case "getPlaybackStatus":return s.playing?1:0;
             case "getLaunchIntent":return s.launch;
             case "getCurrentLyricSentence":case "getLyricContent":case "getRadioFrequency":case "getRadioStationName":return "";
@@ -200,7 +247,7 @@ public final class OfficialMediaBridge {
     }
     private void release(){
         try{if(api!=null&&token!=null)invoke("unregister",token);}catch(Exception|LinkageError ignored){}
-        token=null;registered=false;playbackAccepted=false;playClaimed=false;lastSource="";lastTrack="";lastPlaying=false;
+        token=null;registered=false;registeredType=-1;registeredTypes="";playbackAccepted=false;playClaimed=false;lastSource="";lastTrack="";lastPlaying=false;
     }
     private Object invoke(String name,Object... args)throws Exception{
         for(Method method:apiType.getMethods()){
@@ -217,7 +264,7 @@ public final class OfficialMediaBridge {
     }
     public JSONObject snapshot(){
         JSONObject out=new JSONObject();try{out.put("registered",registered).put("playbackAccepted",playbackAccepted).put("playClaimed",playClaimed)
-            .put("bound",bound).put("sourceType",sample.available?ONLINE:-1).put("callbackCount",callbackCount).put("lastCallback",lastCallback).put("reason",reason);}catch(Exception ignored){}return out;
+            .put("bound",bound).put("sourceType",sample.available?sample.type:-1).put("callbackCount",callbackCount).put("lastCallback",lastCallback).put("reason",reason);}catch(Exception ignored){}return out;
     }
     static Object defaultValue(Class<?> type){
         if(type==boolean.class)return false;if(type==int.class)return 0;if(type==long.class)return 0L;if(type==float.class)return 0f;if(type==double.class)return 0d;return null;
@@ -230,14 +277,12 @@ public final class OfficialMediaBridge {
     private static Throwable root(Throwable e){while(e.getCause()!=null&&e.getCause()!=e)e=e.getCause();return e;}
     private static final class Sample {
         static final Sample EMPTY=new Sample(false,false,"","","","",0,0,null);
-        final boolean available,playing;final String source,title,artist,album;final long position,duration;final PendingIntent launch;
-        Sample(boolean available,boolean playing,String source,String title,String artist,String album,long position,long duration,PendingIntent launch){this.available=available;this.playing=playing;this.source=source;this.title=title;this.artist=artist;this.album=album;this.position=position;this.duration=duration;this.launch=launch;}
+        final boolean available,playing;final String source,title,artist,album;final long position,duration;final PendingIntent launch;final int type;
+        Sample(boolean available,boolean playing,String source,String title,String artist,String album,long position,long duration,PendingIntent launch){this.available=available;this.playing=playing;this.source=source;this.title=title;this.artist=artist;this.album=album;this.position=position;this.duration=duration;this.launch=launch;this.type="com.android.bluetooth".equals(source)?BLUETOOTH:ONLINE;}
         static Sample from(Context context,MediaController c){
             if(c==null)return EMPTY;
             String pkg=c.getPackageName();
-            // These are the installed external online players already handled by
-            // our controller. Never pose as the original radio/BT/USB owner.
-            if(!"com.netease.cloudmusic.iot".equals(pkg)&&!"com.tencent.qqmusiccar".equals(pkg)&&!"com.tencent.qqmusic".equals(pkg))return EMPTY;
+            if(!"com.android.bluetooth".equals(pkg)&&!"com.netease.cloudmusic.iot".equals(pkg)&&!"com.tencent.qqmusiccar".equals(pkg)&&!"com.tencent.qqmusic".equals(pkg))return EMPTY;
             try{
                 MediaMetadata m=c.getMetadata();PlaybackState p=c.getPlaybackState();
                 Intent intent=context.getPackageManager().getLaunchIntentForPackage(pkg);
