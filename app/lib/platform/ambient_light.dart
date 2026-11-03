@@ -365,7 +365,23 @@ class AmbientLightService extends ChangeNotifier {
       await spectrum.refreshStatus();
     } catch (_) {}
     _applySpectrumState();
+    _ensureEngineLoops();
     notifyListeners();
+  }
+
+  /// Self-heals the render loop of the engine that is selected now.
+  ///
+  /// The engine hand-over used to run only on switch-on, so a missed
+  /// hand-over (or a cancelled timer) left the strip frozen on one colour
+  /// until the app was restarted. The 1 s status poll is a cheap place to
+  /// notice that the loop which should exist does not.
+  void _ensureEngineLoops() {
+    if (!_settings.enabled) return;
+    if (rhythmEngine) {
+      if (_fallbackTimer == null) unawaited(_applyEngineLifecycle());
+    } else if (_renderTimer == null) {
+      _startRenderClock();
+    }
   }
 
   /// Takes over the state the spectrum service knows about.
@@ -426,9 +442,11 @@ class AmbientLightService extends ChangeNotifier {
     } else if (next.enabled) {
       // The mapping changed, so the next frame already carries the new colour.
       await _syncBrightness();
-      // The engine changed: the state of the other engine must not leak in.
+      // The engine changed: the state of the other engine must not leak in,
+      // and the loops have to be handed over (see [_applyEngineLifecycle]).
       if (engineChanged) {
         _resetMotionState();
+        await _applyEngineLifecycle();
         _renderFrame();
       }
     }
@@ -451,28 +469,7 @@ class AmbientLightService extends ChangeNotifier {
       // here instead of on every spectrum frame.
       await _syncBrightness();
       _startPolling();
-      if (rhythmEngine) {
-        // The rhythm chain writes from the spectrum callback, so it does not
-        // need the 60 Hz render clock. While the capture starts (or when
-        // nothing plays) a static colour keeps the strip visibly on.
-        _rhythm.reset();
-        _lastSignalAt = 0;
-        _valleyWriteAt = 0;
-        _lastAmbientWriteAt = 0;
-        _predictedBeatAt = 0;
-        await _writeFallback();
-        _fallbackTimer?.cancel();
-        _fallbackTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-          final now = _clock();
-          if (_settings.enabled && now - _lastSignalAt > 1500) {
-            unawaited(_writeFallback());
-          }
-        });
-      } else {
-        _fallbackTimer?.cancel();
-        _fallbackTimer = null;
-        _startRenderClock();
-      }
+      await _applyEngineLifecycle();
     } else {
       spectrum.setDemand(this, false);
       await _send('enable', false);
@@ -481,6 +478,49 @@ class AmbientLightService extends ChangeNotifier {
       _fallbackTimer?.cancel();
       _fallbackTimer = null;
       color.value = null;
+    }
+  }
+
+  /// Hands the render loops over to the engine that is selected now.
+  ///
+  /// The two engine families publish in completely different ways:
+  ///
+  /// * **V2 / 旧版** publish on the 60 Hz render clock ([_startRenderClock]);
+  /// * **节奏** publishes from the spectrum callback and, while nothing plays,
+  ///   from a 1 s fallback timer that writes a static colour
+  ///   ([_writeFallback], max(minBrightness, 30) at a fixed hue).
+  ///
+  /// Switching engines must therefore **stop the other family's loop**. This
+  /// used to be wired only into [_syncEnabled], so turning the strip on while
+  /// 「节奏」 was selected and then switching to 「新版」 left the two loops in
+  /// the wrong state: the render clock was never started (V2 rendered exactly
+  /// one frame, from `applySettings`) while the rhythm fallback timer kept
+  /// writing its static blue once a second. The car log showed it clearly —
+  /// `#0B2A4D` (HSV 210°, value 30 %) overwriting every V2 frame, so the strip
+  /// sat on one colour and looked frozen.
+  Future<void> _applyEngineLifecycle() async {
+    if (rhythmEngine) {
+      // The rhythm chain writes from the spectrum callback, so it does not
+      // need the 60 Hz render clock. While the capture starts (or when
+      // nothing plays) a static colour keeps the strip visibly on.
+      _stopRenderClock();
+      _rhythm.reset();
+      _lastSignalAt = 0;
+      _valleyWriteAt = 0;
+      _lastAmbientWriteAt = 0;
+      _predictedBeatAt = 0;
+      await _writeFallback();
+      _fallbackTimer?.cancel();
+      _fallbackTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        final now = _clock();
+        if (_settings.enabled && now - _lastSignalAt > 1500) {
+          unawaited(_writeFallback());
+        }
+      });
+    } else {
+      _fallbackTimer?.cancel();
+      _fallbackTimer = null;
+      _startRenderClock();
     }
   }
 
