@@ -5,6 +5,8 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
+import '../platform/uni_log.dart';
+
 /// Production API and download endpoints; builds may override these explicitly.
 const otaBase =
     String.fromEnvironment('UNI_OTA_URL', defaultValue: 'https://ota.i4o.xyz');
@@ -218,6 +220,8 @@ class UpdateController extends ChangeNotifier with WidgetsBindingObserver {
     _checking = true;
     _silentResult = silent;
     lastAttempt = DateTime.now();
+    UniLog.enter(UniLogTags.ota, 'ota/check',
+        fields: {'manual': manual, 'silent': silent});
     if (manual) {
       state = 'checking';
       notifyListeners();
@@ -249,6 +253,14 @@ class UpdateController extends ChangeNotifier with WidgetsBindingObserver {
           throw const FormatException('更新信息无效');
         release = r;
         state = 'found';
+        // 期望版本与当前版本都要记下来：装不上的时候，先确认装的是不是同一个包。
+        UniLog.done(UniLogTags.ota, 'ota/check',
+            fields: {
+              'currentVersion': info['versionCode'],
+              'releaseVersion': code,
+              'abi': a['abi'],
+              'sizeBytes': size,
+            });
         if (!_disposed &&
             !manual &&
             !silent &&
@@ -260,10 +272,17 @@ class UpdateController extends ChangeNotifier with WidgetsBindingObserver {
         state = data['reason'] == 'no_compatible_release'
             ? 'incompatible'
             : 'latest';
+        UniLog.done(UniLogTags.ota, 'ota/check',
+            fields: {
+              'currentVersion': info['versionCode'],
+              'reason': data['reason'],
+            });
       }
       error = '';
     } catch (e) {
       debugPrint('UNI OTA check failed: ${e.runtimeType}');
+      UniLog.fail(UniLogTags.ota, 'ota/check',
+          fields: {'error': '${e.runtimeType}', 'base': otaBase});
       if (manual) {
         state = 'error';
         error = otaBase.isEmpty ? '更新服务尚未配置' : '检查失败，请检查网络或稍后重试';
@@ -480,6 +499,9 @@ class UpdateController extends ChangeNotifier with WidgetsBindingObserver {
       if (await identity.exists()) await identity.delete();
       state = 'install';
       notifyListeners();
+      // 大小与 SHA-256 都要落日志：装不上的时候，先确认下载到的是不是同一个包。
+      UniLog.done(UniLogTags.ota, 'ota/download',
+          fields: {'sizeBytes': size, 'sha256': expected});
       await install();
     } on _ExpiredUpdateUrl {
       if (!refreshed && !cancelled) {
@@ -504,11 +526,14 @@ class UpdateController extends ChangeNotifier with WidgetsBindingObserver {
         state = 'error';
         error = '下载或校验失败，请重新检查后重试';
       }
+      UniLog.fail(UniLogTags.ota, 'ota/download',
+          fields: {'error': '$e', 'cancelled': cancelled});
       notifyListeners();
     }
   }
 
   Future<void> install() async {
+    UniLog.enter(UniLogTags.ota, 'ota/install');
     try {
       final result = await _bridge.invokeMethod<String>('otaInstall');
       if (result == 'permission') {
@@ -516,10 +541,12 @@ class UpdateController extends ChangeNotifier with WidgetsBindingObserver {
       } else {
         state = 'install';
       }
+      UniLog.done(UniLogTags.ota, 'ota/install', fields: {'result': result});
       notifyListeners();
-    } catch (_) {
+    } catch (e) {
       state = 'error';
       error = '安装包不兼容或签名不一致';
+      UniLog.fail(UniLogTags.ota, 'ota/install', fields: {'error': '$e'});
       notifyListeners();
     }
   }

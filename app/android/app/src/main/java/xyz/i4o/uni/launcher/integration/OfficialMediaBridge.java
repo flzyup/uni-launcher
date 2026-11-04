@@ -18,6 +18,8 @@ import java.util.Collections;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import org.json.JSONObject;
+import xyz.i4o.uni.launcher.log.LogTags;
+import xyz.i4o.uni.launcher.log.UniLog;
 
 /** MediaCenter registration: DIM source selection and wheel callbacks do
  * not use Android MediaSession. Publish the selected supported player or the
@@ -102,13 +104,19 @@ public final class OfficialMediaBridge {
             if(bound&&connection!=null)try{context.unbindService(connection);}catch(RuntimeException ignored){}
             bound=false;apiReady=false;initialized=false;api=null;connection=null;
         });
+        UniLog.done(LogTags.MEDIA,"media/oem-session","action","unbind","tag","UniOemMedia");
     }
     private void notifyChanged(){main.post(changed);}
     private void initialize(){
         if(initialized||!running)return;
         initialized=true;
+        UniLog.enter(LogTags.MEDIA,"media/oem-session","action","bind","tag","UniOemMedia");
         try{
-            if(context.checkSelfPermission("ecarx.oem.permission.OPENAPI_MEDIACENTER_PERMISSION")!=PackageManager.PERMISSION_GRANTED){reason="原车媒体中心权限未授予";return;}
+            if(context.checkSelfPermission("ecarx.oem.permission.OPENAPI_MEDIACENTER_PERMISSION")!=PackageManager.PERMISSION_GRANTED){
+                reason="原车媒体中心权限未授予";
+                UniLog.fail(LogTags.MEDIA,"media/oem-session","reason","oem-permission-denied","permission","ecarx.oem.permission.OPENAPI_MEDIACENTER_PERMISSION");
+                return;
+            }
             ClassLoader loader=context.getClassLoader();
             try{apiType=Class.forName("com.ecarx.sdk.mediacenter.MediaCenterAPI",true,loader);}
             catch(ClassNotFoundException e){loader=context.createPackageContext("com.ecarx.systemui.plugin",Context.CONTEXT_INCLUDE_CODE|Context.CONTEXT_IGNORE_SECURITY).getClassLoader();apiType=Class.forName("com.ecarx.sdk.mediacenter.MediaCenterAPI",true,loader);}
@@ -134,18 +142,21 @@ public final class OfficialMediaBridge {
                             apiType=Class.forName("ecarx.xsf.mediacenter.IMediaCenterSvc",true,serviceLoader);
                             api=Class.forName("ecarx.xsf.mediacenter.IMediaCenterSvc$Stub",true,serviceLoader).getMethod("asInterface",IBinder.class).invoke(null,binder);
                             apiReady=api!=null;register();publish(sample);
-                        }catch(Exception|LinkageError e){reason="原车媒体Binder连接失败："+root(e).getClass().getSimpleName();android.util.Log.w("UniOemMedia",reason,e);notifyChanged();}
+                        }catch(Exception|LinkageError e){reason="原车媒体Binder连接失败："+root(e).getClass().getSimpleName();UniLog.w(LogTags.MEDIA,reason,e,"tag","UniOemMedia","stage","binder-connect");UniLog.fail(LogTags.MEDIA,"media/oem-session","reason","binder-connect-failed","error",root(e).getClass().getSimpleName());notifyChanged();}
                     });
                 }
                 @Override public void onServiceDisconnected(ComponentName name){
                     if(session!=generation)return;
-                    apiReady=false;registered=false;registeredType=-1;registeredTypes="";playbackAccepted=false;playClaimed=false;token=null;reason="原车媒体服务已断开";notifyChanged();
+apiReady=false;registered=false;registeredType=-1;registeredTypes="";playbackAccepted=false;playClaimed=false;token=null;reason="原车媒体服务已断开";
+                    UniLog.fail(LogTags.MEDIA,"media/oem-session","reason","service-disconnected","component",name==null?"":name.getPackageName());
+                    notifyChanged();
                 }
             };
             reason="正在连接原车媒体中心";
             bound=context.bindService(new Intent("ecarx.xsf.MEDIA_CENTER_SERVICE").setComponent(new ComponentName("ecarx.xsf.mediacenter","ecarx.xsf.mediacenter.MediaCenterService")),connection,Context.BIND_AUTO_CREATE);
-            if(!bound){reason="原车媒体中心未接受服务绑定";notifyChanged();}
-        }catch(Exception|LinkageError e){reason="原车媒体接入失败："+root(e).getClass().getSimpleName();android.util.Log.w("UniOemMedia",reason,e);notifyChanged();}
+            if(!bound){reason="原车媒体中心未接受服务绑定";UniLog.fail(LogTags.MEDIA,"media/oem-session","reason","bind-refused","component","ecarx.xsf.mediacenter");notifyChanged();}
+            else UniLog.done(LogTags.MEDIA,"media/oem-session","action","bind","bound",true,"tag","UniOemMedia");
+        }catch(Exception|LinkageError e){reason="原车媒体接入失败："+root(e).getClass().getSimpleName();UniLog.w(LogTags.MEDIA,reason,e,"tag","UniOemMedia","stage","initialize");UniLog.fail(LogTags.MEDIA,"media/oem-session","reason","initialize-failed","error",root(e).getClass().getSimpleName());notifyChanged();}
     }
     private void register(){
         if(!running||!sample.available||registered||api==null)return;
@@ -153,9 +164,11 @@ public final class OfficialMediaBridge {
             token=invoke("registerMusic",wireClient);
             registered=token!=null;
             reason=registered?"":"原车媒体注册未返回令牌";
-            if(registered){registeredType=sample.type;invoke("updateMediaSourceTypeList",token,sourceTypes(sample));registeredTypes=sourceTypesKey(sample);}
-            android.util.Log.i("UniOemMedia","Registered="+registered);
-        }catch(Exception|LinkageError e){reason="原车媒体注册失败："+root(e).getClass().getSimpleName();android.util.Log.w("UniOemMedia",reason,e);}
+if(registered){registeredType=sample.type;invoke("updateMediaSourceTypeList",token,sourceTypes(sample));registeredTypes=sourceTypesKey(sample);}
+            UniLog.i(LogTags.MEDIA,"原车媒体注册结果","tag","UniOemMedia","registered",registered,"token",token!=null,"sourceType",registeredType);
+            if(registered)UniLog.done(LogTags.MEDIA,"media/oem-session","action","register","sourceType",registeredType);
+            else UniLog.fail(LogTags.MEDIA,"media/oem-session","action","register","reason","no-token");
+        }catch(Exception|LinkageError e){reason="原车媒体注册失败："+root(e).getClass().getSimpleName();UniLog.w(LogTags.MEDIA,reason,e,"tag","UniOemMedia","stage","register");UniLog.fail(LogTags.MEDIA,"media/oem-session","action","register","reason","register-failed","error",root(e).getClass().getSimpleName());}
         notifyChanged();
     }
     private void publish(Sample next){
@@ -182,12 +195,18 @@ public final class OfficialMediaBridge {
                 Object queue=wrap.invoke(null,Collections.singletonList(mediaInfo));
                 invoke("updatePlaylist",token,next.type,queue);lastTrack=track;
             }
-            if(trackChanged||stateChanged||acquire)playbackAccepted=Boolean.TRUE.equals(invoke("updateMusicPlaybackState",token,wirePlayback));
+            boolean push=trackChanged||stateChanged||acquire;
+            if(push)UniLog.enter(LogTags.MEDIA,"media/oem-playback","source",next.source,"trackChanged",trackChanged,"stateChanged",stateChanged,"acquire",acquire);
+            if(push)playbackAccepted=Boolean.TRUE.equals(invoke("updateMusicPlaybackState",token,wirePlayback));
             long now=android.os.SystemClock.elapsedRealtime();
             if(now-lastProgressAt>=1000){lastProgressAt=now;invoke("updateCurrentProgress",token,next.position);}
             reason=playbackAccepted?"":"原车媒体未接受播放信息";
-            android.util.Log.d("UniOemMedia","Playback accepted="+playbackAccepted+", claimed="+playClaimed);
-        }catch(Exception|LinkageError e){reason="原车媒体同步失败："+root(e).getClass().getSimpleName();android.util.Log.w("UniOemMedia",reason,e);}
+            if(push){
+                if(playbackAccepted)UniLog.done(LogTags.MEDIA,"media/oem-playback","source",next.source,"claimed",playClaimed);
+                else UniLog.fail(LogTags.MEDIA,"media/oem-playback","reason","oem-rejected-playback","source",next.source);
+            }
+            UniLog.d(LogTags.MEDIA,"原车媒体播放信息同步","tag","UniOemMedia","playbackAccepted",playbackAccepted,"claimed",playClaimed);
+        }catch(Exception|LinkageError e){reason="原车媒体同步失败："+root(e).getClass().getSimpleName();UniLog.w(LogTags.MEDIA,reason,e,"tag","UniOemMedia","stage","publish");UniLog.fail(LogTags.MEDIA,"media/oem-playback","reason","publish-failed","error",root(e).getClass().getSimpleName());}
     }
     private Object clientValue(Object proxy,Method method,Object[] args){
         Object object=objectMethod(proxy,method,args);if(object!=null)return object;
@@ -225,9 +244,14 @@ public final class OfficialMediaBridge {
     private boolean dispatch(String action){
         if(!running||!sample.available)return false;
         callbackCount++;lastCallback=action;
-        android.util.Log.i("UniOemMedia","OEM transport callback="+action);
+        UniLog.event(LogTags.MEDIA,"原车媒体透传播放控制","action",action,"tag","UniOemMedia","source",sample.source);
+        UniLog.enter(LogTags.MEDIA,"media/oem-transport","action",action,"source",sample.source);
         String source=sample.source;int session=generation;
-        main.post(()->{if(running&&session==generation&&sample.available&&source.equals(sample.source)){commands.send(action,source);changed.run();}});return true;
+        main.post(()->{if(running&&session==generation&&sample.available&&source.equals(sample.source)){
+            boolean accepted=commands.send(action,source);
+            if(accepted)UniLog.done(LogTags.MEDIA,"media/oem-transport","action",action,"source",source);
+            else UniLog.fail(LogTags.MEDIA,"media/oem-transport","action",action,"source",source,"reason","not-accepted");
+            changed.run();}});return true;
     }
     private Object playbackValue(Object proxy,Method method,Object[] args){
         Object object=objectMethod(proxy,method,args);if(object!=null)return object;

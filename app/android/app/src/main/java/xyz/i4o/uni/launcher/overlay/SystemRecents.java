@@ -2,14 +2,16 @@ package xyz.i4o.uni.launcher.overlay;
 
 import android.content.Context;
 import android.os.IBinder;
-import android.util.Log;
 import android.widget.Toast;
+import xyz.i4o.uni.launcher.log.LogTags;
+import xyz.i4o.uni.launcher.log.UniLog;
 
 /** Opens the OEM SystemUI task-card page; never constructs a substitute list. */
 public final class SystemRecents {
     private static int previousTask=-1;
     private SystemRecents(){}
     public static void toggle(Context context){
+        UniLog.enter(LogTags.SYS,"recents/open");
         // IP753 registers a dedicated recent-task panel rather than SystemUI's
         // AOSP recents callback. Resolve its declared exported action first.
         android.content.Intent oem=new android.content.Intent("ecarx.action.OPEN_RECENT_PANEL")
@@ -25,7 +27,7 @@ public final class SystemRecents {
                         if(task.id==previousTask){targetTask=task.id;break;}
                     if(targetTask<0)for(DisplayTasks.Task task:DisplayTasks.all(context))
                         if(!"com.ecarx.recents".equals(task.packageName)){targetTask=task.id;break;}
-                    if(targetTask>=0){tasks.moveTaskToFront(targetTask,0);return;}
+                    if(targetTask>=0){tasks.moveTaskToFront(targetTask,0);UniLog.done(LogTags.SYS,"recents/open","route","move-to-front","task",targetTask);return;}
                 }
                 if(!running.isEmpty())previousTask=running.get(0).id;
                 // Supply bounds before creation where the firmware supports
@@ -35,9 +37,11 @@ public final class SystemRecents {
                 android.app.ActivityOptions options=android.app.ActivityOptions.makeBasic();
                 options.setLaunchBounds(new android.graphics.Rect(0,0,real.widthPixels,
                     real.heightPixels-Math.round(real.widthPixels*96f/1920f)));
-                context.startActivity(oem,options.toBundle());return;
+                context.startActivity(oem,options.toBundle());
+                UniLog.done(LogTags.SYS,"recents/open","route","oem-panel");
+                return;
             }
-            catch(RuntimeException e){Log.w("UniRecents","OEM task panel unavailable",e);}
+            catch(RuntimeException e){UniLog.w(LogTags.SYS,"OEM task panel unavailable",e,"tag","UniRecents");UniLog.fail(LogTags.SYS,"recents/open","route","oem-panel","error",e.getClass().getSimpleName());}
         }
         try{
             Class<?> manager=Class.forName("android.os.ServiceManager");
@@ -45,13 +49,15 @@ public final class SystemRecents {
             Class<?> stub=Class.forName("com.android.internal.statusbar.IStatusBarService$Stub");
             Object service=stub.getMethod("asInterface",IBinder.class).invoke(null,binder);
             Class.forName("com.android.internal.statusbar.IStatusBarService").getMethod("toggleRecentApps").invoke(service);
+            UniLog.done(LogTags.SYS,"recents/open","route","statusbar");
             return;
-        }catch(ReflectiveOperationException|RuntimeException e){Log.w("UniRecents","Status bar recent-tasks API unavailable",e);}
+        }catch(ReflectiveOperationException|RuntimeException e){UniLog.w(LogTags.SYS,"Status bar recent-tasks API unavailable",e,"tag","UniRecents");}
         // Android 9 fallback uses the already declared platform INJECT_EVENTS
         // permission. Run off the main thread; input waits for its own dispatch.
         new Thread(()->{
-            try{if(new ProcessBuilder("input","keyevent","187").start().waitFor()==0)return;}
-            catch(Exception e){Log.w("UniRecents","App-switch key unavailable",e);}
+            try{if(new ProcessBuilder("input","keyevent","187").start().waitFor()==0){UniLog.done(LogTags.SYS,"recents/open","route","keyevent");return;}}
+            catch(Exception e){UniLog.w(LogTags.SYS,"App-switch key unavailable",e,"tag","UniRecents");}
+            UniLog.fail(LogTags.SYS,"recents/open","route","keyevent");
             new android.os.Handler(android.os.Looper.getMainLooper()).post(()->Toast.makeText(context,"系统任务列表暂不可用",Toast.LENGTH_SHORT).show());
         },"uni-recents").start();
     }

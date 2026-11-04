@@ -7,7 +7,6 @@ import android.net.wifi.WifiManager;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
-import android.util.Log;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -30,6 +29,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.json.JSONArray;
 import org.json.JSONObject;
+import xyz.i4o.uni.launcher.log.LogTags;
+import xyz.i4o.uni.launcher.log.UniLog;
 
 /** 局域网传文件：一个极简 HTTP 服务器，手机扫码后在浏览器里把 APK 上传到
  *  files/transfers/，再由 {@link #install} 走包安装器安装。服务器、网络接口枚举
@@ -93,11 +94,13 @@ public final class LanTransfer {
     /** 启动服务器；返回状态对象，失败时 running=false。 */
     public JSONObject start() {
         if (running.get()) return snapshot();
+        UniLog.enter(LogTags.TRANSFER,"transfer/serve");
         String[] resolved = resolveAddress();
         int chosen = bind(PREFERRED_PORT);
         if (chosen < 0) chosen = bind(0);
         if (chosen < 0) {
             ip = ""; url = ""; mode = "none"; port = -1;
+            UniLog.fail(LogTags.TRANSFER,"transfer/serve","reason","bind-failed");
             return snapshot();
         }
         port = chosen;
@@ -114,10 +117,12 @@ public final class LanTransfer {
         acceptThread.setDaemon(true);
         acceptThread.start();
         notifyChanged();
+        UniLog.done(LogTags.TRANSFER,"transfer/serve","port",port,"ip",ip,"mode",mode,"url",url);
         return snapshot();
     }
 
     public void stop() {
+        UniLog.i(LogTags.TRANSFER,"传输服务器已停止","tag",TAG,"port",port);
         running.set(false);
         synchronized (socketLock) {
             try { if (server != null) server.close(); } catch (Exception ignored) {}
@@ -135,9 +140,9 @@ public final class LanTransfer {
             s.setReuseAddress(true);
             s.bind(new java.net.InetSocketAddress(InetAddress.getByName("0.0.0.0"), port), 50);
             synchronized (socketLock) { server = s; }
-            Log.i(TAG, "listening on 0.0.0.0:" + s.getLocalPort());
+            UniLog.i(LogTags.TRANSFER, "listening on 0.0.0.0:" + s.getLocalPort(), "tag", TAG, "port", s.getLocalPort());
             return s.getLocalPort();
-        } catch (Exception e) { Log.w(TAG, "bind " + port + " failed: " + e); return -1; }
+        } catch (Exception e) { UniLog.w(LogTags.TRANSFER, "bind " + port + " failed: " + e, "tag", TAG, "port", port); return -1; }
     }
 
     private boolean listening() {
@@ -156,11 +161,11 @@ public final class LanTransfer {
                 if (s == null) return;
                 socket = s.accept();
             } catch (SocketException closed) {
-                if (running.get()) Log.i(TAG, "accept loop closed while running");
+                if (running.get()) UniLog.i(LogTags.TRANSFER, "accept loop closed while running", "tag", TAG);
                 return;
             } catch (Exception e) {
                 if (!running.get()) return;
-                Log.w(TAG, "accept error, keep listening", e);
+                UniLog.w(LogTags.TRANSFER, "accept error, keep listening", e, "tag", TAG);
                 continue;
             }
             ExecutorService w = workers;
@@ -183,7 +188,7 @@ public final class LanTransfer {
             int queryIdx = rawPath.indexOf('?');
             String path = queryIdx >= 0 ? rawPath.substring(0, queryIdx) : rawPath;
             String query = queryIdx >= 0 ? rawPath.substring(queryIdx + 1) : "";
-            Log.d(TAG, method + " " + rawPath);
+            UniLog.d(LogTags.TRANSFER, method + " " + rawPath, "tag", TAG);
             int contentLength = -1;
             String line;
             while ((line = readLine(in)) != null && !line.isEmpty()) {
@@ -223,7 +228,7 @@ public final class LanTransfer {
                     }
                 }
                 if (total != contentLength) { target.delete(); writeHead(out, "400 Bad Request", "text/plain; charset=utf-8", 0); out.flush(); return; }
-                Log.i(TAG, "received " + target.getName() + " (" + total + " bytes)");
+                UniLog.i(LogTags.TRANSFER, "received " + target.getName() + " (" + total + " bytes)", "tag", TAG, "name", target.getName(), "bytes", total);
                 refreshFiles();
                 notifyChanged();
                 writeHead(out, "200 OK", "text/plain; charset=utf-8", 2);
@@ -319,7 +324,7 @@ public final class LanTransfer {
         // 意外退出）时，在后台重建一次，避免手机端看到二维码却 ERR_CONNECTION_REFUSED。
         if (running.get() && !listening() && restarting.compareAndSet(false, true)) {
             new Thread(() -> {
-                try { recover(); } catch (Throwable t) { Log.w(TAG, "recover failed", t); }
+                try { recover(); } catch (Throwable t) { UniLog.w(LogTags.TRANSFER, "recover failed", t, "tag", TAG); }
                 finally { restarting.set(false); }
             }, "uni-transfer-recover").start();
         }
@@ -359,6 +364,7 @@ public final class LanTransfer {
         acceptThread.setDaemon(true);
         acceptThread.start();
         notifyChanged();
+        UniLog.i(LogTags.TRANSFER,"传输服务器已重建","tag",TAG,"port",port,"ip",ip,"mode",mode);
     }
 
     /** 把手机填的地址入队。只收 http/https，同址未完成的只留一条；非法返回 null。 */
@@ -385,7 +391,7 @@ public final class LanTransfer {
             created = new Link(newId(), url, host, System.currentTimeMillis());
             created.name = sanitize(filenameOf(url));
             links.add(created);
-            Log.i(TAG, "queued link " + url);
+            UniLog.i(LogTags.TRANSFER, "queued link " + url, "tag", TAG, "host", host);
         }
         persistAsync();
         notifyChanged();
@@ -395,16 +401,18 @@ public final class LanTransfer {
     /** 车机上点「下载」时才真正拉取文件，落到与上传同一个目录。 */
     public boolean downloadLink(String id) {
         Link link = find(id);
-        if (link == null) return false;
+        if (link == null) {UniLog.fail(LogTags.TRANSFER,"transfer/download","id",id,"reason","unknown-link");return false;}
         if ("downloading".equals(link.status)) return true;
         link.cancelled = false;
         link.error = "";
         link.status = "downloading";
+        UniLog.enter(LogTags.TRANSFER,"transfer/download","id",link.id,"url",link.url,"name",link.name);
         persistAsync();
         notifyChanged();
         try { downloader.execute(() -> runDownload(link)); } catch (Throwable t) {
             link.status = "failed";
             link.error = String.valueOf(t);
+            UniLog.fail(LogTags.TRANSFER,"transfer/download","id",link.id,"error",link.error);
             notifyChanged();
             return false;
         }
@@ -460,13 +468,15 @@ public final class LanTransfer {
             link.size = total;
             link.error = "";
             link.status = "done";
-            Log.i(TAG, "downloaded " + target.getName() + " (" + total + " bytes)");
+            UniLog.i(LogTags.TRANSFER, "downloaded " + target.getName() + " (" + total + " bytes)", "tag", TAG, "name", target.getName(), "bytes", total);
+            UniLog.done(LogTags.TRANSFER,"transfer/download","id",link.id,"name",target.getName(),"bytes",total);
             refreshFiles();
         } catch (Throwable t) {
             if (part != null) part.delete();
             link.status = link.cancelled ? "queued" : "failed";
             link.error = link.cancelled ? "" : String.valueOf(t.getMessage() == null ? t.getClass().getSimpleName() : t.getMessage());
-            if (!link.cancelled) Log.w(TAG, "download failed: " + link.url, t);
+            if (!link.cancelled) {UniLog.w(LogTags.TRANSFER, "download failed: " + link.url, t, "tag", TAG);UniLog.fail(LogTags.TRANSFER,"transfer/download","id",link.id,"error",link.error);}
+            else UniLog.skip(LogTags.TRANSFER,"transfer/download","id",link.id,"reason","cancelled");
         } finally {
             persistAsync();
             notifyChanged();
@@ -553,7 +563,7 @@ public final class LanTransfer {
         }
         try (FileOutputStream fos = new FileOutputStream(linkStore)) {
             fos.write(arr.toString().getBytes("UTF-8"));
-        } catch (Exception e) { Log.w(TAG, "persist links failed", e); }
+        } catch (Exception e) { UniLog.w(LogTags.TRANSFER, "persist links failed", e, "tag", TAG); }
     }
 
     private void loadLinks() {
@@ -576,7 +586,7 @@ public final class LanTransfer {
                     links.add(l);
                 }
             }
-        } catch (Exception e) { Log.w(TAG, "load links failed", e); }
+        } catch (Exception e) { UniLog.w(LogTags.TRANSFER, "load links failed", e, "tag", TAG); }
     }
 
     private static byte[] readAll(File f) throws Exception {
@@ -594,13 +604,15 @@ public final class LanTransfer {
 
     public boolean install(String name) {
         File f = file(name);
-        if (f == null) return false;
+        if (f == null) {UniLog.fail(LogTags.TRANSFER,"transfer/install","name",name,"reason","not-found");return false;}
+        UniLog.enter(LogTags.TRANSFER,"transfer/install","name",name,"bytes",f.length());
         try {
             if (!context.getPackageManager().canRequestPackageInstalls()) {
                 Intent settings = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
                         Uri.parse("package:" + context.getPackageName()));
                 settings.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
                 context.startActivity(settings);
+                UniLog.done(LogTags.TRANSFER,"transfer/install","name",name,"outcome","permission-prompt");
                 return true;
             }
             Uri uri = Uri.parse("content://" + TransferFileProvider.AUTHORITY + "/" + Uri.encode(f.getName()));
@@ -610,8 +622,10 @@ public final class LanTransfer {
             intent.putExtra(Intent.EXTRA_INSTALLER_PACKAGE_NAME, context.getPackageName());
             intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
             context.startActivity(intent);
+            UniLog.done(LogTags.TRANSFER,"transfer/install","name",name,"bytes",f.length(),"outcome","installer-started");
             return true;
         } catch (Exception e) {
+            UniLog.fail(LogTags.TRANSFER,"transfer/install","name",name,"error",String.valueOf(e.getMessage()));
             return false;
         }
     }

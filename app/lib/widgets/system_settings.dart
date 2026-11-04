@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../controller/launcher_controller.dart';
 import '../theme/design_tokens.dart';
 import '../theme/launcher_theme.dart';
+import 'diagnostics_settings.dart';
 import 'glass_surface.dart';
 import 'native_slice_builder.dart';
 
@@ -50,10 +51,17 @@ class SystemSettingsPanel extends StatelessWidget {
         ];
         return ListView.builder(
             key: const PageStorageKey('system-settings-scroll'),
-            itemCount: rows.length + 1,
+            itemCount: rows.length + 2,
             itemBuilder: (context, index) {
-              if (index > 0) {
-                final entry = rows[index - 1];
+              if (index == 0) {
+                // 诊断日志放在最前面：车机上出问题时，先导一份诊断包
+                // 是最有效的取证手段，不应该藏在设置页最底部。
+                return Padding(
+                    padding: EdgeInsets.only(bottom: Design.px(18)),
+                    child: const DiagnosticsSettings());
+              }
+              if (index > 1) {
+                final entry = rows[index - 2];
                 if (entry['officialRoot'] == true) {
                   return Padding(
                       padding: EdgeInsets.only(bottom: Design.px(6)),

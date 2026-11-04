@@ -23,12 +23,56 @@ import java.util.HashMap;
 import java.util.Map;
 import org.json.JSONObject;
 import xyz.i4o.uni.launcher.integration.NavigationChrome;
+import xyz.i4o.uni.launcher.log.LogTags;
+import xyz.i4o.uni.launcher.log.UniLog;
 import xyz.i4o.uni.launcher.overlay.SystemNavigationPolicy;
 import xyz.i4o.uni.launcher.platform.LiveNavigationHost;
 
 /** Home window and Flutter bridge; shared integrations live in LauncherRuntime. */
 public final class MainActivity extends FlutterActivity {
     private static java.lang.ref.WeakReference<MainActivity> active=new java.lang.ref.WeakReference<>(null);
+
+    /** 存储权限的请求码：导出诊断包要往公共目录写文件。 */
+    private static final int REQUEST_STORAGE=4107;
+
+    /** 等存储权限结果的回调；系统弹窗是异步的，结果要等回调。 */
+    private static java.util.function.Consumer<Boolean> pendingStorage;
+
+    /**
+     * 申请导出诊断包需要的存储权限。
+     *
+     * <p>Android 9 及以下要往公共 Download 目录写文件，没有
+     * {@code WRITE_EXTERNAL_STORAGE} 会直接失败；Android 10+ 走 MediaStore，
+     * 不需要任何权限，所以直接算「已授予」。
+     *
+     * <p>读权限一并申请：清理旧诊断包要读 MediaStore 集合才能列出自己导出的包。
+     * 但**导出能不能做只看写权限** —— 读权限被拒不该连累导出。
+     *
+     * @param done 回调：true 表示可以导出
+     */
+    public static void requestStoragePermission(android.content.Context context, java.util.function.Consumer<Boolean> done){
+        if(android.os.Build.VERSION.SDK_INT>=29){done.accept(true);return;}
+        MainActivity owner=active.get();
+        if(owner==null||!owner.hasWindowFocus()){done.accept(false);return;}
+        if(storageWritable(owner)){done.accept(true);return;}
+        pendingStorage=done;
+        owner.requestPermissions(new String[]{
+                android.Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                android.Manifest.permission.READ_EXTERNAL_STORAGE},REQUEST_STORAGE);
+    }
+
+    /** 写外部存储权限是否已授予（能不能往公共目录写文件）。 */
+    public static boolean storageWritable(android.content.Context context){
+        if(android.os.Build.VERSION.SDK_INT>=29)return true;
+        return context.checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)==PackageManager.PERMISSION_GRANTED;
+    }
+
+    /** 读外部存储权限是否已授予（能不能列出 MediaStore 里自己导出的包）。 */
+    public static boolean storageReadable(android.content.Context context){
+        if(android.os.Build.VERSION.SDK_INT>=33)return true;
+        return context.checkSelfPermission(android.Manifest.permission.READ_EXTERNAL_STORAGE)==PackageManager.PERMISSION_GRANTED;
+    }
+
     public static void requestBootUpdateCheck(){
         MainActivity a=active.get();
         if(a!=null)a.runOnUiThread(()->{if(a.otaEvents!=null)a.otaEvents.invokeMethod("boot-check",null);});
@@ -70,10 +114,10 @@ public final class MainActivity extends FlutterActivity {
             if(cached!=null&&getPackageName().equals(cached.packageName)
                 &&cached.versionCode<=installed.versionCode&&cached.signatures!=null&&installed.signatures!=null
                 &&java.util.Arrays.equals(cached.signatures,installed.signatures)){
-                if(!apk.delete())android.util.Log.w("UniOta","Unable to remove installed update cache");
+                if(!apk.delete())UniLog.w(LogTags.OTA,"已安装的更新缓存无法删除");
             }
         }catch(RuntimeException|PackageManager.NameNotFoundException e){
-            android.util.Log.w("UniOta","Unable to inspect update cache",e);
+            UniLog.w(LogTags.OTA,"无法检查更新缓存",e);
         }
     }
 
@@ -96,6 +140,8 @@ public final class MainActivity extends FlutterActivity {
         super.configureFlutterEngine(engine);
         spectrumBridge=xyz.i4o.uni.launcher.audio.SpectrumBridge.attach(this,engine);
         ambientBridge=xyz.i4o.uni.launcher.ambient.AmbientLightBridge.attach(this,engine);
+        // 日志通道：让 Dart 侧的日志与原生侧落进同一个文件。
+        xyz.i4o.uni.launcher.log.LogBridge.attach(this,engine);
         if(rt==null)rt=LauncherRuntime.get(this);
         mapHost=new LiveNavigationHost(this,engine.getDartExecutor().getBinaryMessenger(),engine.getRenderer());
         channel=new MethodChannel(engine.getDartExecutor().getBinaryMessenger(),"xyz.i4o.uni.launcher/platform");
@@ -165,14 +211,17 @@ public final class MainActivity extends FlutterActivity {
     }
 
     @Override protected void onCreate(Bundle saved){
-        long traceStart=StartupTrace.mark();
+        StartupTrace.mark("onCreate");
+        StartupTrace.install(this);
+        UniLog.init(this);
+        UniLog.enter(LogTags.APP,"launcher/onCreate");
         rt=LauncherRuntime.get(this);
         rt.scheduleBootAutoPlay();
-        StartupTrace.began(traceStart);StartupTrace.runtime(StartupTrace.mark());
+        StartupTrace.mark("runtime");
         initialSettings=isSettingsIntent(getIntent());
         super.onCreate(saved);getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
         // 隐藏 API 豁免：频谱的次选路径要反射 audioSessionId（公开 SDK 里没有）。
-        android.util.Log.i("UniState","隐藏 API 豁免 "+xyz.i4o.uni.launcher.platform.HiddenApiCompat.tryExempt());
+        UniLog.i(LogTags.APP,"隐藏 API 豁免",xyz.i4o.uni.launcher.platform.HiddenApiCompat.tryExempt());
         // Android can create a separate HOME task after a regular app launch.
         // Keep one host/engine so hidden instances cannot retain map displays.
         MainActivity previous=active.get();active=new java.lang.ref.WeakReference<>(this);
@@ -182,10 +231,16 @@ public final class MainActivity extends FlutterActivity {
             if(r-l!=orr-ol||b-t!=ob-ot)v.post(this::publish);
         });
         dispatchIntent(getIntent());publish();
-        StartupTrace.window(StartupTrace.mark());
+        StartupTrace.mark("window");
         final android.view.View traceRoot=getWindow().getDecorView();
         traceRoot.getViewTreeObserver().addOnPreDrawListener(new android.view.ViewTreeObserver.OnPreDrawListener(){
-            public boolean onPreDraw(){traceRoot.getViewTreeObserver().removeOnPreDrawListener(this);StartupTrace.firstDraw();return true;}
+            public boolean onPreDraw(){
+                traceRoot.getViewTreeObserver().removeOnPreDrawListener(this);
+                StartupTrace.mark("firstDraw");
+                StartupTrace.summary();
+                UniLog.done(LogTags.APP,"launcher/onCreate","settings",initialSettings);
+                return true;
+            }
         });
     }
 
@@ -203,7 +258,7 @@ public final class MainActivity extends FlutterActivity {
         // Invariant: a telemetry-only packet must stay small. If a payload key ever
         // leaks back into the delta pack, say so instead of silently stalling frames.
         if(!staticIncluded&&cached.length()>65536)
-            android.util.Log.w("UniPerf","Telemetry packet "+cached.length()+" chars; payload leaked into the delta pack");
+            UniLog.w(LogTags.APP,"遥测包过大，疑似负载泄漏进增量包","chars",cached.length());
     }
 
     /** dumpsys --uni-state 专用：用全新游标强制携带全部分组与设置目录。 */
@@ -239,7 +294,7 @@ public final class MainActivity extends FlutterActivity {
                 .put("systemNavigationHidden",rt.prefs().getBoolean("systemNavigationHidden",false))
                 .put("systemNavigationGranted",SystemNavigationPolicy.granted(this))
                 .put("globalDock",GlobalDockService.snapshot(this));
-        }catch(Exception e){android.util.Log.e("UniState","Window snapshot failed",e);}
+        }catch(Exception e){UniLog.e(LogTags.APP,"窗口快照失败",e);}
     }
 
     private void handle(JSONObject request)throws Exception{
@@ -321,6 +376,7 @@ public final class MainActivity extends FlutterActivity {
 
     @Override protected void onStart(){
         super.onStart();
+        UniLog.enter(LogTags.APP,"launcher/onStart");
         // Reconcile stale legacy UNI policy after upgrades even when the global
         // dock is off; both switches keep their own persisted state.
         SystemNavigationPolicy.setHidden(this,rt.prefs(),rt.prefs().getBoolean("systemNavigationHidden",false));
@@ -335,6 +391,7 @@ public final class MainActivity extends FlutterActivity {
         super.onResume();if(chrome!=null)chrome.apply();
         OtaBootReceiver.scheduleLauncherBroadcasts(this);
         GlobalDockService.ensureStarted(this);publish();
+        UniLog.done(LogTags.APP,"launcher/onResume");
     }
 
     @Override protected void onStop(){
@@ -346,12 +403,26 @@ public final class MainActivity extends FlutterActivity {
         }
         if(mapHost!=null)mapHost.setVisible(false);
         super.onStop();
+        UniLog.enter(LogTags.APP,"launcher/onStop");
     }
 
     @Override public void onWindowFocusChanged(boolean focus){super.onWindowFocusChanged(focus);if(focus&&chrome!=null)chrome.apply();}
-    @Override public void onConfigurationChanged(Configuration c){super.onConfigurationChanged(c);publish();}
+    @Override public void onConfigurationChanged(Configuration c){super.onConfigurationChanged(c);UniLog.event(LogTags.APP,"配置变化", "orientation", c.orientation);publish();}
     @Override public void onRequestPermissionsResult(int requestCode,String[] permissions,int[] results){
-        super.onRequestPermissionsResult(requestCode,permissions,results);if(requestCode==4106)xyz.i4o.uni.launcher.audio.SpectrumBridge.permissionChanged();if(requestCode==4105){try{rt.handle(new JSONObject().put("action","calendar-refresh"));}catch(Exception ignored){}publish();}
+        super.onRequestPermissionsResult(requestCode,permissions,results);
+        // 权限回调是「频谱/日历到底能不能用」的第一现场，结果必须落盘：
+        // 否则诊断包里只能看到「频谱没数据」，看不到「权限被拒」。
+        UniLog.i(LogTags.APP,"权限回调","requestCode",requestCode,"permissions",java.util.Arrays.toString(permissions),"results",java.util.Arrays.toString(results));
+        if(requestCode==4106)xyz.i4o.uni.launcher.audio.SpectrumBridge.permissionChanged();if(requestCode==4105){try{rt.handle(new JSONObject().put("action","calendar-refresh"));}catch(Exception ignored){}publish();}
+        if(requestCode==REQUEST_STORAGE){
+            // 存储权限的结果要交回给发起方：界面在等它，才知道能不能导出。
+            java.util.function.Consumer<Boolean> done=pendingStorage;pendingStorage=null;
+            if(done!=null){
+                boolean writable=storageWritable(this),readable=storageReadable(this);
+                UniLog.i(LogTags.APP,"存储权限回调","writable",writable,"readable",readable);
+                done.accept(writable);
+            }
+        }
     }
 
     @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){
@@ -369,7 +440,7 @@ public final class MainActivity extends FlutterActivity {
                 Map<String,Object> result=importWallpaper(uri);
                 runOnUiThread(()->{try{pending.success(result);}catch(Exception ignored){}});
             }catch(Exception|OutOfMemoryError e){
-                android.util.Log.w("UniWallpaper","Image import failed",e);
+                UniLog.w(LogTags.WALLPAPER,"壁纸导入失败",e);
                 runOnUiThread(()->{try{pending.error("invalid-image","无法读取这张图片",null);}catch(Exception ignored){}});
             }
         },"uni-wallpaper").start();
@@ -439,11 +510,15 @@ public final class MainActivity extends FlutterActivity {
             (intent.getComponent()!=null&&"xyz.i4o.uni.launcher.DesktopSettings".equals(intent.getComponent().getClassName())));
     }
     private void dispatchIntent(Intent intent){
+        // 桌面入口有两种：回到桌面 / 直接进设置。分不清是哪一种时，
+        // 「用户点了没反应」和「点了进错地方」都很难查，这里明确记一笔。
+        boolean settings=isSettingsIntent(intent);
+        UniLog.event(LogTags.APP,"分发入口请求","target",settings?"settings":"home");
         if(intent!=null&&intent.getBooleanExtra("uniSpectrumPermission",false)){
             getWindow().getDecorView().post(()->requestPermissions(new String[]{android.Manifest.permission.RECORD_AUDIO},4106));
             intent.removeExtra("uniSpectrumPermission");
         }
-        if(channel!=null)channel.invokeMethod(isSettingsIntent(intent)?"open-settings":"home",null);
+        if(channel!=null)channel.invokeMethod(settings?"open-settings":"home",null);
     }
 
     @Override protected void onNewIntent(Intent intent){
@@ -453,6 +528,7 @@ public final class MainActivity extends FlutterActivity {
     }
 
     @Override protected void onDestroy(){
+        UniLog.enter(LogTags.APP,"launcher/onDestroy");
         if(wallpaperResult!=null){wallpaperResult.success(null);wallpaperResult=null;}
         if(rt!=null)rt.removeListener(this);
         if(mapHost!=null)mapHost.close();

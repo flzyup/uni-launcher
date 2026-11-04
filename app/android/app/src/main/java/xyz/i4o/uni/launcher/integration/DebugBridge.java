@@ -8,6 +8,8 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import xyz.i4o.uni.launcher.log.LogTags;
+import xyz.i4o.uni.launcher.log.UniLog;
 
 /** Read back ADB state; all property writes and daemon restarts run off the UI thread. */
 public final class DebugBridge {
@@ -42,14 +44,16 @@ public final class DebugBridge {
     public JSONObject snapshot(){
         JSONObject result=new JSONObject();try{result.put("adb",usb).put("network",network).put("busy",busy).put("detail",detail);}catch(Exception ignored){}return result;
     }
-    public void refresh(){worker.execute(()->{read();notifyChange();});}
+    public void refresh(){UniLog.enter(LogTags.DEBUG,"debug/refresh");worker.execute(()->{read();notifyChange();UniLog.done(LogTags.DEBUG,"debug/refresh","usb",usb,"network",network);});}
     public void startup(){
+        UniLog.enter(LogTags.DEBUG,"debug/startup");
         worker.execute(()->{
             read();
             if(prefs.getBoolean("debugAdbDesired",true)&&!usb)writeAdb(true);
             read();
             if(prefs.getBoolean("debugNetworkDesired",true)&&!network)writeNetwork(true);
             read();notifyChange();
+            UniLog.done(LogTags.DEBUG,"debug/startup","usb",usb,"network",network);
         });
     }
     public void change(boolean isNetwork,boolean enabled){
@@ -58,14 +62,20 @@ public final class DebugBridge {
         worker.execute(()->{if(isNetwork)writeNetwork(enabled);else writeAdb(enabled);read();busy=false;notifyChange();});
     }
     private void writeAdb(boolean enabled){
+        UniLog.enter(LogTags.DEBUG,"debug/write","target","usb","enabled",enabled);
         try{
             if(!Settings.Global.putInt(context.getContentResolver(),"adb_enabled",enabled?1:0))throw new IllegalStateException("系统未接受 ADB 设置");
             if((Settings.Global.getInt(context.getContentResolver(),"adb_enabled",0)==1)!=enabled)throw new IllegalStateException("ADB 回读不一致");
             detail="";
-        }catch(Exception e){detail="ADB 设置失败："+message(e);}
+            UniLog.done(LogTags.DEBUG,"debug/write","target","usb","enabled",enabled);
+        }catch(Exception e){
+            detail="ADB 设置失败："+message(e);
+            UniLog.fail(LogTags.DEBUG,"debug/write","target","usb","enabled",enabled,"error",detail);
+        }
     }
     private void writeNetwork(boolean enabled){
         String changedKey=null,oldValue=null;
+        UniLog.enter(LogTags.DEBUG,"debug/write","target","network","enabled",enabled);
         try{
             String service=prop("service.adb.tcp.port"),persist=prop("persist.adb.tcp.port");
             String target=enabled?"5555":"-1";
@@ -90,9 +100,11 @@ public final class DebugBridge {
             for(int i=0;i<16;i++){if(listening()==enabled){matched=true;break;}Thread.sleep(350);}
             if(!matched)throw new IllegalStateException("网络 ADB 服务状态未达到预期");
             detail="";
+            UniLog.done(LogTags.DEBUG,"debug/write","target","network","enabled",enabled,"port",enabled?"5555":"-1");
         }catch(Exception e){
             if(changedKey!=null)try{set(changedKey,oldValue);}catch(Exception rollback){e.addSuppressed(rollback);}
             detail="网络 ADB 设置失败："+message(e);
+            UniLog.fail(LogTags.DEBUG,"debug/write","target","network","enabled",enabled,"port",enabled?"5555":"-1","error",detail);
         }
     }
     private static String message(Throwable e){

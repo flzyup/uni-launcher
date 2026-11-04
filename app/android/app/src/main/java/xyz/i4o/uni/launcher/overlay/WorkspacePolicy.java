@@ -6,11 +6,12 @@ import android.graphics.Rect;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.DisplayMetrics;
-import android.util.Log;
 import android.view.WindowManager;
 import java.lang.reflect.Method;
 import java.util.List;
 import org.json.JSONObject;
+import xyz.i4o.uni.launcher.log.LogTags;
+import xyz.i4o.uni.launcher.log.UniLog;
 
 /** Android 9 task bounds reserve space without synthetic insets. IP753's OEM
  * navigation library applies overscan repeatedly, leaving large empty areas.
@@ -31,6 +32,8 @@ public final class WorkspacePolicy {
     private boolean running,available;
     private final boolean compatibilityOnly;
     private int resized;
+    /** 上一次记过日志的已调整任务数：轮询每秒一次，只在数量变化时落一条。 */
+    private int loggedResized=-1;
     private final Runnable check=new Runnable(){public void run(){
         if(!running)return;
         update();if(available)handler.postDelayed(this,POLL_MS);
@@ -48,9 +51,9 @@ public final class WorkspacePolicy {
             stacks=type.getMethod("getAllStackInfos");
             resize=type.getMethod("resizeStack",int.class,Rect.class,boolean.class,boolean.class,boolean.class,int.class);
             available=true;
-        }catch(Exception e){Log.w("UniWorkspace","Task workspace API unavailable",e);}
+        }catch(Exception e){UniLog.w(LogTags.SYS,"Task workspace API unavailable",e,"tag","UniWorkspace");UniLog.fail(LogTags.SYS,"sys/workspace","reason","api-unavailable","error",e.getClass().getSimpleName());}
     }
-    public void start(){running=true;handler.post(check);}
+    public void start(){running=true;UniLog.enter(LogTags.SYS,"sys/workspace","action","start","compatibilityOnly",compatibilityOnly);handler.post(check);UniLog.done(LogTags.SYS,"sys/workspace","action","start","compatibilityOnly",compatibilityOnly);}
     public boolean available(){return available;}
     public int resized(){return resized;}
     public static int systemBarHeight(Context c,SharedPreferences p){
@@ -103,7 +106,9 @@ public final class WorkspacePolicy {
                 }
                 resize(id,target);resized++;
             }
-        }catch(Exception e){available=false;Log.w("UniWorkspace","Unable to reserve task workspace",e);}
+            // 这一段每秒跑一次：只有调整数量变了才落盘，避免把日志文件写满。
+            if(resized!=loggedResized){loggedResized=resized;UniLog.i(LogTags.SYS,"工作区已预留","tasks",resized);}
+        }catch(Exception e){available=false;UniLog.w(LogTags.SYS,"Unable to reserve task workspace",e,"tag","UniWorkspace");UniLog.fail(LogTags.SYS,"sys/workspace","reason","resize-failed","error",e.getClass().getSimpleName());}
     }
     private void restoreOne(int id,Rect current)throws Exception{
         String key=""+id;if(!originals.has(key))return;
@@ -113,13 +118,15 @@ public final class WorkspacePolicy {
     }
     public void stopAndRestore(){
         running=false;handler.removeCallbacks(check);
+        UniLog.enter(LogTags.SYS,"sys/workspace","action","stop","resized",resized);
         if(available)try{
             for(Object info:(List<?>)stacks.invoke(manager)){
                 Class<?> t=info.getClass();
                 if(t.getField("displayId").getInt(info)==0)
                     restoreOne(t.getField("stackId").getInt(info),(Rect)t.getField("bounds").get(info));
             }
-        }catch(Exception e){Log.w("UniWorkspace","Unable to restore task workspace",e);return;}
+        }catch(Exception e){UniLog.w(LogTags.SYS,"Unable to restore task workspace",e,"tag","UniWorkspace");UniLog.fail(LogTags.SYS,"sys/workspace","action","stop","error",e.getClass().getSimpleName());return;}
         if(originals.length()==0)prefs.edit().remove(SAVED).apply();
+        UniLog.done(LogTags.SYS,"sys/workspace","action","stop","resized",resized);
     }
 }

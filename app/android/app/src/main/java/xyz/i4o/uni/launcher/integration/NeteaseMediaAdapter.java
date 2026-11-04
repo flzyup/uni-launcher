@@ -10,6 +10,8 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.view.KeyEvent;
 import org.json.JSONObject;
+import xyz.i4o.uni.launcher.log.LogTags;
+import xyz.i4o.uni.launcher.log.UniLog;
 
 /**
  * NetEase IoT session compatibility, verified against 6.2.81 (6002081).
@@ -39,9 +41,14 @@ public final class NeteaseMediaAdapter {
     public void setController(final MediaController candidate) {
         MediaController next = supports(candidate) ? candidate : null;
         if (controller == next) return;
+        String previous = controller == null ? "" : controller.getPackageName();
         stop();
-        if (next == null) return;
+        if (next == null) {
+            if (!previous.isEmpty()) UniLog.i(LogTags.MEDIA, "网易云会话已释放", "previous", previous);
+            return;
+        }
         controller = next;
+        UniLog.i(LogTags.MEDIA, "网易云会话已接管", "source", next.getPackageName(), "previous", previous);
         callback = new MediaController.Callback() {
             @Override public void onMetadataChanged(MediaMetadata metadata) {
                 if (controller != candidate || callback != this) return;
@@ -108,7 +115,10 @@ public final class NeteaseMediaAdapter {
         if (!supports(controller)) return false;
         try {
             if ("seek".equals(action)) {
-                if (positionMs < 0) return false;
+                if (positionMs < 0) {
+                    UniLog.fail(LogTags.MEDIA, "media/transport", "action", action, "route", "netease", "reason", "negative-position");
+                    return false;
+                }
                 MediaMetadata metadata = controller.getMetadata();
                 long duration = metadata == null ? 0 : metadata.getLong(MediaMetadata.METADATA_KEY_DURATION);
                 long position = Math.min(positionMs, (long) Integer.MAX_VALUE * 1000L);
@@ -116,6 +126,7 @@ public final class NeteaseMediaAdapter {
                 // NetEase onSeekTo accepts milliseconds, then converts to integer seconds
                 // for seek_to_action -> IIotClient.seekReset { time: seconds }.
                 controller.getTransportControls().seekTo(position);
+                UniLog.done(LogTags.MEDIA, "media/transport", "action", action, "route", "netease", "positionMs", position, "durationMs", duration);
                 return true;
             }
             int key;
@@ -130,16 +141,32 @@ public final class NeteaseMediaAdapter {
                 key = state == null ? KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE
                         : state.getState() == PlaybackState.STATE_PLAYING
                         ? KeyEvent.KEYCODE_MEDIA_PAUSE : KeyEvent.KEYCODE_MEDIA_PLAY;
-            } else return false;
-            if ((controller.getFlags() & MediaSession.FLAG_HANDLES_MEDIA_BUTTONS) == 0) return false;
+} else {
+                UniLog.fail(LogTags.MEDIA, "media/transport", "action", action, "route", "netease", "reason", "unknown-action");
+                return false;
+            }
+            if ((controller.getFlags() & MediaSession.FLAG_HANDLES_MEDIA_BUTTONS) == 0) {
+                UniLog.fail(LogTags.MEDIA, "media/transport", "action", action, "route", "netease", "reason", "no-media-button-flag", "flags", controller.getFlags());
+                return false;
+            }
             // Playing from a no-focus state is rejected by the broadcast receiver.
             // TransportControls reaches the app's onPlay callback, which requests focus.
-            if (wantsPlay) {controller.getTransportControls().play();return true;}
+            if (wantsPlay) {
+                controller.getTransportControls().play();
+                UniLog.done(LogTags.MEDIA, "media/transport", "action", action, "route", "netease", "reason", "play-requested");
+                return true;
+            }
             long now = SystemClock.uptimeMillis();
             // The actual NetEase receiver ignores DOWN and consumes only UP.
             controller.dispatchMediaButtonEvent(new KeyEvent(now, now, KeyEvent.ACTION_DOWN, key, 0));
-            return controller.dispatchMediaButtonEvent(new KeyEvent(now, now, KeyEvent.ACTION_UP, key, 0));
-        } catch (RuntimeException unavailableSession) { return false; }
+            boolean accepted = controller.dispatchMediaButtonEvent(new KeyEvent(now, now, KeyEvent.ACTION_UP, key, 0));
+            if (accepted) UniLog.done(LogTags.MEDIA, "media/transport", "action", action, "route", "netease", "keyCode", key);
+            else UniLog.fail(LogTags.MEDIA, "media/transport", "action", action, "route", "netease", "reason", "event-not-consumed", "keyCode", key);
+            return accepted;
+        } catch (RuntimeException unavailableSession) {
+            UniLog.w(LogTags.MEDIA, "网易云播放控制失败", "action", action, "route", "netease", "error", unavailableSession.getClass().getSimpleName(), "reason", String.valueOf(unavailableSession.getMessage()));
+            return false;
+        }
     }
 
     public boolean command(String action) { return command(action, -1); }
@@ -161,10 +188,14 @@ public final class NeteaseMediaAdapter {
     private void readMetadata(MediaMetadata metadata) {
         if (metadata == null) { track = ""; mediaId = ""; clearLyrics(); return; }
         mediaId = text(metadata.getString(MediaMetadata.METADATA_KEY_MEDIA_ID));
-        String identity = mediaId + "\n"
-                + text(metadata.getString(MediaMetadata.METADATA_KEY_TITLE)) + "\n"
-                + text(metadata.getString(MediaMetadata.METADATA_KEY_ARTIST));
-        if (!identity.equals(track)) { track = identity; clearLyrics(); }
+        String title = text(metadata.getString(MediaMetadata.METADATA_KEY_TITLE));
+        String artist = text(metadata.getString(MediaMetadata.METADATA_KEY_ARTIST));
+        String identity = mediaId + "\n" + title + "\n" + artist;
+        if (!identity.equals(track)) {
+            track = identity;
+            UniLog.done(LogTags.MEDIA, "media/metadata", "source", "netease", "mediaId", mediaId, "title", title, "artist", artist);
+            clearLyrics();
+        }
         String value = text(metadata.getString(LYRIC_KEY));
         if (!value.isEmpty()) setLyrics(value, "netease-media-metadata");
         else if ("netease-media-metadata".equals(lyricsSource)) clearLyrics();
@@ -172,11 +203,23 @@ public final class NeteaseMediaAdapter {
 
     private void setLyrics(String value, String source) {
         value = text(value);
+        // The player republishes the same lyrics; log the change only.
+        boolean changed = !value.equals(lyrics) || !source.equals(lyricsSource);
         lyrics = value;
         lyricsSource = value.isEmpty() ? "" : source;
+        if (!changed) return;
+        if (lyricsSource.isEmpty()) {
+            UniLog.skip(LogTags.LYRIC, "lyric/resolve", "source", source, "reason", "empty-payload");
+        } else {
+            UniLog.done(LogTags.LYRIC, "lyric/resolve", "source", lyricsSource, "length", lyrics.length());
+        }
     }
 
-    private void clearLyrics() { lyrics = ""; lyricsSource = ""; lyricLine = ""; lyricPrevious = ""; lyricNext = ""; }
+    private void clearLyrics() {
+        boolean had = !lyrics.isEmpty() || !lyricsSource.isEmpty() || !lyricLine.isEmpty();
+        lyrics = ""; lyricsSource = ""; lyricLine = ""; lyricPrevious = ""; lyricNext = "";
+        if (had) UniLog.i(LogTags.LYRIC, "网易云歌词已清空", "reason", "player-cleared");
+    }
     private static String text(String value) {
         return value != null && value.length() <= MAX_LYRIC_LENGTH ? value : "";
     }

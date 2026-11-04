@@ -11,6 +11,8 @@ import org.json.JSONObject;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import xyz.i4o.uni.launcher.log.LogTags;
+import xyz.i4o.uni.launcher.log.UniLog;
 
 /** Resolve installed navigation only; never launch a guessed component. */
 public final class NavigationApps {
@@ -23,6 +25,10 @@ public final class NavigationApps {
     private final PackageQueries queries;
     private String autoCandidate="";
     private long autoResolvedAt;
+    // 仅用于日志：记录最近一次的选择结果。selected() 会被广播与快照高频调用，
+    // 每次都打印会把同一行刷满文件。
+    private String tracedSelection="";
+    private String autoReason="";
     public NavigationApps(Context context,SharedPreferences prefs){
         this.context=context.getApplicationContext();
         if(this.context==null)throw new IllegalArgumentException("Application context required");
@@ -35,12 +41,23 @@ public final class NavigationApps {
     }
     public String selected(){
         String saved=prefs.getString("navigationPackage","auto");
-        if(!"auto".equals(saved))return saved;
+        if(!"auto".equals(saved)){traceSelection(saved,"pinned","用户指定的导航应用");return saved;}
         long now=android.os.SystemClock.elapsedRealtime();
         if(autoCandidate.isEmpty()||now-autoResolvedAt>=1000){
             autoCandidate=resolveAuto();autoResolvedAt=now;
         }
+        traceSelection(autoCandidate,"auto",autoReason);
         return autoCandidate;
+    }
+    // 只在选择结果变化时记录：结果本身稳定，变化才是维护者要看的状态。
+    private synchronized void traceSelection(String pkg,String source,String reason){
+        String key=pkg+"|"+source;
+        if(key.equals(tracedSelection))return;
+        tracedSelection=key;
+        if(pkg.isEmpty()){UniLog.fail(LogTags.NAV,"nav/select","source",source,"reason",reason);return;}
+        UniLog.enter(LogTags.NAV,"nav/select","source",source);
+        UniLog.i(LogTags.NAV,"导航应用已选择","package",pkg,"source",source,"reason",reason);
+        UniLog.done(LogTags.NAV,"nav/select","package",pkg,"source",source);
     }
     private String resolveAuto(){
         try{
@@ -52,16 +69,17 @@ public final class NavigationApps {
                 // can coexist without forcing a manual source selection.
                 for(android.app.ActivityManager.RunningTaskInfo task:manager.getRunningTasks(32)){
                     String pkg=task.topActivity==null?"":task.topActivity.getPackageName();
-                    for(String p:CANDIDATES)if(p.equals(pkg)&&queries.get(p).launch!=null)return p;
+                    for(String p:CANDIDATES)if(p.equals(pkg)&&queries.get(p).launch!=null){autoReason="正在前台运行的地图任务";return p;}
                 }
                 for(android.app.ActivityManager.RecentTaskInfo task:manager.getRecentTasks(32,0)){
                     String pkg=task.baseIntent==null||task.baseIntent.getComponent()==null?"":
                         task.baseIntent.getComponent().getPackageName();
-                    for(String p:CANDIDATES)if(p.equals(pkg)&&queries.get(p).launch!=null)return p;
+                    for(String p:CANDIDATES)if(p.equals(pkg)&&queries.get(p).launch!=null){autoReason="最近使用过的地图任务";return p;}
                 }
             }
         }catch(Exception|LinkageError ignored){}
-        for(String p:CANDIDATES)if(queries.get(p).launch!=null)return p;
+        for(String p:CANDIDATES)if(queries.get(p).launch!=null){autoReason="已安装的候选导航应用";return p;}
+        autoReason="未找到已安装的导航应用";
         return "";
     }
     public Intent launchIntent(){return launchIntent(selected());}
@@ -81,22 +99,28 @@ public final class NavigationApps {
             android.content.pm.ResolveInfo resolved=context.getPackageManager().resolveActivity(direct,PackageManager.MATCH_DEFAULT_ONLY);
             android.content.pm.ActivityInfo info=resolved==null?null:resolved.activityInfo;
             if(info!=null&&pkg.equals(info.packageName)&&info.exported&&info.enabled&&info.applicationInfo.enabled
-                    &&(info.permission==null||context.checkSelfPermission(info.permission)==PackageManager.PERMISSION_GRANTED))
+                    &&(info.permission==null||context.checkSelfPermission(info.permission)==PackageManager.PERMISSION_GRANTED)){
+                // 直连的是高德自己的空实现页，地图视图直接挂上去，不经过 USB 导入代理。
+                UniLog.i(LogTags.NAV,"地图显示入口已解析","package",pkg,"activity",info.name,"kind","amap-direct");
                 return direct.setComponent(new android.content.ComponentName(info.packageName,info.name));
+            }
         }catch(Exception|LinkageError ignored){}
+        UniLog.i(LogTags.NAV,"地图显示入口回落到启动意图","package",pkg,"kind","launch");
         return launchIntent();
     }
     /** Return an embedded single-task navigation stack to the physical display
      * before launching it. Starting the package alone leaves AMap focused on
      * ActivityView's virtual display and appears to do nothing on the panel. */
     public boolean launchFullscreen(){
-        String pkg=selected();Intent intent=displayIntent();if(pkg.isEmpty()||intent==null)return false;
+        String pkg=selected();Intent intent=displayIntent();if(pkg.isEmpty()||intent==null){UniLog.fail(LogTags.NAV,"nav/launch","package",pkg,"reason","没有可用的导航入口");return false;}
+        UniLog.enter(LogTags.NAV,"nav/launch","package",pkg,"mode","fullscreen");
         try{moveOwnSingleTaskToDisplay(pkg);}
-        catch(Exception|LinkageError e){android.util.Log.i("UniNavigation","No embedded navigation stack to restore",e);}
+        catch(Exception|LinkageError e){UniLog.w(LogTags.NAV,"No embedded navigation stack to restore",e,"package",pkg);}
         try{
             context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TOP|Intent.FLAG_ACTIVITY_SINGLE_TOP));
+            UniLog.done(LogTags.NAV,"nav/launch","package",pkg,"mode","fullscreen");
             return true;
-        }catch(Exception|LinkageError e){android.util.Log.w("UniNavigation","Unable to open navigation full screen",e);return false;}
+        }catch(Exception|LinkageError e){UniLog.w(LogTags.NAV,"Unable to open navigation full screen",e,"package",pkg);UniLog.fail(LogTags.NAV,"nav/launch","package",pkg,"mode","fullscreen","reason","启动失败");return false;}
     }
     private void moveOwnSingleTaskToDisplay(String pkg)throws Exception{
         Object manager=Class.forName("android.app.ActivityManager").getMethod("getService").invoke(null);
@@ -109,6 +133,7 @@ public final class NavigationApps {
             int id=type.getField("stackId").getInt(stack);
             java.lang.reflect.Method move=manager.getClass().getMethod("moveStackToDisplay",int.class,int.class);move.setAccessible(true);
             move.invoke(manager,id,0);
+            UniLog.i(LogTags.NAV,"内嵌导航栈已切回物理屏幕","package",pkg,"stackId",id,"display",0);
             // Moving the stack does not stretch its Activity bounds. Resize it
             // to the physical workspace before the fullscreen transition draws,
             // then restore card bounds when LiveNavigationHost moves it back.
@@ -118,6 +143,7 @@ public final class NavigationApps {
             java.lang.reflect.Method resizeStack=manager.getClass().getMethod("resizeStack",int.class,android.graphics.Rect.class,boolean.class,boolean.class,boolean.class,int.class);
             resizeStack.setAccessible(true);
             resizeStack.invoke(manager,id,new android.graphics.Rect(0,0,real.widthPixels,top),true,true,false,-1);
+            UniLog.i(LogTags.NAV,"地图视图已铺满物理屏幕","package",pkg,"width",real.widthPixels,"height",top);
             return;
         }
     }

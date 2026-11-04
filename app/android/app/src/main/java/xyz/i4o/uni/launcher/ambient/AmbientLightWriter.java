@@ -1,7 +1,5 @@
 package xyz.i4o.uni.launcher.ambient;
 
-import android.util.Log;
-
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -16,6 +14,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
+import xyz.i4o.uni.launcher.log.LogTags;
+import xyz.i4o.uni.launcher.log.UniLog;
 
 /**
  * Writes the computed ambient colour to the head unit.
@@ -103,6 +103,15 @@ public final class AmbientLightWriter {
     /** How often the switch and the brightness are written again. */
     public static final long STATE_RETRY_MS = 3000L;
 
+    /**
+     * Minimum interval between two log lines of the colour path.
+     *
+     * <p>The colour arrives at the spectrum frame rate and {@code UniLog}
+     * writes to a file, so a log line per frame would fill the log storage
+     * of the head unit. One summary per second keeps the chain readable.
+     */
+    private static final long COLOR_LOG_INTERVAL_MS = 1000L;
+
     /** Notified when the capability state or the failure reason changes. */
     public interface StateListener {
         void onAmbientState(Map<String, Object> state);
@@ -156,6 +165,12 @@ public final class AmbientLightWriter {
 
     /** The absolute brightness that still has to be written. */
     private volatile Integer pendingBrightness;
+
+    /** The last time the colour path wrote a log line (writer thread only). */
+    private long lastColorLogAt;
+
+    /** Accepted colour writes since the last summary (writer thread only). */
+    private int colorWritesLogged;
 
     /**
      * The zone switches the head unit accepted last, in main / top / bottom
@@ -435,12 +450,16 @@ public final class AmbientLightWriter {
         Object functions = functions();
         if (functions == null) {
             unavailable("车机车辆服务尚未就绪");
+            UniLog.w(LogTags.AMBIENT, "氛围灯开关未下发：车辆服务未就绪", "tag", TAG, "reason", reason);
+            UniLog.skip(LogTags.AMBIENT, "ambient/write", "op", "enable", "value", value, "reason", reason);
             pushStateIfChanged();
             return false;
         }
         Integer effect = resolver.resolve(AmbientLightContract.FUNC_INTERACTIVE_EFFECT);
         if (effect == null) {
             unavailable("氛围灯互动效果功能号按名解析不到");
+            UniLog.w(LogTags.AMBIENT, "氛围灯开关未下发：功能号按名解析不到", "tag", TAG, "name", AmbientLightContract.FUNC_INTERACTIVE_EFFECT, "reason", reason);
+            UniLog.fail(LogTags.AMBIENT, "ambient/write", "op", "enable", "value", value, "name", AmbientLightContract.FUNC_INTERACTIVE_EFFECT, "reason", reason);
             pushStateIfChanged();
             return false;
         }
@@ -467,10 +486,12 @@ public final class AmbientLightWriter {
             // The colour written before is no longer meaningful.
             lastRgb = -1;
             lastColorAccepted = false;
-            Log.i(TAG, "氛围灯开关已下发 enabled=" + value);
+            UniLog.i(LogTags.AMBIENT, "氛围灯开关已下发", "tag", TAG, "enabled", value, "function", effect);
+            UniLog.done(LogTags.AMBIENT, "ambient/write", "op", "enable", "value", value, "function", effect, "ok", true);
         } else {
             reason = "氛围灯开关下发失败";
-            Log.w(TAG, "氛围灯开关下发失败 enabled=" + value);
+            UniLog.w(LogTags.AMBIENT, "氛围灯开关下发失败", "tag", TAG, "enabled", value, "reason", lastError);
+            UniLog.fail(LogTags.AMBIENT, "ambient/write", "op", "enable", "value", value, "function", effect, "reason", lastError);
         }
         pushStateIfChanged();
         return ok;
@@ -490,11 +511,18 @@ public final class AmbientLightWriter {
             if (distance(lastRgb, rgb) < MIN_COLOR_DELTA) return;
         }
         if (lastWriteFailed && now - lastWriteAt < FAIL_BACKOFF_MS) return;
+        // The colour arrives at the spectrum frame rate and UniLog writes to a
+        // file: one summary per second instead of one line per frame.
+        boolean logCycle = colorLogDue(now);
         Object functions = functions();
         if (functions == null) {
             // The vehicle service is not ready yet. Not a write failure: the
             // handle is looked up again on the next frame.
             unavailable("车机车辆服务尚未就绪");
+            if (logCycle) {
+                UniLog.w(LogTags.AMBIENT, "氛围灯颜色未下发：车辆服务未就绪", "tag", TAG, "rgb", rgb, "reason", reason);
+                UniLog.skip(LogTags.AMBIENT, "ambient/write", "op", "color", "rgb", rgb, "reason", reason);
+            }
             pushStateIfChanged();
             return;
         }
@@ -503,25 +531,48 @@ public final class AmbientLightWriter {
         if (colorSet == null) {
             lastWriteFailed = true;
             unavailable("氛围灯颜色功能号按名解析不到");
+            if (logCycle) {
+                UniLog.w(LogTags.AMBIENT, "氛围灯颜色未下发：功能号按名解析不到", "tag", TAG, "name", AmbientLightContract.FUNC_COLOR_SET, "rgb", rgb, "reason", reason);
+                UniLog.fail(LogTags.AMBIENT, "ambient/write", "op", "color", "rgb", rgb, "name", AmbientLightContract.FUNC_COLOR_SET, "reason", reason);
+            }
             pushStateIfChanged();
             return;
         }
         // The experience mode has to be custom before a custom colour is
         // written; the vendor treats the two switches independently.
         ensureExperienceCustom(functions);
+        if (logCycle) UniLog.enter(LogTags.AMBIENT, "ambient/color", "rgb", rgb, "delta", distance(lastRgb, rgb));
         if (write(functions, colorSet, AmbientLightContract.ZONE, rgb)) {
             lastRgb = rgb;
             lastColorAccepted = true;
             lastWriteFailed = false;
             available = true;
             reason = "";
-            Log.i(TAG, "氛围灯颜色已下发 rgb=" + rgb);
+            colorWritesLogged++;
+            if (logCycle) {
+                UniLog.done(LogTags.AMBIENT, "ambient/write", "op", "color", "rgb", rgb, "function", colorSet, "writes", colorWritesLogged);
+                colorWritesLogged = 0;
+            }
         } else {
             lastWriteFailed = true;
             reason = "氛围灯颜色下发失败";
-            Log.w(TAG, "氛围灯颜色下发失败 rgb=" + rgb);
+            UniLog.w(LogTags.AMBIENT, "氛围灯颜色下发失败", "tag", TAG, "rgb", rgb, "reason", lastError);
+            UniLog.fail(LogTags.AMBIENT, "ambient/write", "op", "color", "rgb", rgb, "function", colorSet, "reason", lastError);
         }
         pushStateIfChanged();
+    }
+
+    /**
+     * Whether the colour path may log again.
+     *
+     * <p>The colour path runs at the spectrum frame rate and {@code UniLog}
+     * writes to a file, so the log is throttled to one line per second and
+     * the frames in between are counted instead.
+     */
+    private boolean colorLogDue(long now) {
+        if (now - lastColorLogAt < COLOR_LOG_INTERVAL_MS) return false;
+        lastColorLogAt = now;
+        return true;
     }
 
     /**
@@ -534,12 +585,16 @@ public final class AmbientLightWriter {
         Object functions = functions();
         if (functions == null) {
             unavailable("车机车辆服务尚未就绪");
+            UniLog.w(LogTags.AMBIENT, "氛围灯亮度未下发：车辆服务未就绪", "tag", TAG, "brightness", brightness, "reason", reason);
+            UniLog.skip(LogTags.AMBIENT, "ambient/write", "op", "brightness", "brightness", brightness, "reason", reason);
             pushStateIfChanged();
             return false;
         }
         Integer driving = resolver.resolve(AmbientLightContract.FUNC_BRIGHTNESS_DRIVING);
         if (driving == null) {
             unavailable("氛围灯亮度功能号按名解析不到");
+            UniLog.w(LogTags.AMBIENT, "氛围灯亮度未下发：功能号按名解析不到", "tag", TAG, "name", AmbientLightContract.FUNC_BRIGHTNESS_DRIVING, "reason", reason);
+            UniLog.fail(LogTags.AMBIENT, "ambient/write", "op", "brightness", "name", AmbientLightContract.FUNC_BRIGHTNESS_DRIVING, "reason", reason);
             pushStateIfChanged();
             return false;
         }
@@ -575,8 +630,12 @@ public final class AmbientLightWriter {
             lastBrightness = brightness;
             available = true;
             reason = "";
+            UniLog.i(LogTags.AMBIENT, "氛围灯亮度已下发", "tag", TAG, "brightness", brightness, "step", value, "function", driving);
+            UniLog.done(LogTags.AMBIENT, "ambient/write", "op", "brightness", "brightness", brightness, "step", value, "function", driving, "ok", true);
         } else {
             reason = "氛围灯亮度下发失败";
+            UniLog.w(LogTags.AMBIENT, "氛围灯亮度下发失败", "tag", TAG, "brightness", brightness, "step", value, "reason", lastError);
+            UniLog.fail(LogTags.AMBIENT, "ambient/write", "op", "brightness", "brightness", brightness, "step", value, "function", driving, "reason", lastError);
         }
         pushStateIfChanged();
         return ok;
@@ -590,14 +649,20 @@ public final class AmbientLightWriter {
      * number is never taken from another zone.
      */
     private void writeZones(Object functions) {
+        int lit = 0;
         for (String name : AmbientLightContract.ZONE_FUNCTIONS) {
             Integer function = resolver.resolve(name);
-            if (function == null) continue;
+            if (function == null) {
+                UniLog.w(LogTags.AMBIENT, "氛围灯分区功能号按名解析不到", "tag", TAG, "name", name);
+                continue;
+            }
             write(functions, function, AmbientLightContract.ZONE, AmbientLightContract.ON);
+            lit++;
         }
         // The zones are all on now, so the cached state can be trusted.
         java.util.Arrays.fill(writtenZones, true);
         zoneStateKnown = true;
+        UniLog.i(LogTags.AMBIENT, "氛围灯分区已点亮", "tag", TAG, "zones", lit, "expected", AmbientLightContract.ZONE_FUNCTIONS.length);
     }
 
     /**
@@ -623,6 +688,8 @@ public final class AmbientLightWriter {
         final Object functions = functions();
         if (functions == null) {
             unavailable("氛围灯通道还没就绪");
+            UniLog.w(LogTags.AMBIENT, "氛围灯分区未下发：通道未就绪", "tag", TAG, "zone", zone, "reason", reason);
+            UniLog.skip(LogTags.AMBIENT, "ambient/write", "op", "zone", "zone", zone, "value", value, "reason", reason);
             pushStateIfChanged();
             return false;
         }
@@ -630,6 +697,8 @@ public final class AmbientLightWriter {
         final Integer function = resolver.resolve(name);
         if (function == null) {
             unavailable("氛围灯分区功能号按名解析不到");
+            UniLog.w(LogTags.AMBIENT, "氛围灯分区未下发：功能号按名解析不到", "tag", TAG, "name", name, "zone", zone, "reason", reason);
+            UniLog.fail(LogTags.AMBIENT, "ambient/write", "op", "zone", "zone", zone, "name", name, "reason", reason);
             pushStateIfChanged();
             return false;
         }
@@ -643,10 +712,12 @@ public final class AmbientLightWriter {
             zoneStateKnown = true;
             available = true;
             reason = "";
-            Log.i(TAG, "氛围灯分区开关已下发 zone=" + zone + " value=" + value);
+            UniLog.i(LogTags.AMBIENT, "氛围灯分区开关已下发", "tag", TAG, "zone", zone, "value", value, "function", function);
+            UniLog.done(LogTags.AMBIENT, "ambient/write", "op", "zone", "zone", zone, "value", value, "function", function, "ok", true);
         } else {
             reason = "氛围灯分区开关下发失败";
-            Log.w(TAG, "氛围灯分区开关下发失败 zone=" + zone + " value=" + value);
+            UniLog.w(LogTags.AMBIENT, "氛围灯分区开关下发失败", "tag", TAG, "zone", zone, "value", value, "reason", lastError);
+            UniLog.fail(LogTags.AMBIENT, "ambient/write", "op", "zone", "zone", zone, "value", value, "function", function, "reason", lastError);
         }
         pushStateIfChanged();
         return ok;
@@ -667,6 +738,7 @@ public final class AmbientLightWriter {
         if (custom == null) return;
         if (write(functions, function, AmbientLightContract.ZONE, custom)) {
             experienceCustomWritten = true;
+            UniLog.i(LogTags.AMBIENT, "氛围灯体验模式已设为自定义", "tag", TAG, "function", function, "value", custom);
         }
     }
 
@@ -700,13 +772,13 @@ public final class AmbientLightWriter {
             } catch (Throwable failure) {
                 lastWriteOk = false;
                 lastError = describe(failure);
-                Log.w(TAG, "氛围灯写入失败 function=" + function, failure);
+                UniLog.w(LogTags.AMBIENT, "氛围灯写入失败", failure, "tag", TAG, "function", function, "zone", zone, "value", value, "form", "two-arg");
                 return false;
             }
         } catch (Throwable failure) {
             lastWriteOk = false;
             lastError = describe(failure);
-            Log.w(TAG, "氛围灯写入失败 function=" + function, failure);
+            UniLog.w(LogTags.AMBIENT, "氛围灯写入失败", failure, "tag", TAG, "function", function, "zone", zone, "value", value, "form", "three-arg");
             return false;
         }
     }

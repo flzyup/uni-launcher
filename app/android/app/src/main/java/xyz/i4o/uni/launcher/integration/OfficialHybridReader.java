@@ -2,6 +2,8 @@ package xyz.i4o.uni.launcher.integration;
 
 import java.lang.reflect.InvocationTargetException;
 import org.json.JSONObject;
+import xyz.i4o.uni.launcher.log.LogTags;
+import xyz.i4o.uni.launcher.log.UniLog;
 
 /** Read-only IP753 PHEV properties, borrowed from the existing reader worker.
  * Uses original HAL values: SDK enum helpers silently replace unknown values.
@@ -10,6 +12,7 @@ import org.json.JSONObject;
 final class OfficialHybridReader {
     static final int DRIVE_MODE = 0x21403018, HYBRID_SELECTED = 0x21701042;
     static final int ENERGY_FLOW = 0x21701052, ELECTRIC_RANGE = 0x21701069;
+    private static final String[] KEYS = {"driveMode", "hybridSelected", "energyFlow", "electricRange"};
     private final Object properties;
     OfficialHybridReader(Object properties) { this.properties = properties; }
 
@@ -18,6 +21,21 @@ final class OfficialHybridReader {
         fields.put("hybridSelected", read(HYBRID_SELECTED).json());
         fields.put("energyFlow", read(ENERGY_FLOW).json());
         fields.put("electricRange", read(ELECTRIC_RANGE).json());
+        // The four reads run on every poll: one summary line per cycle keeps the
+        // log readable, and the raw value stays next to the reason.
+        int valid = 0;
+        StringBuilder detail = new StringBuilder();
+        for (String key : KEYS) {
+            JSONObject field = fields.optJSONObject(key);
+            if (field != null && field.optBoolean("valid")) { valid++; continue; }
+            if (detail.length() > 0) detail.append(';');
+            detail.append(key).append('(').append(field == null ? "FIELD_ABSENT" : field.optString("reason"))
+                    .append(",raw=").append(field == null ? null : field.opt("raw"))
+                    .append(",avail=").append(field == null ? null : field.opt("availabilityRaw"))
+                    .append(",status=").append(field == null ? null : field.opt("statusRaw")).append(')');
+        }
+        UniLog.done(LogTags.SIGNAL, "hybrid/read", "valid", valid, "invalid", KEYS.length - valid,
+                "details", detail.toString());
     }
 
     Sample read(int property) {

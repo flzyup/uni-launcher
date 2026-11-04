@@ -78,6 +78,7 @@ python3 tools/upload_release.py            # 上传 APK 并创建 Release 草稿
 - [导航与红绿灯](docs/AMAP_TRAFFIC_LIGHT_CARD.md)、[媒体歌词与动效](docs/MEDIA_LYRICS_AND_MOTION.md)、[音乐律动氛围灯](docs/AMBIENT_LIGHT.md)
 - [产品与界面设计](docs/PRODUCT_DESIGN.md)、[车辆卡片设计](docs/VEHICLE_CARD_DESIGN.md)
 - [项目目录与原生代码](docs/PROJECT_STRUCTURE.md)、[完整参考资料与历史设计](docs/PROJECT_REFERENCE.md)
+- [诊断日志与诊断包](docs/DIAGNOSTIC_PACKAGE.md)
 
 ## 交流与反馈
 

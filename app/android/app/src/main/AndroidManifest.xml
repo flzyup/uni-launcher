@@ -31,6 +31,11 @@
   <uses-permission android:name="android.permission.READ_PHONE_STATE"/>
   <uses-permission android:name="android.permission.READ_CALENDAR"/>
   <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>
+  <!-- 诊断日志导出到 Download/UNI/：Android 9 及以下需要写外部存储权限；
+       Android 10+ 走 MediaStore，不需要该权限。
+       读权限（上面的 READ_EXTERNAL_STORAGE）是写权限的对应面：导出本身只要写权限，
+       但「清理旧诊断包」要读 MediaStore 集合才能列出自己导出的包，没有它旧包会一直堆着。 -->
+  <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28"/>
   <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
   <uses-permission android:name="android.permission.RECORD_AUDIO"/>
   <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>

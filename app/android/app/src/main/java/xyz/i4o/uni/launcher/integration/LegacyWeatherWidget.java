@@ -14,6 +14,8 @@ import android.widget.RemoteViews;
 import android.widget.TextView;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import xyz.i4o.uni.launcher.log.LogTags;
+import xyz.i4o.uni.launcher.log.UniLog;
 
 /** Reads the public RemoteViews of the 2021 XCHome weather widget; no private data access. */
 final class LegacyWeatherWidget {
@@ -78,7 +80,7 @@ final class LegacyWeatherWidget {
             main.post(() -> read(view));
         } catch (RuntimeException e) {
             listener.onUnavailable("原车天气组件暂不可用");
-            android.util.Log.w("UniWeather", "Legacy weather widget unavailable", e);
+            UniLog.w(LogTags.WEATHER, "旧版天气卡片不可用", e);
         }
     }
     private String text(View root, String name) {
@@ -99,9 +101,11 @@ final class LegacyWeatherWidget {
         if (raw.isEmpty()) raw = text(root, "tv_today_temp").replace('−', '-');
         Matcher match = Pattern.compile("^[+-]?[0-9]+(?:\\.[0-9]+)?").matcher(raw);
         if (!match.find() || city.isEmpty() || city.length() > 80 || condition.length() > 80) {
-            android.util.Log.i("UniWeather", "Legacy widget fields: temp=" + (raw.isEmpty() ? "empty" : raw)
-                + ", cityLength=" + city.length() + ", conditionLength=" + condition.length()
-                + ", children=" + (root instanceof android.view.ViewGroup ? ((android.view.ViewGroup) root).getChildCount() : 0));
+            UniLog.i(LogTags.WEATHER, "旧版天气卡片字段",
+                "temp", (raw.isEmpty() ? "empty" : raw),
+                "cityLength", city.length(),
+                "conditionLength", condition.length(),
+                "children", (root instanceof android.view.ViewGroup ? ((android.view.ViewGroup) root).getChildCount() : 0));
             listener.onUnavailable("等待原车天气组件返回城市和温度（温度 " + raw
                 + "，城市长度 " + city.length() + "，天气长度 " + condition.length()
                 + "，视图数 " + (root instanceof android.view.ViewGroup ? ((android.view.ViewGroup) root).getChildCount() : 0) + "）");

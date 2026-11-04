@@ -9,6 +9,7 @@ import '../model/card_layout.dart';
 import '../model/card_reorder.dart';
 import '../platform/native_gateway.dart';
 import '../platform/ambient_light.dart';
+import '../platform/uni_log.dart';
 
 class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
   final NativeGateway gateway;
@@ -123,6 +124,7 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> initialize() async {
     // Every engine (launcher, dock and panel) initializes its own controller.
     if (_disposed) return;
+    UniLog.enter(UniLogTags.app, 'launcher/bootstrap');
     if (!_observingMemory) {
       final imageCache = PaintingBinding.instance.imageCache;
       imageCache.maximumSize = 64;
@@ -158,16 +160,21 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
           }
         } catch (_) {
           message = '旧布局无法读取，已恢复默认卡片';
+          UniLog.w(UniLogTags.app, '旧布局无法读取，已恢复默认卡片');
         }
       }
       _receive(state);
       if (state['initialSettings'] == true) settings = true;
       _subscription = gateway.events.listen(_receive, onError: (Object e) {
         message = '原生连接暂不可用';
+        UniLog.w(UniLogTags.app, '原生事件流中断', fields: {'error': '$e'});
         notifyListeners();
       });
-    } catch (_) {
+      UniLog.done(UniLogTags.app, 'launcher/bootstrap',
+          fields: {'cards': cards.length, 'pages': pageCount});
+    } catch (e) {
       message = '等待 Android 接入';
+      UniLog.fail(UniLogTags.app, 'launcher/bootstrap', fields: {'error': '$e'});
     }
     if (_disposed) return;
     ready = true;
@@ -184,6 +191,18 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
     'appNames'
   ];
   static const _carriedMedia = ['artwork', 'lyrics'];
+
+  /// Last observed media identity, so only real transitions are logged.
+  /// Telemetry packets arrive up to 12 times a second; logging each one would
+  /// bury everything else in the package.
+  String? _lastMediaTitle;
+  bool? _lastMediaPlaying;
+
+  /// App list size last seen, to log a refresh only when it really changed.
+  int? _lastAppCount;
+
+  /// Whether the settings catalogue has already been delivered.
+  bool _settingsCatalogSeen = false;
 
   void _receive(Map<String, dynamic> incoming) {
     final previous = native.value;
@@ -284,6 +303,7 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
     final oldEmbed = (native.value['navigation'] as Map?)?['canEmbed'];
     final oldHeight = native.value['viewportHeightPx'];
     native.value = state;
+    _logTransitions(state);
     if (state['message'] is String && (state['message'] as String).isNotEmpty) {
       message = state['message'];
       notifyListeners();
@@ -296,9 +316,45 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
       notifyListeners();
   }
 
+  /// Logs only the transitions worth recording.
+  ///
+  /// Telemetry packets arrive up to 12 times a second, so logging every one
+  /// of them would bury the rest of the package. What matters on a head unit
+  /// is "the app list changed", "the song changed", "the play state flipped",
+  /// "the settings catalogue arrived".
+  void _logTransitions(Map<String, dynamic> state) {
+    final apps = state['apps'];
+    if (apps is List) {
+      final count = apps.length;
+      if (count != _lastAppCount) {
+        _lastAppCount = count;
+        UniLog.i(UniLogTags.apps, '应用列表刷新', fields: {'count': count});
+      }
+    }
+    final media = state['media'];
+    if (media is Map) {
+      final title = media['title']?.toString();
+      final playing = media['playing'] == true;
+      if (title != _lastMediaTitle) {
+        _lastMediaTitle = title;
+        UniLog.i(UniLogTags.media, '媒体曲目变化',
+            fields: {'title': title ?? '(无)', 'artist': media['artist']});
+      }
+      if (playing != _lastMediaPlaying) {
+        _lastMediaPlaying = playing;
+        UniLog.i(UniLogTags.media, '播放状态变化', fields: {'playing': playing});
+      }
+    }
+    if (!_settingsCatalogSeen && state['systemSettings'] is Map) {
+      _settingsCatalogSeen = true;
+      final entries = (state['systemSettings'] as Map)['entries'];
+      UniLog.done(UniLogTags.setting, 'settings/catalog',
+          fields: {'entries': entries is List ? entries.length : 0});
+    }
+  }
+
   Map<String, dynamic> _decodeImages(
-      Map source, List<String> fields, _SnapshotImages cache) {
-    final result = Map<String, dynamic>.from(source);
+      Map source, List<String> fields, _SnapshotImages cache) {    final result = Map<String, dynamic>.from(source);
     for (final field in fields) {
       result.remove('${field}Bytes');
       final raw = source[field];
@@ -312,6 +368,16 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> command(String action,
       {String? value, String? zone, bool? enabled}) async {
+    // Every user action funnels through here, so this is the one place that
+    // can say "the tap never reached the native side" versus "the native side
+    // rejected it".
+    UniLog.event(UniLogTags.ui, '命令下发',
+        fields: {
+          'action': action,
+          if (value != null) 'value': value,
+          if (zone != null) 'zone': zone,
+          if (enabled != null) 'enabled': enabled,
+        });
     try {
       if (isGlobalDock &&
           {
@@ -330,8 +396,10 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
         await beforeExternalLaunch?.call();
       }
       await gateway.action(action, value: value, zone: zone, enabled: enabled);
-    } catch (_) {
+    } catch (e) {
       message = '操作暂不可用';
+      UniLog.w(UniLogTags.ui, '命令下发失败',
+          fields: {'action': action, 'error': '$e'});
       notifyListeners();
     }
   }
@@ -433,6 +501,7 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   void home() {
+    UniLog.event(UniLogTags.ui, '返回桌面', fields: {'from': settingsTab});
     if (isGlobalDock) {
       command('show-home');
       return;
@@ -444,6 +513,7 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   void openSettings() {
+    UniLog.event(UniLogTags.ui, '打开桌面设置');
     if (isGlobalDock) {
       command('show-desktop-settings');
       return;

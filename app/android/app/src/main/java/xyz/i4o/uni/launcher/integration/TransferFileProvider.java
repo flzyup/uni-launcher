@@ -7,6 +7,8 @@ import android.net.Uri;
 import android.os.ParcelFileDescriptor;
 import java.io.File;
 import java.io.FileNotFoundException;
+import xyz.i4o.uni.launcher.log.LogTags;
+import xyz.i4o.uni.launcher.log.UniLog;
 
 /** 只读暴露 files/transfers/ 下的单个文件，供包安装器读取收到的 APK。 */
 public final class TransferFileProvider extends ContentProvider {
@@ -28,6 +30,8 @@ public final class TransferFileProvider extends ContentProvider {
             throw new FileNotFoundException("unreadable");
         }
         if (!f.isFile()) throw new FileNotFoundException("not found");
+        // 安装器来取文件了：留一条记录，诊断时能对上「到底装的是哪个文件」。
+        UniLog.i(LogTags.TRANSFER, "安装文件已提供给安装器", "name", name, "bytes", f.length());
         return ParcelFileDescriptor.open(f, ParcelFileDescriptor.MODE_READ_ONLY);
     }
 
