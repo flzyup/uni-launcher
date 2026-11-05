@@ -6,6 +6,7 @@ __pycache__/
 *.apk
 *.pk8
 *.keystore
+.tmp-*
 /archive/webview-android/build/
 /archive/webview-android/dist/
 /archive/webview-android/node_modules/
