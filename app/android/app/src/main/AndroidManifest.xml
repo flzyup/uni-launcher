@@ -69,6 +69,7 @@
     <activity android:name=".WallpaperPickerActivity" android:exported="false" android:screenOrientation="landscape"/>
     <service android:name=".integration.MediaAccessService" android:label="UNI 媒体访问" android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" android:exported="true"><intent-filter><action android:name="android.service.notification.NotificationListenerService"/></intent-filter></service>
     <service android:name=".GlobalDockService" android:exported="false"/>
+    <service android:name=".integration.display.ClusterLyricsService" android:exported="false"/>
     <service android:name=".OtaBootService" android:exported="false"/>
     <receiver android:name=".OtaBootReceiver" android:exported="true">
       <intent-filter><action android:name="com.ecarx.intent.action.EAS_LAUNCH_BAT_3RD"/></intent-filter>

@@ -38,6 +38,8 @@ public final class OfficialMediaBridge {
     private volatile Sample sample=Sample.EMPTY;
     private volatile boolean running,registered,playbackAccepted,playClaimed,apiReady;
     private volatile String reason="未连接原车媒体中心";
+    /** 设置页「仪表同步」的开关，默认开。关掉即反注册解绑，仪表交回原车播放器。 */
+    private volatile boolean enabled=true;
     private volatile int callbackCount;
     private volatile String lastCallback="";
     private volatile int generation;
@@ -56,6 +58,17 @@ public final class OfficialMediaBridge {
     private boolean lastPlaying;
     private int registeredType=-1;
     private long lastProgressAt;
+    /**
+     * 抢占保底。原车媒体中心的焦点会被别的客户端抢走，而本地链路一个状态都没变，
+     * {@link #publish} 因此不会重发，仪表上的卡片就悄悄换人了。
+     * 只补不抢：焦点还在自己手上时什么都不做，丢了才重新 requestPlay。
+     */
+    private static final long CLAIM_KEEPALIVE_MS=25_000;
+    private volatile String focusOwner="";
+    private final Runnable keepalive=()->{
+        if(!running||!registered||token==null)return;
+        worker.execute(this::reclaim);
+    };
 
     public OfficialMediaBridge(Context context,Commands commands,Runnable changed){
         this.context=context.getApplicationContext();this.commands=commands;this.changed=changed;
@@ -68,19 +81,45 @@ public final class OfficialMediaBridge {
     }
     /** Claim the current sample's source without fabricating playback state. */
     public void claimCurrent(){
-        if(!running)return;
-        worker.execute(()->{
-            if(!running||!registered||token==null||!sample.available)return;
-            try{
-                playClaimed=Boolean.TRUE.equals(invoke("requestPlay",token));
-                if(playClaimed){
-                    invoke("updateCurrentSourceType",token,sample.type);
-                    playbackAccepted=Boolean.TRUE.equals(invoke("updateMusicPlaybackState",token,wirePlayback));
-                }
-                reason=playbackAccepted?"":"原车媒体未接受音源切换";
-                notifyChanged();
-            }catch(Exception|LinkageError e){reason="原车音源切换失败："+root(e).getClass().getSimpleName();android.util.Log.w("UniOemMedia",reason,e);}
-        });
+        if(!running||!enabled)return;
+        worker.execute(()->{claim();scheduleKeepalive();});
+    }
+    /** 断言"当前音源是我"，并把播放信息重新推一遍。OEM Binder 调用，跑在 worker 上。 */
+    private void claim(){
+        if(!running||!registered||token==null||!sample.available)return;
+        try{
+            playClaimed=Boolean.TRUE.equals(invoke("requestPlay",token));
+            if(playClaimed){
+                invoke("updateCurrentSourceType",token,sample.type);
+                playbackAccepted=Boolean.TRUE.equals(invoke("updateMusicPlaybackState",token,wirePlayback));
+            }
+            reason=playbackAccepted?"":"原车媒体未接受音源切换";
+            notifyChanged();
+        }catch(Exception|LinkageError e){reason="原车音源切换失败："+root(e).getClass().getSimpleName();android.util.Log.w("UniOemMedia",reason,e);}
+    }
+    /** 保底心跳：焦点丢了才重新抢占，一秒不多抢。 */
+    private void reclaim(){
+        if(!running||!enabled||!registered||token==null)return;
+        try{
+            String owner=focusOwner();
+            if(!owner.isEmpty()&&owner.contains(context.getPackageName())){scheduleKeepalive();return;}
+            android.util.Log.i("UniOemMedia","claim keepalive focus="+(owner.isEmpty()?"unknown":owner));
+            claim();
+        }finally{scheduleKeepalive();}
+    }
+    private void scheduleKeepalive(){
+        main.removeCallbacks(keepalive);
+        if(running&&registered)main.postDelayed(keepalive,CLAIM_KEEPALIVE_MS);
+    }
+    /**
+     * 当前霸占原车媒体焦点的客户端。这辆车的 SDK 不一定有这个方法，
+     * 查不到就返回空串——按"未知"处理，照样补抢。
+     */
+    private String focusOwner(){
+        if(token==null)return "";
+        try{focusOwner=String.valueOf(invoke("queryCurrentFocusClient",token));}
+        catch(Exception|LinkageError ignored){focusOwner="";}
+        return focusOwner;
     }
     private int[] sourceTypes(Sample current){
         if(!current.available)return new int[0];
@@ -89,6 +128,7 @@ public final class OfficialMediaBridge {
     private String sourceTypesKey(Sample current){return java.util.Arrays.toString(sourceTypes(current));}
     private String registeredTypes="";
     public void update(MediaController controller){
+        if(!enabled)return;
         Sample next=Sample.from(context,controller);
         if(!next.available&&running&&sample.available){
             if(!waitingForSource){waitingForSource=true;main.postDelayed(emptySource,2500);}return;
@@ -97,9 +137,24 @@ public final class OfficialMediaBridge {
         if(!running)return;
         worker.execute(()->publish(next));
     }
-    public void start(){running=true;worker.execute(()->{initialize();publish(sample);});}
+    /**
+     * 设置页「仪表同步」开关：关掉后立刻反注册并解绑原车媒体中心，仪表跟回原车播放器，
+     * 桌面不再往上写曲目/封面/进度。重新打开时按当前音源重新注册。
+     */
+    public void setEnabled(boolean next){
+        if(enabled==next)return;
+        enabled=next;
+        if(!next){stop();reason="仪表同步已关闭";notifyChanged();}
+        else start();
+    }
+    public boolean enabled(){return enabled;}
+    public void start(){
+        if(!enabled)return;
+        running=true;worker.execute(()->{initialize();publish(sample);});
+    }
     public void stop(){
-        running=false;generation++;main.removeCallbacks(emptySource);waitingForSource=false;sample=Sample.EMPTY;worker.execute(()->{
+        running=false;generation++;
+        main.removeCallbacks(keepalive);main.removeCallbacks(emptySource);waitingForSource=false;sample=Sample.EMPTY;worker.execute(()->{
             release();
             if(bound&&connection!=null)try{context.unbindService(connection);}catch(RuntimeException ignored){}
             bound=false;apiReady=false;initialized=false;api=null;connection=null;
@@ -159,7 +214,7 @@ apiReady=false;registered=false;registeredType=-1;registeredTypes="";playbackAcc
         }catch(Exception|LinkageError e){reason="原车媒体接入失败："+root(e).getClass().getSimpleName();UniLog.w(LogTags.MEDIA,reason,e,"tag","UniOemMedia","stage","initialize");UniLog.fail(LogTags.MEDIA,"media/oem-session","reason","initialize-failed","error",root(e).getClass().getSimpleName());notifyChanged();}
     }
     private void register(){
-        if(!running||!sample.available||registered||api==null)return;
+        if(!running||!enabled||!sample.available||registered||api==null)return;
         try{
             token=invoke("registerMusic",wireClient);
             registered=token!=null;
@@ -168,11 +223,13 @@ if(registered){registeredType=sample.type;invoke("updateMediaSourceTypeList",tok
             UniLog.i(LogTags.MEDIA,"原车媒体注册结果","tag","UniOemMedia","registered",registered,"token",token!=null,"sourceType",registeredType);
             if(registered)UniLog.done(LogTags.MEDIA,"media/oem-session","action","register","sourceType",registeredType);
             else UniLog.fail(LogTags.MEDIA,"media/oem-session","action","register","reason","no-token");
+            // 25 秒保底心跳：只在焦点已经不在自己手上时才重新抢占，见 requestPlay。
+            if(registered)scheduleKeepalive();
         }catch(Exception|LinkageError e){reason="原车媒体注册失败："+root(e).getClass().getSimpleName();UniLog.w(LogTags.MEDIA,reason,e,"tag","UniOemMedia","stage","register");UniLog.fail(LogTags.MEDIA,"media/oem-session","action","register","reason","register-failed","error",root(e).getClass().getSimpleName());}
         notifyChanged();
     }
     private void publish(Sample next){
-        if(!running)return;
+        if(!running||!enabled)return;
         if(!next.available){if(registered)release();return;}
         if(!initialized)initialize();
         if(!registered&&apiReady)register();
@@ -270,6 +327,7 @@ if(registered){registeredType=sample.type;invoke("updateMediaSourceTypeList",tok
         }
     }
     private void release(){
+        main.removeCallbacks(keepalive);
         try{if(api!=null&&token!=null)invoke("unregister",token);}catch(Exception|LinkageError ignored){}
         token=null;registered=false;registeredType=-1;registeredTypes="";playbackAccepted=false;playClaimed=false;lastSource="";lastTrack="";lastPlaying=false;
     }
@@ -288,7 +346,8 @@ if(registered){registeredType=sample.type;invoke("updateMediaSourceTypeList",tok
     }
     public JSONObject snapshot(){
         JSONObject out=new JSONObject();try{out.put("registered",registered).put("playbackAccepted",playbackAccepted).put("playClaimed",playClaimed)
-            .put("bound",bound).put("sourceType",sample.available?sample.type:-1).put("callbackCount",callbackCount).put("lastCallback",lastCallback).put("reason",reason);}catch(Exception ignored){}return out;
+            .put("bound",bound).put("sourceType",sample.available?sample.type:-1).put("callbackCount",callbackCount).put("lastCallback",lastCallback)
+            .put("focusOwner",focusOwner).put("keepaliveMs",CLAIM_KEEPALIVE_MS).put("enabled",enabled).put("reason",reason);}catch(Exception ignored){}return out;
     }
     static Object defaultValue(Class<?> type){
         if(type==boolean.class)return false;if(type==int.class)return 0;if(type==long.class)return 0L;if(type==float.class)return 0f;if(type==double.class)return 0d;return null;

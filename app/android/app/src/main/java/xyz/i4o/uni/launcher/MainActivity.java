@@ -195,6 +195,54 @@ public final class MainActivity extends FlutterActivity {
                     if(raw==null||raw.length()>8192){result.error("invalid","Invalid request",null);return;}
                     handle(new JSONObject(raw));result.success(null);
                 }
+                else if("clusterLyricsDisplays".equals(call.method)){
+                    result.success(xyz.i4o.uni.launcher.integration.display.ClusterLyricsService.displays(this));}
+                else if("clusterLyricsStatus".equals(call.method)){
+                    result.success(xyz.i4o.uni.launcher.integration.display.ClusterLyricsService.status(this));}
+                else if("clusterLyricsApply".equals(call.method)){
+                    java.util.Map<?,?> m=call.arguments instanceof java.util.Map?(java.util.Map<?,?>)call.arguments:java.util.Collections.emptyMap();
+                    // The whole configuration crosses the channel as-is: position, width, rows,
+                    // accent and style all live in one place, so the preview in settings and the
+                    // panel on the cluster can never disagree about a value.
+                    java.util.Map<String,Object> values=new java.util.LinkedHashMap<>();
+                    for(java.util.Map.Entry<?,?> entry:m.entrySet())
+                        if(entry.getKey()!=null)values.put(String.valueOf(entry.getKey()),entry.getValue());
+                    xyz.i4o.uni.launcher.integration.display.ClusterLyricsService.apply(this,values);
+                    result.success(xyz.i4o.uni.launcher.integration.display.ClusterLyricsService.status(this));}
+                else if("lyricTuningStatus".equals(call.method)){
+                    // One round trip for both halves: the settings page needs the offsets and
+                    // the cache policy together, and it must know which track the per-track
+                    // value belongs to — that is whatever the cast panel is showing.
+                    xyz.i4o.uni.launcher.integration.lyrics.LyricCast.State cast =
+                            xyz.i4o.uni.launcher.integration.lyrics.LyricCast.state();
+                    java.util.Map<String,Object> out=new java.util.LinkedHashMap<>();
+                    out.put("globalMs",xyz.i4o.uni.launcher.integration.lyrics.LyricOffset.globalMs());
+                    out.put("trackMs",xyz.i4o.uni.launcher.integration.lyrics.LyricOffset
+                            .trackMs(cast.title,cast.artist));
+                    out.put("title",cast.title);
+                    out.put("artist",cast.artist);
+                    out.put("policy",xyz.i4o.uni.launcher.integration.lyrics.LyricCachePolicy
+                            .policy(this));
+                    out.put("limitMb",xyz.i4o.uni.launcher.integration.lyrics.LyricCachePolicy
+                            .limitMb(this));
+                    result.success(out);}
+                else if("lyricTuning".equals(call.method)){
+                    // Global and per-track lyric offset, persisted where the playback clock
+                    // reads it so a correction survives a restart of the launcher.
+                    java.util.Map<?,?> m=call.arguments instanceof java.util.Map?(java.util.Map<?,?>)call.arguments:java.util.Collections.emptyMap();
+                    int global=number(m.get("globalMs"),0);
+                    int track=number(m.get("trackMs"),0);
+                    String title=m.get("title")==null?null:String.valueOf(m.get("title"));
+                    String artist=m.get("artist")==null?null:String.valueOf(m.get("artist"));
+                    xyz.i4o.uni.launcher.integration.lyrics.LyricOffset.save(this,global,title,artist,track);
+                    result.success(new java.util.LinkedHashMap<String,Object>(){{put("globalMs",xyz.i4o.uni.launcher.integration.lyrics.LyricOffset.globalMs());}});}
+                else if("lyricCache".equals(call.method)){
+                    java.util.Map<?,?> m=call.arguments instanceof java.util.Map?(java.util.Map<?,?>)call.arguments:java.util.Collections.emptyMap();
+                    xyz.i4o.uni.launcher.integration.lyrics.LyricCachePolicy.save(this,
+                            m.get("policy")==null?null:String.valueOf(m.get("policy")),
+                            number(m.get("limitMb"),
+                                    xyz.i4o.uni.launcher.integration.lyrics.LyricCachePolicy.limitMb(this)));
+                    result.success(xyz.i4o.uni.launcher.integration.lyrics.LyricCachePolicy.policy(this));}
                 else result.notImplemented();
             }catch(Exception e){result.error("unavailable","操作暂不可用",null);}
         });
@@ -218,9 +266,22 @@ public final class MainActivity extends FlutterActivity {
         rt=LauncherRuntime.get(this);
         // 垃圾清理要读写公开存储：面板一打开就由这里申请权限，界面上没有「去授权」这一步。
         rt.attachPermissionHost(this::requestStoragePermission);
-        rt.scheduleBootLaunch();rt.scheduleWirelessAdb();
         rt.scheduleBootAutoPlay();
         StartupTrace.mark("runtime");
+        rt.scheduleBootLaunch();rt.scheduleWirelessAdb();
+        // 歌词投屏是常驻窗口，进程被杀或车机重启后没有任何东西会把它带回来：开关会显示
+        // 「已开启」而屏幕上什么都没有。启动时按已存的偏好重新拉起一次服务。
+        if(xyz.i4o.uni.launcher.integration.display.ClusterLyricsService.enabled(this))
+            xyz.i4o.uni.launcher.integration.display.ClusterLyricsService.refresh(this);
+        // Lyric offset + cache policy, then the cache sweep on a worker: neither touches the
+        // main thread and both must be in place before the first track reports a position.
+        xyz.i4o.uni.launcher.integration.lyrics.LyricOffset.load(this);
+        new Thread(() -> {
+            long now=System.currentTimeMillis();
+            try{xyz.i4o.uni.launcher.integration.lyrics.LyricCachePolicy.sweep(this,now);}
+            catch(RuntimeException ignored){}
+        },"lyric-cache-sweep").start();
+        StartupTrace.began(traceStart);StartupTrace.runtime(StartupTrace.mark());
         initialSettings=isSettingsIntent(getIntent());
         super.onCreate(saved);getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
         // 隐藏 API 豁免：频谱的次选路径要反射 audioSessionId（公开 SDK 里没有）。
@@ -363,7 +424,7 @@ public final class MainActivity extends FlutterActivity {
                 updateSnapshotFull();JSONObject full=new JSONObject(cached),report=new JSONObject();
                 for(String key:new String[]{"version","demo","hideNavigation","systemNavigationHidden","systemNavigationGranted","contentReservesSystemBars","contentHeightPx","viewportHeightPx","reservedBottomPx","desktopSelected","systemStatus","weather","calendar","navigation","vehicle","trafficLights"})report.put(key,full.opt(key));
                 JSONObject m=full.optJSONObject("media"),safe=new JSONObject();
-                if(m!=null)for(String key:new String[]{"available","authorized","playing","source","preferredPackage","sessions","reason","canToggle","canNext","canPrevious","canSeek","controlSource","lyricsSource","durationMs","positionMs","steeringControlReady","instrumentMetadataReady"})safe.put(key,m.opt(key));
+                if(m!=null)for(String key:new String[]{"available","authorized","playing","source","preferredPackage","sessions","reason","canToggle","canNext","canPrevious","canSeek","controlSource","lyricsSource","durationMs","positionMs","steeringControlReady","steeringKeys","steeringInject","steeringEnabled","instrumentEnabled","instrumentMetadataReady"})safe.put(key,m.opt(key));
                 if(m!=null)safe.put("lyricsAvailable",!m.optString("lyrics").isEmpty()).put("artworkAvailable",!m.optString("artwork").isEmpty()).put("officialMedia",m.optJSONObject("officialMedia"));
                 report.put("audioSpectrum",new JSONObject(xyz.i4o.uni.launcher.audio.SpectrumBridge.diagnostics()));
                 if(ambientBridge!=null)report.put("ambientLight",new JSONObject(ambientBridge.status()));
@@ -410,6 +471,16 @@ public final class MainActivity extends FlutterActivity {
     }
 
     @Override public void onWindowFocusChanged(boolean focus){super.onWindowFocusChanged(focus);if(focus&&chrome!=null)chrome.apply();}
+
+    /**
+     * 车机有时把媒体键当普通按键派发给当前窗口，而不是走 MediaSession 路由。
+     * 这类按键交给媒体适配层（按动作分组与方控输入通道折叠，不会切两次）。
+     */
+    @Override public boolean dispatchKeyEvent(android.view.KeyEvent event){
+        if(event!=null&&event.getAction()==android.view.KeyEvent.ACTION_DOWN&&event.getRepeatCount()==0
+            &&rt!=null&&rt.dispatchSteeringKey(event.getKeyCode(),"window"))return true;
+        return super.dispatchKeyEvent(event);
+    }
     @Override public void onConfigurationChanged(Configuration c){super.onConfigurationChanged(c);UniLog.event(LogTags.APP,"配置变化", "orientation", c.orientation);publish();}
     @Override public void onRequestPermissionsResult(int requestCode,String[] permissions,int[] results){
         super.onRequestPermissionsResult(requestCode,permissions,results);
@@ -530,6 +601,15 @@ public final class MainActivity extends FlutterActivity {
     private boolean isSettingsIntent(Intent intent){
         return intent!=null&&(intent.getBooleanExtra("uniSettings",false)||
             (intent.getComponent()!=null&&"xyz.i4o.uni.launcher.DesktopSettings".equals(intent.getComponent().getClassName())));
+    }
+    /** Channel numbers arrive as Integer, Double or String depending on the caller. */
+    private static int number(Object value,int fallback){
+        if(value instanceof Number)return ((Number)value).intValue();
+        if(value instanceof CharSequence){
+            try{return (int)Math.round(Double.parseDouble(value.toString().trim()));}
+            catch(NumberFormatException ignored){return fallback;}
+        }
+        return fallback;
     }
     private void dispatchIntent(Intent intent){
         // 桌面入口有两种：回到桌面 / 直接进设置。分不清是哪一种时，

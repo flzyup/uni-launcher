@@ -15,6 +15,7 @@ import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.Charset;
 import java.security.MessageDigest;
+import xyz.i4o.uni.launcher.integration.lyrics.LyricCatalog;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -174,12 +175,18 @@ public final class LyricsResolver {
         return out.toString();
     }
 
+    /**
+     * One key for one recording, shared with the timeline cache.
+     *
+     * <p>This used to round the duration while {@link LyricCatalog#key} floored it, and both
+     * normalised the title differently. The same song therefore hashed to two names: the plain
+     * text lived under one, the word-timed timeline under the other, and a lookup that should
+     * have been a cache hit fell through to the network. Both caches now derive the key from
+     * the same function, so the text the desktop card shows and the timeline the cast panel
+     * shows are found (or fetched) together.
+     */
     static String key(String title, String artist, long durationMs) {
-        String[] query = cleanQuery(title, artist);
-        String name = normalize(query[0]);
-        if (name.isEmpty()) return "";
-        long seconds = durationMs > 0 ? Math.round(durationMs / 1000.0) : 0;
-        return name + "|" + normalize(query[1]) + "|" + seconds;
+        return LyricCatalog.key(title, artist, durationMs);
     }
 
     /** 0 means "different recording"; anything at or above ACCEPT is a match. */

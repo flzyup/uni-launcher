@@ -40,6 +40,21 @@
 - 缓存：内存保留最近 16 首；磁盘按识别键存 `filesDir/media-lyrics/<sha1>.lrc` 长期复用；未命中的键 30 分钟内不再重试，避免每两秒一次空查询。
 - 线程：单线程后台执行全部网络与磁盘 I/O，主线程只做一次内存查表；结果返回前若已切歌则丢弃通知，切回时直接用缓存。断网或接口不可用等同于没有歌词，界面显示原有空态。
 
+## 词级时间轴（第二条通道）
+
+行级歌词以上述路径为准。词级时间轴是并行新增的通道，来源是同一份录音在其他公开目录里的
+词级文档（网易 yrc、QQ qrc、酷狗 krc、酷我 `<start,end>`），不解码播放器私有缓存。
+设计、编码格式与接线位置见[歌词伴侣移植方案](LYRICS_COMPANION_PORT.md)：
+
+- Java `integration/lyrics/`：`LyricTimeline`（行/词模型、翻译与罗马音对齐、间奏、±3 行窗口）、
+  `LyricCodecs`（KRC/QRC/MRC/AWLRC/酷我）、`LyricCatalog`（四家检索与评分）、
+  `LyricTimelineProvider`（非阻塞门面）。
+- 快照多出 `lyricTimeline`（JSON 字符串）、`lyricTimelineLabel`、`lyricTimelineWords` 三个键；
+  `lyrics` / `lyricsSource` 契约不变，卡片可以继续只读行级字段。
+- Flutter `LyricTimeline.parse` 在本地推进游标，逐帧填充不经过通道；`KaraokeText` 用像素级裁剪
+  把已唱部分画成强调色。
+- 没有词级文档时整行高亮，估算填充必须显式打开（`estimatedKaraoke`），与「不虚构行时间」一致。
+
 ## 桌面切换
 
 设置新增「切换动效」：无动画（默认）、淡入淡出、横向滑动。点击页码或左右轻扫均可切换；只有卡片工作区变化，状态栏与底栏固定。偏好随布局一同持久化，旧配置默认无动画。编辑时停用动效，系统减少动态效果时直接切换。

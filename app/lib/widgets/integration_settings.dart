@@ -3,6 +3,7 @@ import '../controller/launcher_controller.dart';
 import '../theme/design_tokens.dart';
 import '../theme/launcher_theme.dart';
 import 'glass_surface.dart';
+import 'lyric_tuning_panel.dart';
 import 'navigation_options.dart';
 
 /// Installed-app identity is the key; labels may be duplicated or localized.
@@ -108,10 +109,34 @@ class IntegrationSettings extends StatelessWidget {
                   onPressed: () => controller.command('launch-player'),
                   child: const Text('打开关联播放器')),
               SizedBox(height: Design.px(10)),
+              // 方控开关紧跟着播放器选择：它决定的是「方向盘那几颗键归谁」。
+              DesignSwitchTile(
+                  key: const ValueKey('steering-keys'),
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('方向盘控制音乐'),
+                  subtitle: const Text('播放/暂停、上一首下一首直接用方向盘和方控键；关掉后这些键交回原车，桌面不再接管'),
+                  value: prefs['steeringKeysEnabled'] != false,
+                  onChanged: (v) =>
+                      controller.command('steering-keys', enabled: v)),
+              SizedBox(height: Design.px(10)),
+              // 仪表那边是另一条链路（原车媒体中心），和方控分开控制。
+              DesignSwitchTile(
+                  key: const ValueKey('instrument-sync'),
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('仪表显示桌面音乐'),
+                  subtitle: const Text('把当前曲目、封面与进度同步到仪表；关掉后仪表跟回原车播放器，桌面不再占用'),
+                  value: prefs['instrumentSyncEnabled'] != false,
+                  onChanged: (v) =>
+                      controller.command('instrument-sync', enabled: v)),
+              SizedBox(height: Design.px(10)),
               Text(
                   '选择网易云、QQ 音乐或原车音乐后，歌曲、封面、歌词和播放控制均跟随该应用。请先在播放器中播放一首歌曲并授权媒体访问。',
                   style: TextStyle(
                       color: s.muted, fontSize: Design.px(19), height: 1.6)),
+              SizedBox(height: Design.px(14)),
+              // 歌词跟着这条链路走：蓝牙/USB/车机各自有不同的延迟，偏移必须和播放器
+              // 选择放在一起，否则用户不知道该去哪儿校准。
+              const LyricTuningPanel(),
             ]))
       ]),
       if (native['demo'] == true)

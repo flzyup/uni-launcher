@@ -21,6 +21,7 @@ import org.json.JSONObject;
 import org.json.JSONArray;
 import xyz.i4o.uni.launcher.core.ClimateState;
 import xyz.i4o.uni.launcher.core.CommandPolicy;
+import xyz.i4o.uni.launcher.core.SteeringKeyPolicy;
 import xyz.i4o.uni.launcher.integration.*;
 import xyz.i4o.uni.launcher.log.LogTags;
 import xyz.i4o.uni.launcher.log.UniLog;
@@ -50,10 +51,10 @@ public final class LauncherRuntime {
     private final LanTransfer transfer;
     private final QuarkPan quark;
     private final StorageCleaner cleaner;
+    private final DebugBridge debugBridge;
     /** 开机自启动计划：锚定开机秒数，进程内每计划只启动一次。 */
     private final BootLaunch bootLaunch;
     private final WirelessAdb wirelessAdb;
-    private final DebugBridge debugBridge;
     /**
      * 需要 Activity 才能弹系统权限框的能力。面板窗口没有 Activity，统一借用主窗口。
      * 没接上（例如只有底栏在跑）时清理器自己降级，不会卡住。
@@ -234,6 +235,36 @@ public final class LauncherRuntime {
 
     public boolean saveDesign(String raw){return onMain(()->saveDesignOnMain(raw));}
 
+    /**
+     * Sample the media block for a surface that lives outside the launcher window.
+     *
+     * <p>{@code MainActivity.publish()} deliberately skips snapshot construction when no Flutter
+     * sink is attached, which is correct for the launcher and wrong for the lyric cast: the cast
+     * window sits on another display while the user is in the music app, so its only source of
+     * lyric state would go silent exactly when it matters. This entry point reads the media
+     * block alone — no app scan, no settings catalogue — and, if the adapter was stopped when the
+     * last listener went away, restarts it first.
+     */
+    public void pumpMediaCast(){
+        onMain(()->{
+            try{
+                if(!media.started())media.start();
+                media.snapshot();
+            }catch(RuntimeException|LinkageError ignored){
+                // A media service that died mid-read must not take the cast feed down with it.
+            }
+            return null;
+        });
+    }
+
+    /** Release the media subscription the cast feed started, when casting is switched off. */
+    public void releaseMediaCast(){
+        onMain(()->{
+            if(listeners.isEmpty()&&media.started())media.stop();
+            return null;
+        });
+    }
+
     /** true means recognized, including input rejected by the original gates. */
     public boolean handle(JSONObject request)throws Exception{return callOnMain(()->handleOnMain(request));}
 
@@ -245,7 +276,7 @@ public final class LauncherRuntime {
                 .put("driverHeat",simulator.driverHeat).put("driverVent",simulator.driverVent).put("passengerHeat",simulator.passengerHeat);
             JSONObject telemetry=vehicle.snapshot();
             if(!prefs.getBoolean("demo",false))climate=telemetry.optJSONObject("climate")==null?new JSONObject():telemetry.getJSONObject("climate");
-            state.put("systemStatus",systemStatus.snapshot()).put("weather",weather.snapshot()).put("calendar",calendar.snapshot()).put("navigation",navigation.snapshot()).put("integrationPreferences",new JSONObject().put("mediaPackage",prefs.getString("mediaPackage","auto")).put("mapTextureScale",prefs.getBoolean("mapTextureScale",false)).put("navigationCardTitleHidden",prefs.getBoolean("navigationCardTitleHidden",true)).put("autoPlayMusic",prefs.getBoolean("autoPlayMusic",false)));
+            state.put("systemStatus",systemStatus.snapshot()).put("weather",weather.snapshot()).put("calendar",calendar.snapshot()).put("navigation",navigation.snapshot()).put("integrationPreferences",new JSONObject().put("mediaPackage",prefs.getString("mediaPackage","auto")).put("mapTextureScale",prefs.getBoolean("mapTextureScale",false)).put("navigationCardTitleHidden",prefs.getBoolean("navigationCardTitleHidden",true)).put("autoPlayMusic",prefs.getBoolean("autoPlayMusic",false)).put("steeringKeysEnabled",prefs.getBoolean("steeringKeysEnabled",true)).put("instrumentSyncEnabled",prefs.getBoolean("instrumentSyncEnabled",true)));
             state.put("debugBridge",debugBridge.snapshot());
             state.put("demo",prefs.getBoolean("demo",false)).put("hideNavigation",prefs.getBoolean("hideNavigation",false))
                 .put("globalNavigation",prefs.getBoolean("globalNavigation",false))
@@ -391,43 +422,21 @@ public final class LauncherRuntime {
         if("embed-navigation".equals(action)){prefs.edit().putBoolean("embedNavigation",request.optBoolean("enabled",true)).apply();publish();return true;}
         if("map-texture-scale".equals(action)){prefs.edit().putBoolean("mapTextureScale",request.optBoolean("enabled",false)).apply();publish();return true;}
         if("navigation-card-title-hidden".equals(action)){prefs.edit().putBoolean("navigationCardTitleHidden",request.optBoolean("enabled",true)).apply();publish();return true;}
+        // 方向盘控制：默认开。关掉立刻反注册原车输入通道，方向盘键原样留给原车。
+        if("steering-keys".equals(action)){
+            boolean on=request.optBoolean("enabled",true);
+            prefs.edit().putBoolean("steeringKeysEnabled",on).apply();
+            media.setSteeringEnabled(on);
+            publish();return true;
+        }
+        // 仪表同步：默认开。关掉立刻反注册解绑原车媒体中心，仪表跟回原车播放器。
+        if("instrument-sync".equals(action)){
+            boolean on=request.optBoolean("enabled",true);
+            prefs.edit().putBoolean("instrumentSyncEnabled",on).apply();
+            media.setInstrumentEnabled(on);
+            publish();return true;
+        }
         if("auto-play-music".equals(action)){prefs.edit().putBoolean("autoPlayMusic",request.optBoolean("enabled",false)).apply();publish();return true;}
-        if("refresh-system-settings".equals(action)){new Thread(()->{systemSettings.refresh();navigationAudio.refresh();main.post(()->{settingsRevision++;publish();});},"uni-settings").start();return true;}
-        if("open-system-setting".equals(action)){if(!systemSettings.open(value))toast("系统设置入口不可用或权限不足");return true;}
-        if("navigation-audio-mode".equals(action)){if(navigationAudio.setMode(value))settingsRevision++;else toast("导航混音模式不可用或原车未确认变更");publish();return true;}
-        if("calendar-refresh".equals(action)){calendar.refresh();publish();return true;}
-        if("weather-forecast-refresh".equals(action)){weather.refreshForecast();return true;}
-        if("launch-navigation".equals(action)){if(!navigation.launchFullscreen())toast("请选择已安装的导航应用");return true;}
-        if("launch-player".equals(action)){
-            String selected=prefs.getString("mediaPackage","auto");
-            if("auto".equals(selected))selected=media.snapshot().optString("source","ecarx.xsf.mediacenter");
-            if(!apps.launchPackage(selected))toast("请选择已安装的音乐播放器");return true;
-        }
-        if("refresh".equals(action)){refreshAppsInBackground();if(!listeners.isEmpty()){media.start();vehicle.stop();vehicle.start();}publish();return true;}
-        if("debug-refresh".equals(action)){debugBridge.refresh();return true;}
-        if("debug-adb".equals(action)||"debug-network".equals(action)){
-            debugBridge.change("debug-network".equals(action),request.optBoolean("enabled",false));return true;
-        }
-        if("app-info".equals(action)){if(!apps.showInfo(value))toast("无法打开应用信息");return true;}
-        if("app-enable".equals(action)||"app-disable".equals(action)){
-            if(!apps.setEnabled(value,"app-enable".equals(action)))toast("无法修改应用状态");
-            refreshAppsInBackground();return true;
-        }
-        if("request-uninstall".equals(action)){if(!apps.requestUninstall(value))toast("该应用不可卸载");return true;}
-        if("launch-app".equals(action)){if(!apps.launch(value))toast("应用未安装或无法启动");return true;}
-        if("media-access".equals(action)){try{context.startActivity(new Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));}catch(Exception e){toast("系统没有提供媒体授权入口");}return true;}
-        // 垃圾清理：扫描与清理都在 StorageCleaner 的后台线程，这里只做派发。
-        // value 是逗号分隔的类目 id，长度与白名单由 StorageCleaner 再校验一次。
-        if("cleaner-scan".equals(action)){cleaner.scan();return true;}
-        if("cleaner-clean".equals(action)){cleaner.clean(value);return true;}
-        if("cleaner-cancel".equals(action)){cleaner.cancel();return true;}
-        // 面板打开时自动要权限：能直接拿到就重扫，拿不到由 Activity 弹一次系统框。
-        if("cleaner-grant".equals(action)){
-            PermissionHost host=permissionHost;
-            if(host!=null)host.requestStoragePermission();else cleaner.refreshPermission();
-            return true;
-        }
-        if("cleaner-permission".equals(action)){cleaner.refreshPermission();return true;}
         // 记忆配置：只记录偏好，真正写入由启动流程或用户点「立即应用」触发。
         if("memory-drive-mode-enabled".equals(action)){
             prefs.edit().putBoolean("memoryDriveModeEnabled",request.optBoolean("enabled",false)).apply();publish();return true;
@@ -488,8 +497,43 @@ public final class LauncherRuntime {
         if("wireless-adb-run".equals(action)){
             wirelessAdb.ensureNow();publish();return true;
         }
-        if("transfer-start".equals(action)){transfer.start();publish();return true;}
-        if("transfer-stop".equals(action)){transfer.stop();publish();return true;}
+        if("refresh-system-settings".equals(action)){new Thread(()->{systemSettings.refresh();navigationAudio.refresh();main.post(()->{settingsRevision++;publish();});},"uni-settings").start();return true;}
+        if("open-system-setting".equals(action)){if(!systemSettings.open(value))toast("系统设置入口不可用或权限不足");return true;}
+        if("navigation-audio-mode".equals(action)){if(navigationAudio.setMode(value))settingsRevision++;else toast("导航混音模式不可用或原车未确认变更");publish();return true;}
+        if("calendar-refresh".equals(action)){calendar.refresh();publish();return true;}
+        if("weather-forecast-refresh".equals(action)){weather.refreshForecast();return true;}
+        if("launch-navigation".equals(action)){if(!navigation.launchFullscreen())toast("请选择已安装的导航应用");return true;}
+        if("launch-player".equals(action)){
+            String selected=prefs.getString("mediaPackage","auto");
+            if("auto".equals(selected))selected=media.snapshot().optString("source","ecarx.xsf.mediacenter");
+            if(!apps.launchPackage(selected))toast("请选择已安装的音乐播放器");return true;
+        }
+        if("refresh".equals(action)){refreshAppsInBackground();if(!listeners.isEmpty()){media.start();vehicle.stop();vehicle.start();}publish();return true;}
+        if("debug-refresh".equals(action)){debugBridge.refresh();return true;}
+        if("debug-adb".equals(action)||"debug-network".equals(action)){
+            debugBridge.change("debug-network".equals(action),request.optBoolean("enabled",false));return true;
+        }
+        if("app-info".equals(action)){if(!apps.showInfo(value))toast("无法打开应用信息");return true;}
+        if("app-enable".equals(action)||"app-disable".equals(action)){
+            if(!apps.setEnabled(value,"app-enable".equals(action)))toast("无法修改应用状态");
+            refreshAppsInBackground();return true;
+        }
+        if("request-uninstall".equals(action)){if(!apps.requestUninstall(value))toast("该应用不可卸载");return true;}
+        if("launch-app".equals(action)){if(!apps.launch(value))toast("应用未安装或无法启动");return true;}
+        if("media-access".equals(action)){try{context.startActivity(new Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));}catch(Exception e){toast("系统没有提供媒体授权入口");}return true;}
+        // 垃圾清理：扫描与清理都在 StorageCleaner 的后台线程，这里只做派发。
+        // value 是逗号分隔的类目 id，长度与白名单由 StorageCleaner 再校验一次。
+        if("cleaner-scan".equals(action)){cleaner.scan();return true;}
+        if("cleaner-clean".equals(action)){cleaner.clean(value);return true;}
+        if("cleaner-cancel".equals(action)){cleaner.cancel();return true;}
+        // 面板打开时自动要权限：能直接拿到就重扫，拿不到由 Activity 弹一次系统框。
+        if("cleaner-grant".equals(action)){
+            PermissionHost host=permissionHost;
+            if(host!=null)host.requestStoragePermission();else cleaner.refreshPermission();
+            return true;
+        }
+        if("cleaner-permission".equals(action)){cleaner.refreshPermission();return true;}
+        if("transfer-start".equals(action)){transfer.start();publish();return true;}        if("transfer-stop".equals(action)){transfer.stop();publish();return true;}
         if("transfer-install".equals(action)){if(!transfer.install(value))toast("未找到可安装的文件，或系统未允许安装");publish();return true;}
         if("transfer-delete".equals(action)){transfer.delete(value);publish();return true;}
         // 手机只负责把地址交上来；下载由车机上的点击触发，避免车机被外部驱动流量。
@@ -564,7 +608,7 @@ public final class LauncherRuntime {
         onMain(()->{
             boolean first=listeners.isEmpty();
             listeners.put(owner,listener);
-            if(first){media.setPreferredPackage(prefs.getString("mediaPackage","auto"));vehicle.start();weather.start();systemStatus.start();calendar.start();trafficLights.start();}
+            if(first){media.setSteeringEnabled(prefs.getBoolean("steeringKeysEnabled",true));media.setInstrumentEnabled(prefs.getBoolean("instrumentSyncEnabled",true));media.setPreferredPackage(prefs.getString("mediaPackage","auto"));vehicle.start();weather.start();systemStatus.start();calendar.start();trafficLights.start();}
             publish();return null;
         });
     }
@@ -607,6 +651,17 @@ public final class LauncherRuntime {
         onMain(()->{desktopContent=selected;return null;});
     }
     public boolean homeVisible(){return onMain(()->homeVisible);}
+
+    /**
+     * 车机把媒体键当普通按键派给桌面窗口时的入口（没走 MediaSession 路由）。
+     * 与方控输入通道共用同一套折叠，返回 true 表示这个键归桌面媒体控制、已消费。
+     */
+    public boolean dispatchSteeringKey(int keyCode,String channel){
+        String action=SteeringKeyPolicy.action(keyCode);
+        if(action.isEmpty())return false;
+        onMain(()->{media.onSteeringAction(channel,action);return null;});
+        return true;
+    }
 
     public void setHomeVisible(boolean visible){
         onMain(()->{if(homeVisible!=visible){homeVisible=visible;publish();}return null;});

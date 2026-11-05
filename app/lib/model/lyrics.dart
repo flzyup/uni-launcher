@@ -1,7 +1,10 @@
+import 'lyric_timeline.dart';
+
 class LyricLine {
   final int? timeMs;
   final String text;
-  const LyricLine(this.text, [this.timeMs]);
+  final String translation;
+  const LyricLine(this.text, [this.timeMs, this.translation = '']);
 }
 
 /// LRC or plain text from the active source. Never invent timing for plain text.
@@ -40,6 +43,20 @@ class Lyrics {
     timed.sort((a, b) => a.timeMs!.compareTo(b.timeMs!));
     return timed.isEmpty ? Lyrics(plain) : Lyrics(timed, timed: true);
   }
+  /// The same document the cluster cast panel renders.
+  ///
+  /// The card used to parse `media['lyrics']` on its own while the cast panel read
+  /// `media['lyricTimeline']`. Two documents means two answers: the card highlighted a credit
+  /// line at 0–3 s that the word-timed document does not contain, and the panel showed the gap
+  /// the catalogue left behind. A timeline in the payload now wins over the raw text.
+  factory Lyrics.fromTimeline(LyricTimeline timeline) {
+    if (timeline.lines.isEmpty) return const Lyrics([]);
+    return Lyrics(
+        List<LyricLine>.unmodifiable(timeline.lines
+            .map((line) => LyricLine(line.text, line.timeMs, line.translation))),
+        timed: true);
+  }
+
   int activeAt(int positionMs) {
     if (!timed || lines.isEmpty || positionMs < lines.first.timeMs!) return -1;
     int low = 0, high = lines.length;
