@@ -130,8 +130,10 @@ for path in [source, java, jar, key, cert]:
 def apk_badging(apk):
     """(versionName, versionCode) of an APK, or (None, None)."""
     for folder in sorted((sdk / 'build-tools').glob('*'), reverse=True):
-        aapt2 = folder / 'aapt2'
-        if not aapt2.is_file():
+        # Windows ships aapt2.exe; the extension-less name only exists on POSIX.
+        candidates = [folder / 'aapt2', folder / 'aapt2.exe']
+        aapt2 = next((p for p in candidates if p.is_file()), None)
+        if aapt2 is None:
             continue
         try:
             out = subprocess.run([str(aapt2), 'dump', 'badging', str(apk)],

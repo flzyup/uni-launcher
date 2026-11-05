@@ -90,19 +90,38 @@ public final class MainActivity extends FlutterActivity {
     private xyz.i4o.uni.launcher.ambient.AmbientLightBridge ambientBridge;
     private NavigationChrome chrome;
     private LiveNavigationHost mapHost;
-    private String cached="{}";
-    private JSONObject flutterViewport=new JSONObject();
     private int reservedBottomPx;
-    private final LauncherRuntime.StaticCursor cursor=new LauncherRuntime.StaticCursor();
-    /** Last signature handed to the sink; see emit(). */
-    private String sentSignature;
     private boolean initialSettings;
-    private EventChannel.EventSink sink;
     private EventChannel events;
     private MethodChannel channel;
     private MethodChannel otaEvents;
     private MethodChannel.Result wallpaperResult;
     private static final int PICK_WALLPAPER=4206;
+
+    /**
+     * 主引擎是进程级的（见 {@link #provideFlutterEngine}），所以凡是「镜像 Dart
+     * isolate 内部状态」的东西都必须挂在引擎上、而不是窗口上：活动因为导航栏或
+     * 配置改变重建时，新窗口要接着用同一套分组游标、同一份快照缓存和同一条事件
+     * 流，否则已经在跑的那份 Dart 界面就再也收不到更新。
+     */
+    private static final class EngineState {
+        String cached="{}";
+        JSONObject flutterViewport=new JSONObject();
+        final LauncherRuntime.StaticCursor cursor=new LauncherRuntime.StaticCursor();
+        /** Last signature handed to the sink; see emit(). */
+        String sentSignature;
+        EventChannel.EventSink sink;
+        void reset(){cached="{}";sentSignature=null;sink=null;flutterViewport=new JSONObject();
+            cursor.apps=cursor.design=cursor.media=cursor.settings=-1;}
+    }
+    /** 共享引擎的那一份；「一窗一引擎」的退路各自新建一份，互不干扰。 */
+    private static EngineState sharedState=new EngineState();
+    private EngineState engineState=sharedState;
+    private static FlutterEngine sharedEngine;
+    /** false 表示本窗口挂在共享引擎上，销毁窗口时不能连引擎一起带走。 */
+    private boolean ownsEngine=true;
+    /** true 表示接着用的是一份已经在跑的 Dart isolate（窗口重建）。 */
+    private boolean engineWasWarm;
 
     /** Called by the new version on startup, after Android has finished install. */
     private void cleanupInstalledOta(File dir){
@@ -121,10 +140,47 @@ public final class MainActivity extends FlutterActivity {
         }
     }
 
+    /**
+     * 主窗口引擎在进程内复用。
+     *
+     * <p>导航栏策略变更会让 Activity {@code recreate()}，其它配置变化也会重建
+     * 窗口。以前每次都跟着新建引擎，于是 Dart 的引导（bootstrap 快照、布局解析、
+     * 图标解码）要在「切一下导航栏」里重跑一遍。窗口重建并没有换进程，Dart
+     * isolate 也还活着：把引擎留给下一个窗口接管，重建就只剩一次 attach。
+     *
+     * <p>Flutter 只允许一个窗口挂在同一个引擎上。本 ROM 偶尔会在旧 HOME 还没
+     * 销毁时再起一个实例（见 onCreate 里的 previous.finish），那种情况退回
+     * 「一窗一引擎」，行为与改动前一致；只有旧窗口已经 onDestroy、{@link #active}
+     * 被清空时才复用。
+     */
     @Override public FlutterEngine provideFlutterEngine(android.content.Context context){
-        return LauncherEngines.create(context,"main",true);
+        if(active.get()!=null){
+            ownsEngine=true;
+            engineWasWarm=false;
+            engineState=new EngineState();
+            return LauncherEngines.create(context,"main",true);
+        }
+        FlutterEngine engine=sharedEngine;
+        engineWasWarm=engine!=null;
+        if(engine==null){
+            engine=LauncherEngines.create(context,"main",true);
+            sharedEngine=engine;
+            final FlutterEngine created=engine;
+            engine.addEngineLifecycleListener(new FlutterEngine.EngineLifecycleListener(){
+                public void onPreEngineRestart(){}
+                public void onEngineWillDestroy(){
+                    synchronized(MainActivity.class){
+                        if(sharedEngine!=created)return;
+                        sharedEngine=null;sharedState=new EngineState();
+                    }
+                }
+            });
+        }
+        engineState=sharedState;
+        ownsEngine=false;
+        return engine;
     }
-    @Override public boolean shouldDestroyEngineWithHost(){return true;}
+    @Override public boolean shouldDestroyEngineWithHost(){return ownsEngine;}
 
     @Override public void onTrimMemory(int level){
         super.onTrimMemory(level);
@@ -149,9 +205,15 @@ public final class MainActivity extends FlutterActivity {
         channel.setMethodCallHandler((call,result)->{
             try{
                 if("snapshot".equals(call.method)){
-                    updateSnapshot();result.success(cached);
+                    updateSnapshot();result.success(engineState.cached);
                     // Bootstrap consumes the fallback once. Events must not consume
                     // it before Dart has installed its method handler.
+                    initialSettings=false;
+                }
+                else if("prelude".equals(call.method)){
+                    // 首帧快速通道：只有外观与布局，不碰任何适配器/扫描。
+                    // Dart 拿到就能用正确的主题画出第一帧，完整快照随后跟上。
+                    result.success(preludeSnapshot());
                     initialSettings=false;
                 }
                 else if("otaInfo".equals(call.method)){
@@ -185,11 +247,11 @@ public final class MainActivity extends FlutterActivity {
                 else if("desktopPage".equals(call.method)){
                     int page=call.arguments instanceof Number?((Number)call.arguments).intValue():0;
                     if(mapHost!=null)mapHost.preparePageChange();
-                    flutterViewport.put("page",page);
+                    engineState.flutterViewport.put("page",page);
                     rt.setDesktopContentSilently(page==0);result.success(null);
                 }
-                else if("viewport".equals(call.method)){flutterViewport=new JSONObject((String)call.arguments);
-                    rt.setDesktopContent(!flutterViewport.optBoolean("settings")&&flutterViewport.optInt("page")==0);result.success(null);}
+                else if("viewport".equals(call.method)){engineState.flutterViewport=new JSONObject((String)call.arguments);
+                    rt.setDesktopContent(!engineState.flutterViewport.optBoolean("settings")&&engineState.flutterViewport.optInt("page")==0);result.success(null);}
                 else if("action".equals(call.method)){
                     String raw=(String)call.arguments;
                     if(raw==null||raw.length()>8192){result.error("invalid","Invalid request",null);return;}
@@ -248,14 +310,22 @@ public final class MainActivity extends FlutterActivity {
         });
         events=new EventChannel(engine.getDartExecutor().getBinaryMessenger(),"xyz.i4o.uni.launcher/events");
         events.setStreamHandler(new EventChannel.StreamHandler(){
-            public void onListen(Object args,EventChannel.EventSink events){sink=events;sentSignature=null;publish();}
+            public void onListen(Object args,EventChannel.EventSink events){engineState.sink=events;engineState.sentSignature=null;publish();}
             public void onCancel(Object args){
-                sink=null;sentSignature=null;
+                engineState.sink=null;engineState.sentSignature=null;
                 // The next subscriber is a fresh Dart controller with no cached
                 // groups, so the first packet must carry every group again.
-                cursor.apps=-1;cursor.design=-1;cursor.media=-1;cursor.settings=-1;
+                engineState.cursor.apps=-1;engineState.cursor.design=-1;engineState.cursor.media=-1;engineState.cursor.settings=-1;
             }
         });
+        // 共享引擎被新窗口接管时 Dart 不会重发 listen：订阅属于 isolate，还在。
+        // 这里把上次的 sink 接回来，并作废签名强制补发一包，让新窗口的尺寸/
+        // 安全区立刻生效（否则界面会停在重建前的几何上）。
+        if(engineWasWarm&&engineState.sink!=null)engineState.sentSignature=null;
+        if(engineState.sink!=null)publish();
+        // 平台视图（实时地图）归上一个窗口所有，已经随它一起关掉了；Dart 那份
+        // 组件树还活着，所以让它把原生地图整体重建一次，而不是抱着一个死 id。
+        if(engineWasWarm)channel.invokeMethod("rehost",null);
     }
 
     @Override protected void onCreate(Bundle saved){
@@ -281,7 +351,6 @@ public final class MainActivity extends FlutterActivity {
             try{xyz.i4o.uni.launcher.integration.lyrics.LyricCachePolicy.sweep(this,now);}
             catch(RuntimeException ignored){}
         },"lyric-cache-sweep").start();
-        StartupTrace.began(traceStart);StartupTrace.runtime(StartupTrace.mark());
         initialSettings=isSettingsIntent(getIntent());
         super.onCreate(saved);getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
         // 隐藏 API 豁免：频谱的次选路径要反射 audioSessionId（公开 SDK 里没有）。
@@ -294,7 +363,13 @@ public final class MainActivity extends FlutterActivity {
         findViewById(android.R.id.content).addOnLayoutChangeListener((v,l,t,r,b,ol,ot,orr,ob)->{
             if(r-l!=orr-ol||b-t!=ob-ot)v.post(this::publish);
         });
-        dispatchIntent(getIntent());publish();
+        // 共享引擎接管时 Dart 还在原状态（第几页、设置页都留着），再发一次 home
+        // 会把用户正在看的页面打回第一页；只有设置入口和权限请求要重新投递。
+        final Intent launchIntent=getIntent();
+        if(!engineWasWarm||isSettingsIntent(launchIntent)
+            ||launchIntent.getBooleanExtra("uniSpectrumPermission",false))
+            dispatchIntent(launchIntent);
+        publish();
         StartupTrace.mark("window");
         final android.view.View traceRoot=getWindow().getDecorView();
         traceRoot.getViewTreeObserver().addOnPreDrawListener(new android.view.ViewTreeObserver.OnPreDrawListener(){
@@ -309,27 +384,41 @@ public final class MainActivity extends FlutterActivity {
     }
 
     private void updateSnapshot(){
-        int a=cursor.apps,d=cursor.design,m=cursor.media,s=cursor.settings;
+        int a=engineState.cursor.apps,d=engineState.cursor.design,
+            m=engineState.cursor.media,s=engineState.cursor.settings;
         // 主窗口始终走带设置目录的快照：设置目录预热完成后由游标补发一次，其余
         // 时间只发分组增量，绝不触发同步扫描。
-        JSONObject state=rt.snapshotWithSettings(cursor);
+        JSONObject packet=rt.snapshotWithSettings(engineState.cursor);
         // The settings catalogue is a legitimate large payload; without its cursor
         // here, its first delivery looked like a leak and hid real ones.
-        boolean staticIncluded=a!=cursor.apps||d!=cursor.design||m!=cursor.media
-            ||s!=cursor.settings;
-        decorate(state);
-        cached=state.toString();
+        boolean staticIncluded=a!=engineState.cursor.apps||d!=engineState.cursor.design
+            ||m!=engineState.cursor.media||s!=engineState.cursor.settings;
+        decorate(packet);
+        engineState.cached=packet.toString();
         // Invariant: a telemetry-only packet must stay small. If a payload key ever
         // leaks back into the delta pack, say so instead of silently stalling frames.
-        if(!staticIncluded&&cached.length()>65536)
-            UniLog.w(LogTags.APP,"遥测包过大，疑似负载泄漏进增量包","chars",cached.length());
+        if(!staticIncluded&&engineState.cached.length()>65536)
+            UniLog.w(LogTags.APP,"遥测包过大，疑似负载泄漏进增量包","chars",engineState.cached.length());
     }
 
     /** dumpsys --uni-state 专用：用全新游标强制携带全部分组与设置目录。 */
     private void updateSnapshotFull(){
-        JSONObject state=rt.snapshotWithSettings(new LauncherRuntime.StaticCursor());
-        decorate(state);
-        cached=state.toString();
+        JSONObject packet=rt.snapshotWithSettings(new LauncherRuntime.StaticCursor());
+        decorate(packet);
+        engineState.cached=packet.toString();
+    }
+
+    /**
+     * 首帧快速通道：只读偏好，不构造任何适配器快照。
+     *
+     * <p>第一帧要的只有外观和卡片布局。以前这一步排在整份 bootstrap 后面，
+     * 窗口白屏一直等到快照打包完；现在 Dart 先拿这一包把正确的主题和布局画出来，
+     * 完整快照随后补齐车辆、媒体、天气这些随时间变的内容。
+     */
+    private JSONObject preludeSnapshot(){
+        JSONObject packet=rt.prelude();
+        try{packet.put("initialSettings",initialSettings);}catch(Exception ignored){}
+        return packet;
     }
 
     private void decorate(JSONObject state){
@@ -396,7 +485,7 @@ public final class MainActivity extends FlutterActivity {
         // scan usually finishes inside that gap: building the delta there marked
         // apps as delivered, so the badge fell back to the raw package name and
         // the whole app grid stayed empty for the rest of the session.
-        if(sink==null)return;
+        if(engineState.sink==null)return;
         updateSnapshot();emit();
     }
 
@@ -409,11 +498,11 @@ public final class MainActivity extends FlutterActivity {
     }
 
     private void emit(){
-        if(sink==null||cached==null)return;
-        String sig=signature(cached);
-        if(sig.equals(sentSignature))return;
-        sentSignature=sig;
-        sink.success(cached);
+        if(engineState.sink==null||engineState.cached==null)return;
+        String sig=signature(engineState.cached);
+        if(sig.equals(engineState.sentSignature))return;
+        engineState.sentSignature=sig;
+        engineState.sink.success(engineState.cached);
     }
 
     @Override public void dump(String prefix,java.io.FileDescriptor fd,java.io.PrintWriter writer,String[] args){
@@ -421,14 +510,14 @@ public final class MainActivity extends FlutterActivity {
             // dumpsys is already restricted to Android DUMP callers. Exclude
             // artwork, song text and app icons from this read-only diagnostic.
             try{
-                updateSnapshotFull();JSONObject full=new JSONObject(cached),report=new JSONObject();
+                updateSnapshotFull();JSONObject full=new JSONObject(engineState.cached),report=new JSONObject();
                 for(String key:new String[]{"version","demo","hideNavigation","systemNavigationHidden","systemNavigationGranted","contentReservesSystemBars","contentHeightPx","viewportHeightPx","reservedBottomPx","desktopSelected","systemStatus","weather","calendar","navigation","vehicle","trafficLights"})report.put(key,full.opt(key));
                 JSONObject m=full.optJSONObject("media"),safe=new JSONObject();
                 if(m!=null)for(String key:new String[]{"available","authorized","playing","source","preferredPackage","sessions","reason","canToggle","canNext","canPrevious","canSeek","controlSource","lyricsSource","durationMs","positionMs","steeringControlReady","steeringKeys","steeringInject","steeringEnabled","instrumentEnabled","instrumentMetadataReady"})safe.put(key,m.opt(key));
                 if(m!=null)safe.put("lyricsAvailable",!m.optString("lyrics").isEmpty()).put("artworkAvailable",!m.optString("artwork").isEmpty()).put("officialMedia",m.optJSONObject("officialMedia"));
                 report.put("audioSpectrum",new JSONObject(xyz.i4o.uni.launcher.audio.SpectrumBridge.diagnostics()));
                 if(ambientBridge!=null)report.put("ambientLight",new JSONObject(ambientBridge.status()));
-                report.put("media",safe).put("flutterViewport",flutterViewport).put("globalDock",GlobalDockService.snapshot(this)).put("systemSettings",full.opt("systemSettings"));
+                report.put("media",safe).put("flutterViewport",engineState.flutterViewport).put("globalDock",GlobalDockService.snapshot(this)).put("systemSettings",full.opt("systemSettings"));
                 if(mapHost!=null)report.put("mapViews",mapHost.snapshot());
                 writer.println("UNI_STATE="+report.toString());
             }catch(Exception e){writer.println("UNI_STATE_UNAVAILABLE");}return;
@@ -636,10 +725,28 @@ public final class MainActivity extends FlutterActivity {
         if(mapHost!=null)mapHost.close();
         if(spectrumBridge!=null){spectrumBridge.close();spectrumBridge=null;}
         if(ambientBridge!=null){ambientBridge.close();ambientBridge=null;}
-        if(channel!=null)channel.setMethodCallHandler(null);
-        otaEvents=null;
-        if(events!=null)events.setStreamHandler(null);
-        sink=null;if(active.get()==this)active.clear();
+        // 共享引擎这一侧：通道、事件流和游标都属于引擎（Dart isolate 还在跑），
+        // 在这里清掉就等于把下一个窗口的更新掐断。只有本窗口独占引擎时，这次
+        // onDestroy 才是真正的一次销毁。
+        if(ownsEngine){
+            if(channel!=null)channel.setMethodCallHandler(null);
+            otaEvents=null;
+            if(events!=null)events.setStreamHandler(null);
+            engineState.reset();
+        }
+        if(active.get()==this)active.clear();
+        // 真正退出（不是重建）才把进程级引擎一起放掉，避免一个不会再有人接管的
+        // isolate 长期占着内存和定时器。
+        if(!ownsEngine&&isFinishing()&&active.get()==null)releaseSharedEngine();
         super.onDestroy();
+    }
+
+    /** 释放进程级主引擎；只在没有窗口会再接管时调用。 */
+    private static void releaseSharedEngine(){
+        FlutterEngine engine;
+        synchronized(MainActivity.class){
+            engine=sharedEngine;sharedEngine=null;sharedState=new EngineState();
+        }
+        if(engine!=null)engine.destroy();
     }
 }

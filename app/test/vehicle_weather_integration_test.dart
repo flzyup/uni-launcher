@@ -453,7 +453,7 @@ void main() {
     expect(
         traces.every((image) =>
             (image.image as AssetImage).assetName ==
-            'assets/art/lynk-05-top-line.png'),
+            'assets/art/lynk-05-top-line.webp'),
         isTrue);
     expect(t.takeException(), null);
   });

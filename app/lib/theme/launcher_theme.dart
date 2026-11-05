@@ -53,6 +53,10 @@ abstract final class Nocturne {
 
 class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
   final bool dark, glass, technicalFrame, nocturne;
+
+  /// 画质降级：帧预算不够时由 [AdaptiveQuality] 打开，只关掉实时模糊，
+  /// 配色与尺寸一个都不动，所以画面看起来是同一套皮肤。
+  final bool lowPower;
   final double radius;
   final String spectrumStyle;
   final Color accent,
@@ -70,6 +74,7 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
       {required this.dark,
       this.technicalFrame = false,
       this.nocturne = false,
+      this.lowPower = false,
       this.spectrumStyle = 'bars',
       required this.glass,
       required this.radius,
@@ -85,8 +90,8 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
       required this.edge,
       required this.shadow});
   factory SurfaceStyle.from(Appearance a, bool systemDark,
-      {bool adaptToWallpaper = false}) {
-    if (a.themeStyle == 'nocturne') return SurfaceStyle._nocturne(a);
+      {bool adaptToWallpaper = false, bool lowPower = false}) {
+    if (a.themeStyle == 'nocturne') return SurfaceStyle._nocturne(a, lowPower);
     final dark = adaptToWallpaper && a.mode == 'smart'
         ? a.backgroundIsDark(systemDark)
         : a.isDark(systemDark);
@@ -95,6 +100,7 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
           ? (dark ? const Color(0xFF83B6FF) : const Color(0xFF245BC1))
           : a.accent(dark);
       return SurfaceStyle(
+          lowPower: lowPower,
           dark: dark,
           glass: a.glass,
           technicalFrame: true,
@@ -112,8 +118,9 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
           edge: dark ? const Color(0xFF31475E) : const Color(0xFFCAD6E4),
           shadow: dark ? const Color(0x18000000) : const Color(0x0C263E58));
     }
-    if (a.themeStyle == 'nocturne') return SurfaceStyle._nocturne(a);
+    if (a.themeStyle == 'nocturne') return SurfaceStyle._nocturne(a, lowPower);
     return SurfaceStyle(
+        lowPower: lowPower,
         dark: dark,
         spectrumStyle: a.spectrumStyle,
         glass: a.glass,
@@ -143,10 +150,11 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
   /// picker and the preview entry point when they switch a profile to
   /// Nocturne; mapping 0 → 25 here would make the left end of the slider a
   /// dead zone.
-  factory SurfaceStyle._nocturne(Appearance a) {
+  factory SurfaceStyle._nocturne(Appearance a, [bool lowPower = false]) {
     final accent = a.accent(true);
     return SurfaceStyle(
         nocturne: true,
+        lowPower: lowPower,
         dark: true,
         glass: a.glass,
         spectrumStyle: a.spectrumStyle,
@@ -165,8 +173,9 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
   }
 
   /// 820A 上逐帧离屏高斯会直接吃掉帧预算，暗夜按设计稿只用静态色阶，
-  /// 不开实时模糊（设计稿 820A Budget 一节）。
-  bool get liveBlur => glass && !technicalFrame && !nocturne;
+  /// 不开实时模糊（设计稿 820A Budget 一节）。[lowPower] 是运行时降级：
+  /// 帧预算真的不够时，同一套配色优先保住帧率。
+  bool get liveBlur => glass && !technicalFrame && !nocturne && !lowPower;
   double get controlRadius =>
       technicalFrame ? (radius * .5).clamp(0, Design.px(16)) : radius * .64;
   Color get corner => dark ? const Color(0xFF829AB2) : const Color(0xFF738DA8);
@@ -197,6 +206,15 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
       color: selected
           ? (technicalFrame ? Color.lerp(edge, accent, .24)! : accent)
           : edge);
+
+  /// 选中控件上的文字色。
+  ///
+  /// 经典主题的选中态是**实心 accent 底**，这时候再用 `accent` 当字色就是同色
+  /// 压同色——侧边栏选中的那一项只剩图标，字整个消失。所以选中态一律走
+  /// 已经为实心底算好的 [accentText]；科技框和暗夜是低透明度描边，没有实底，
+  /// 用 `accent` 反而更清楚。
+  Color get selectedText => technicalFrame || nocturne ? accent : accentText;
+
   OutlinedBorder controlShape({bool selected = false}) => technicalFrame
       ? TechnicalFrameBorder(
           radius: controlRadius,
@@ -212,8 +230,7 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
               ? accent.withValues(alpha: .11)
               : accent)
           : soft,
-      foregroundColor:
-          selected ? (technicalFrame || nocturne ? accent : accentText) : text,
+      foregroundColor: selected ? selectedText : text,
       side: technicalFrame
           ? controlSide(selected)
           : BorderSide(
@@ -250,6 +267,7 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
       other.glass == glass &&
       other.technicalFrame == technicalFrame &&
       other.nocturne == nocturne &&
+      other.lowPower == lowPower &&
       other.radius == radius &&
       other.spectrumStyle == spectrumStyle &&
       other.accent == accent &&
@@ -269,6 +287,7 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
       glass,
       technicalFrame,
       nocturne,
+      lowPower,
       radius,
       spectrumStyle,
       accent,

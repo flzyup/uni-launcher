@@ -19,8 +19,14 @@ __pycache__/
 /shots/
 
 .DS_Store
+/build-test/
 
 # Agent workspace notes and local-only debug tooling.
 /.workbuddy/
 /tools/drag_probe.mjs
 /tools/shot_preview.mjs
+_apk/
+analysis/
+android-helper/
+*.db
+app/tool/

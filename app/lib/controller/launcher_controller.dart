@@ -71,6 +71,14 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
   final pageChanged = ValueNotifier<int>(0);
   int _pageRequest = 0;
   bool settings = false, editing = false, ready = false;
+
+  /// 外观与布局已经读到（prelude 就算数）。根组件靠它决定是画兜底画布，
+  /// 还是把真正的桌面挂上去。
+  bool designReady = false;
+
+  /// 引擎被新窗口接管（Activity 重建）的次数。平台视图归窗口所有，接到通知
+  /// 后要按新的 epoch 重建，不能继续用一个已经关掉的原生句柄。
+  int hostEpoch = 0;
   Future<void> Function()? beforeExternalLaunch;
   String _overlayDesign = '';
   bool get isGlobalDock =>
@@ -133,36 +141,19 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
       _observingMemory = true;
     }
     gateway.onHome(home);
-    if (gateway is AndroidGateway)
+    if (gateway is AndroidGateway) {
       (gateway as AndroidGateway).onOpenSettings(openSettings);
+      (gateway as AndroidGateway).onHostRebound(_hostRebound);
+    }
+    // 第一阶段：只要外观和布局。这一段只读偏好，不碰任何适配器，第一帧用的
+    // 就是正确的主题；完整快照（车辆/媒体/天气/图标）随后补齐。
+    await _applyPrelude();
+    if (_disposed) return;
+    // 第二阶段：完整快照 + 事件流。
     try {
       final state = await gateway.bootstrap();
       if (_disposed) return;
-      final raw = state['savedDesign'];
-      if (raw is String && raw.isNotEmpty) {
-        try {
-          final data = jsonDecode(raw) as Map<String, dynamic>;
-          appearance = Appearance.fromJson(
-              Map<String, dynamic>.from(data['preferences'] ?? {}));
-          ambientLight = AmbientLightSettings.fromJson(
-              Map<String, dynamic>.from(data['ambientLight'] ?? {}));
-          appNames = _decodeAppNames(state['appNames'] ?? data['appNames']);
-          final parsed = (data['cards'] as List)
-              .map((c) => LauncherCard.fromJson(Map<String, dynamic>.from(c)))
-              .toList();
-          if (validLayout(parsed)) {
-            cards = parsed;
-            // Empty trailing pages are editor scratch space, not persistent
-            // desktops. Keeping them made an empty-page prompt animate over
-            // the last real page after restart.
-            pageCount =
-                cards.fold<int>(1, (n, c) => max(n, c.page + 1)).clamp(1, 20);
-          }
-        } catch (_) {
-          message = '旧布局无法读取，已恢复默认卡片';
-          UniLog.w(UniLogTags.app, '旧布局无法读取，已恢复默认卡片');
-        }
-      }
+      _applyDesign(state['savedDesign'], state['appNames']);
       _receive(state);
       if (state['initialSettings'] == true) settings = true;
       _subscription = gateway.events.listen(_receive, onError: (Object e) {
@@ -178,8 +169,60 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
     }
     if (_disposed) return;
     ready = true;
+    if (!designReady) designReady = true;
     _syncAmbientLight();
     notifyListeners();
+  }
+
+  /// 首帧通道：只有外观与布局，拿不到就当作没有（下面的 bootstrap 会补）。
+  Future<void> _applyPrelude() async {
+    try {
+      final prelude = await gateway.prelude();
+      if (_disposed || prelude == null) return;
+      _applyDesign(prelude['savedDesign'], prelude['appNames']);
+      // 从设置入口启动时这个标记只发一次（prelude 会消费掉），这里必须接住。
+      if (prelude['initialSettings'] == true) settings = true;
+      designReady = true;
+      notifyListeners();
+    } catch (_) {
+      // 快通道失败不影响引导：完整快照那条路还在。
+    }
+  }
+
+  /// 窗口重建、引擎被接管：平台视图跟着换一代，界面按新 epoch 重建它们。
+  void _hostRebound() {
+    if (_disposed) return;
+    hostEpoch++;
+    notifyListeners();
+  }
+
+  /// 解析 savedDesign：外观、氛围灯、显示名与卡片布局。
+  ///
+  /// prelude 与 bootstrap 带的是同一份字符串，所以这段只写一次；[names] 是
+  /// 原生顺手带上的应用显示名，优先于布局里存的那一份。
+  void _applyDesign(Object? raw, Object? names) {
+    if (raw is! String || raw.isEmpty) return;
+    try {
+      final data = jsonDecode(raw) as Map<String, dynamic>;
+      appearance = Appearance.fromJson(
+          Map<String, dynamic>.from(data['preferences'] ?? {}));
+      ambientLight = AmbientLightSettings.fromJson(
+          Map<String, dynamic>.from(data['ambientLight'] ?? {}));
+      appNames = _decodeAppNames(names ?? data['appNames']);
+      final parsed = (data['cards'] as List)
+          .map((c) => LauncherCard.fromJson(Map<String, dynamic>.from(c)))
+          .toList();
+      if (validLayout(parsed)) {
+        cards = parsed;
+        // Empty trailing pages are editor scratch space, not persistent
+        // desktops. Keeping them made an empty-page prompt animate over
+        // the last real page after restart.
+        pageCount = cards.fold<int>(1, (n, c) => max(n, c.page + 1)).clamp(1, 20);
+      }
+    } catch (_) {
+      message = '旧布局无法读取，已恢复默认卡片';
+      UniLog.w(UniLogTags.app, '旧布局无法读取，已恢复默认卡片');
+    }
   }
 
   /// Payloads that Android sends on bootstrap and on change, never with every

@@ -22,7 +22,7 @@ void main() {
     late int imageWidth, imageHeight;
     await t.runAsync(() async {
       final codec = await ui.instantiateImageCodec(
-          await File('assets/art/vehicle-status-front-left-transparent.png')
+          await File('assets/art/vehicle-status-front-left-transparent.webp')
               .readAsBytes());
       final frame = await codec.getNextFrame();
       imageWidth = frame.image.width;
@@ -331,7 +331,7 @@ void main() {
     if (preview != null) {
       await t.runAsync(() => precacheImage(
           const AssetImage(
-              'assets/art/vehicle-status-front-left-transparent.png'),
+              'assets/art/vehicle-status-front-left-transparent.webp'),
           t.element(find.byKey(const ValueKey('body-card-preview')))));
       await t.pumpAndSettle();
       await t.runAsync(() async {

@@ -74,6 +74,9 @@ public final class LauncherRuntime {
      *  只补发发生变化的部分，不再因为一首歌或一次布局保存重发全部图标。 */
     public static final class StaticCursor {
         public int apps=-1, design=-1, media=-1, settings=-1;
+        /** 已经拿到的 apps 组是否带图标；只拿过 package/label 投影时为 false。 */
+        public boolean icons;
+        void reset(){apps=design=media=settings=-1;icons=false;}
     }
     private int appsRevision=0, designRevision=0, mediaRevision=0, settingsRevision=0;
     private String designFingerprint="", mediaFingerprint="";
@@ -228,10 +231,37 @@ public final class LauncherRuntime {
         catch(Throwable t){return "(读取子系统状态失败: "+t.getMessage()+")\n";}
     }
     /** 普通快照：按游标只补发变化的分组，不携带设置目录（Dock/面板用）。 */
-    public JSONObject snapshot(StaticCursor cursor){return onMain(()->buildSnapshot(cursor,false));}
+    public JSONObject snapshot(StaticCursor cursor){return onMain(()->buildSnapshot(cursor,false,false));}
+
+    /**
+     * Dock/面板快照。
+     *
+     * <p>{@code includeApps} 为 false 时可以连图标分组都不发：底栏本身只画媒体
+     * 和空调，把几百个图标的 base64 解码进常驻内存是纯支出。只有真的会列应用的
+     * 页面（全部应用、导航选择、播放器选择）才要它，那时游标会让下一包整组补上。
+     */
+    public JSONObject snapshot(StaticCursor cursor,boolean includeApps){
+        return onMain(()->buildSnapshot(cursor,false,includeApps));
+    }
 
     /** 主窗口快照：除分组增量外，设置目录预热完成后也按游标补发一次。 */
-    public JSONObject snapshotWithSettings(StaticCursor cursor){return onMain(()->buildSnapshot(cursor,true));}
+    public JSONObject snapshotWithSettings(StaticCursor cursor){return onMain(()->buildSnapshot(cursor,true,true));}
+
+    /**
+     * 首帧快速通道：只读偏好里的外观和布局，不构造任何适配器快照。
+     *
+     * <p>窗口第一帧只需要主题与卡片；车辆、媒体、天气这些要等适配器就绪的内容
+     * 晚一包没关系。把它们挡在首帧之外，白屏时间才只跟一次 prefs 读有关。
+     */
+    public JSONObject prelude(){
+        JSONObject packet=new JSONObject();
+        try{
+            packet.put("savedDesign",prefs.getString("savedDesign",""))
+                .put("appNames",storedAppNames())
+                .put("dark",(context.getResources().getConfiguration().uiMode&Configuration.UI_MODE_NIGHT_MASK)==Configuration.UI_MODE_NIGHT_YES);
+        }catch(Exception ignored){}
+        return packet;
+    }
 
     public boolean saveDesign(String raw){return onMain(()->saveDesignOnMain(raw));}
 
@@ -269,7 +299,7 @@ public final class LauncherRuntime {
     public boolean handle(JSONObject request)throws Exception{return callOnMain(()->handleOnMain(request));}
 
     private long demoPosition(){return demoPositionMs+(demoPlaying?Math.max(0,android.os.SystemClock.elapsedRealtime()-demoSampleAt):0);}
-    private JSONObject buildSnapshot(StaticCursor cursor, boolean includeSettings){
+    private JSONObject buildSnapshot(StaticCursor cursor, boolean includeSettings, boolean includeApps){
         JSONObject state=new JSONObject();try{
             JSONObject climate=new JSONObject().put("left",simulator.left).put("right",simulator.right).put("fan",simulator.fan).put("power",simulator.power)
                 .put("auto",simulator.auto).put("ac",simulator.ac).put("sync",simulator.sync).put("recirc",simulator.recirc)
@@ -304,12 +334,19 @@ public final class LauncherRuntime {
             trackMedia(mediaState);
 
             // 分组版本：图标、布局、媒体资源各自独立，只补发发生变化的部分。
-            boolean wantApps=cursor.apps!=appsRevision;
+            // 只想画底栏的窗口用「package/label 投影」代替整份 apps：查显示名
+            // 不需要图标，几百个图标的 base64 没必要过一遍 JSON。真会列出应用的
+            // 页面（全部应用/导航选择/播放器选择）传 includeApps=true，游标会
+            // 靠 icons 位把整组补上。
+            boolean wantApps=includeApps&&(cursor.apps!=appsRevision||!cursor.icons);
+            boolean wantLabels=!includeApps&&(cursor.apps!=appsRevision||!cursor.icons);
             boolean wantDesign=cursor.design!=designRevision;
             boolean wantMedia=cursor.media!=mediaRevision;
             boolean wantSettings=includeSettings&&systemSettings.isWarmed()&&cursor.settings!=settingsRevision;
 
             if(wantApps)state.put("apps",installed);
+            else if(wantLabels)state.put("apps",appProjection(installed,
+                mediaState.optString("source"),prefs.getString("mediaPackage","auto")));
             if(wantDesign){state.put("savedDesign",design).put("appNames",appNames);}
             if(!wantMedia){mediaState.remove("artwork");mediaState.remove("lyrics");}
             if(wantSettings){
@@ -322,11 +359,32 @@ public final class LauncherRuntime {
                 .put("cleaner",cleaner.snapshot())
                 .put("partial",!(wantApps&&wantDesign&&wantMedia));
 
-            if(wantApps)cursor.apps=appsRevision;
+            if(wantApps){cursor.apps=appsRevision;cursor.icons=true;}
+            else if(wantLabels){cursor.apps=appsRevision;cursor.icons=false;}
             if(wantDesign)cursor.design=designRevision;
             if(wantMedia)cursor.media=mediaRevision;
             if(wantSettings)cursor.settings=settingsRevision;
         }catch(Exception e){UniLog.e(LogTags.APP,"快照构建失败",e);}return state;
+    }
+
+    /** apps 组投影：默认只给 package/label/id；正在播放（或用户指定）的播放器
+     *  额外保留整行，好让底栏那条来源徽标还能画出它的图标。 */
+    private static JSONArray appProjection(JSONArray apps,String source,String preferred){
+        JSONArray out=new JSONArray();
+        if(apps==null)return out;
+        for(int i=0;i<apps.length();i++){
+            JSONObject app=apps.optJSONObject(i);
+            if(app==null)continue;
+            String pkg=app.optString("package");
+            if(pkg!=null&&(pkg.equals(source)||pkg.equals(preferred))){out.put(app);continue;}
+            JSONObject row=new JSONObject();
+            try{
+                row.put("package",pkg).put("label",app.optString("label"));
+                if(app.has("id"))row.put("id",app.opt("id"));
+            }catch(Exception ignored){continue;}
+            out.put(row);
+        }
+        return out;
     }
 
     /** 布局指纹按内容计算：即使键数或字符串长度不变，内容变化也会推进 designRevision。 */

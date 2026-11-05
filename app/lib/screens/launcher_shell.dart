@@ -54,12 +54,16 @@ class _LauncherShellState extends State<LauncherShell> {
 
   @override
   Widget build(BuildContext context) {
+    // 根组件把 Shell 建成了 AnimatedBuilder 的 child（只建一次），所以这里自己
+    // 订阅 controller：遥测变化只重建 Scaffold 以下的树，不再从 MaterialApp 重来。
     return PopScope(
         canPop: false,
         onPopInvokedWithResult: (didPop, result) {
           if (!didPop) controller.back();
         },
-        child: Scaffold(
+        child: ListenableBuilder(
+            listenable: controller,
+            builder: (context, _) => Scaffold(
             // The car's decor already reserves the OEM control bar. Its inset
             // reports fluctuate when an ActivityView gains focus; never apply
             // that inset a second time to the desktop or move the dock for it.
@@ -159,6 +163,6 @@ class _LauncherShellState extends State<LauncherShell> {
                                         BottomDock(controller: controller),
                                     ])))));
                   })),
-            )));
+            ))));
   }
 }

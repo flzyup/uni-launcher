@@ -327,6 +327,9 @@ public final class ClusterLyricsService extends Service {
                 ids(manager.getDisplays(DisplayManager.DISPLAY_CATEGORY_PRESENTATION));
         for (Display display : manager.getDisplays()) {
             if (display == null || !display.isValid()) continue;
+            // 主屏不是投射目标：单屏设备（模拟器、平板）上把它列出来，用户一点就
+            // 会把歌词窗口盖在桌面自己身上。
+            if (display.getDisplayId() <= 0) continue;
             try {
                 DisplayMetrics metrics = new DisplayMetrics();
                 display.getRealMetrics(metrics);

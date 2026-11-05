@@ -55,6 +55,22 @@ public final class DisplayPickerTest {
     }
 
     @Test
+    public void aSingleScreenUnitCastsNowhere() {
+        // 只存了主屏的名字（模拟器/平板上唯一那块屏），以前按名字会匹配上主屏，
+        // 于是歌词窗口盖在桌面自己身上，中间一条半透明底把界面压得只剩个影。
+        int[] ids = {0};
+        String[] names = {"内置屏幕"};
+        boolean[] presentation = {false};
+        assertEquals(DisplayPicker.NONE,
+                DisplayPicker.pick(ids, names, presentation, "内置屏幕", 0));
+        assertEquals(DisplayPicker.NONE,
+                DisplayPicker.pick(ids, names, presentation, "内置屏幕", -1));
+        // 真的接了仪表时，名字匹配照旧。
+        assertEquals(0, DisplayPicker.pick(new int[]{2}, new String[]{"内置屏幕"},
+                presentation, "内置屏幕", -1));
+    }
+
+    @Test
     public void rowsExplainThemselves() {
         assertEquals("仪表  ·  ID 2  ·  1920×720  ·  240 dpi",
                 DisplayPicker.label("仪表", 2, 1920, 720, 240));

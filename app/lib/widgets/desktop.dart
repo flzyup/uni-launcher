@@ -170,6 +170,9 @@ class _DesktopState extends State<Desktop> with _DesktopDrag {
   late final _pagePosition =
       widget.position ?? ValueNotifier(controller.page.toDouble());
   bool warmed = false;
+  /// 上一次建好的卡片树，和它的「布局签名」（见 _gridsFor）。
+  List<Widget>? _cachedGrids;
+  int _gridsSignature = 0;
   @override
   void dispose() {
     if (widget.position == null) _pagePosition.dispose();
@@ -186,7 +189,7 @@ class _DesktopState extends State<Desktop> with _DesktopDrag {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted)
           unawaited(precacheImage(
-              const AssetImage('assets/art/lynk-05-top-line.png'), context));
+              const AssetImage('assets/art/lynk-05-top-line.webp'), context));
       });
     }
   }
@@ -195,10 +198,7 @@ class _DesktopState extends State<Desktop> with _DesktopDrag {
   Widget build(BuildContext context) {
     final c = controller;
     // Keep pages and live map textures mounted while the workspace animates.
-    final grids = <Widget>[
-      for (int page = 0; page < c.pageCount; page++) _grid(context, page),
-      if (c.pageCount < 20) _grid(context, c.pageCount, scratch: true),
-    ];
+    final grids = _gridsFor(context);
     // Page changes use a dedicated signal. Header, dock, theme, inactive cards
     // and the MaterialApp no longer rebuild for every swipe.
     _cardBoundaries
@@ -229,6 +229,45 @@ class _DesktopState extends State<Desktop> with _DesktopDrag {
                       ])),
           _dragFeedback(),
         ]));
+  }
+
+  /// 卡片树只在「布局真的变了」时重建。
+  ///
+  /// 以前每来一条遥测就把所有页的 AnimatedPositioned / RepaintBoundary /
+  /// EditableCard 重新 new 一遍（三页 × 十几张卡），可绝大多数通知（车辆、
+  /// 媒体、天气、时钟）跟布局毫无关系。签名只取真正会改变卡片树的输入，没变
+  /// 就直接复用上一次的 widget 列表——连 diff 都不用走。
+  List<Widget> _gridsFor(BuildContext context) {
+    final c = controller;
+    final target = c.placementTarget;
+    final style = SurfaceStyle.of(context);
+    final signature = Object.hash(
+        identityHashCode(c.cards),
+        c.pageCount,
+        c.page,
+        c.editing,
+        identityHashCode(c.placementPreview),
+        c.placementOrigin?.id,
+        target?.page,
+        target?.x,
+        target?.y,
+        target?.w,
+        target?.h,
+        c.placementResizing,
+        c.placementValid,
+        _feedbackId,
+        // 网格点阵、拖放预览用的都是主题色与圆角，换了皮肤必须重建。
+        style.edge.toARGB32(),
+        style.accent.toARGB32(),
+        style.radius,
+        MediaQuery.disableAnimationsOf(context));
+    final cached = _cachedGrids;
+    if (cached != null && signature == _gridsSignature) return cached;
+    _gridsSignature = signature;
+    return _cachedGrids = <Widget>[
+      for (int page = 0; page < c.pageCount; page++) _grid(context, page),
+      if (c.pageCount < 20) _grid(context, c.pageCount, scratch: true),
+    ];
   }
 
   Widget _grid(BuildContext context, int page, {bool scratch = false}) {

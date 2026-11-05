@@ -169,7 +169,11 @@ class _SettingsTab extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                           fontSize: Design.px(22),
-                          color: selected ? s.accent : s.text)))
+                          fontWeight:
+                              selected ? FontWeight.w500 : FontWeight.w400,
+                          // 选中项是实心主题色底，字必须用主题里为实心底配好的字色
+                          // （selectedText），否则主题色压主题色，字直接看不见。
+                          color: selected ? s.selectedText : s.text)))
             ])));
   }
 }

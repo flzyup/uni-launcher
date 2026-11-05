@@ -44,11 +44,16 @@ public final class DisplayPicker {
         // 2. The same physical panel under a new id. Only when the name is unambiguous:
         //    two displays sharing a name and neither matching the saved id is exactly the
         //    case where a guess would paint over the wrong screen.
+        //
+        //    主屏永远不是投射目标。单屏设备（模拟器、平板、没接仪表的车机）里唯一那块屏
+        //    的名字一旦被存下来，按名字匹配就会把它当成仪表，于是歌词窗口盖在桌面自己
+        //    身上：整个中间一条半透明底被压暗，桌面和设置页的字看起来全糊掉了。
         if (wantName != null && !wantName.trim().isEmpty()) {
             String wanted = wantName.trim();
             int match = NONE;
             int matches = 0;
             for (int i = 0; i < length; i++) {
+                if (ids[i] <= 0) continue;
                 String name = names[i] == null ? "" : names[i].trim();
                 if (!wanted.equalsIgnoreCase(name)) continue;
                 matches++;

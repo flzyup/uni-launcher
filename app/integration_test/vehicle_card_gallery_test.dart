@@ -30,7 +30,7 @@ void main() {
     ];
     await tester.pumpWidget(const VehicleCardGallery());
     await tester.runAsync(() => precacheImage(
-        const AssetImage('assets/art/lynk-05-top-line.png'),
+        const AssetImage('assets/art/lynk-05-top-line.webp'),
         tester.element(find.byType(VehicleCardGallery))));
     await tester.pumpAndSettle();
     for (final (appearance, state, suffix) in cases) {

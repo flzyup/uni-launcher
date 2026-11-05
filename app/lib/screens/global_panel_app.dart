@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import '../platform/adaptive_quality.dart';
 import '../platform/native_gateway.dart';
 import '../controller/launcher_controller.dart';
 import '../theme/launcher_theme.dart';
@@ -116,7 +117,7 @@ class _GlobalPanelAppState extends State<GlobalPanelApp> {
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
-      animation: widget.controller,
+      animation: Listenable.merge([widget.controller, AdaptiveQuality.shared]),
       builder: (context, _) => DockWindowScope(
           expand: (_) async {},
           onPresented: () =>
@@ -127,7 +128,8 @@ class _GlobalPanelAppState extends State<GlobalPanelApp> {
               theme: launcherTheme(SurfaceStyle.from(
                   widget.controller.appearance,
                   widget.controller.native.value['dark'] == true,
-                  adaptToWallpaper: true)),
+                  adaptToWallpaper: true,
+                  lowPower: AdaptiveQuality.shared.degraded)),
               color: Colors.transparent,
               home: Scaffold(
                   backgroundColor: Colors.transparent,

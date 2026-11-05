@@ -354,8 +354,12 @@ public final class GlobalDockService extends Service {
             engine.destroy();
         }
     }
+    /** 只有真的会列出应用的页面才需要整份图标；底栏本身只查显示名。 */
+    private boolean panelNeedsApps(){
+        return "apps".equals(panel)||"navigation".equals(panel)||"music-picker".equals(panel);
+    }
     private JSONObject state(LauncherRuntime.StaticCursor cursor,boolean isPanel,boolean includeRecent){
-        JSONObject j=runtime.snapshot(cursor);try{
+        JSONObject j=runtime.snapshot(cursor,isPanel&&panelNeedsApps());try{
             j.put("hostMode",isPanel?"global-panel":"global-dock").put("globalDock",snapshot(this))
              .put("systemNavigationHidden",runtime.prefs().getBoolean("systemNavigationHidden",false))
              .put("systemNavigationGranted",SystemNavigationPolicy.granted(this));

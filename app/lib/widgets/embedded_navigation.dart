@@ -58,6 +58,8 @@ class _EmbeddedNavigationCardState extends State<EmbeddedNavigationCard> {
   final Map<int, Offset> pointers = {};
   final Map<int, int> pointerIds = {};
   Future<void> cleanup = Future<void>.value();
+  /// 上一次见到的窗口 epoch（见 [LauncherController.hostEpoch]）。
+  int _hostEpoch = -1;
   String get package => '${widget.navigation['package'] ?? ''}';
 
   /// 设置「嵌入地图缩放」关闭时按 1:1 渲染，开启时用 [mapTextureScale] 降分辨率。
@@ -84,6 +86,19 @@ class _EmbeddedNavigationCardState extends State<EmbeddedNavigationCard> {
           .then((_) => host.invokeMethod<void>('dispose', id))
           .catchError((Object _) {});
     }
+  }
+
+  /// 丢掉本地的原生句柄：窗口重建之后它们已经不存在了，这里不向原生发任何
+  /// 消息（旧宿主连同一个窗口一起关掉了），下一帧按新宿主重新 create。
+  void _forgetNative() {
+    generation++;
+    channel?.setMethodCallHandler(null);
+    channel = null;
+    nativeId = textureId = null;
+    sentVisible = sentSize = sentScale = null;
+    status = {};
+    pointers.clear();
+    pointerIds.clear();
   }
 
   @override
@@ -321,6 +336,13 @@ class _EmbeddedNavigationCardState extends State<EmbeddedNavigationCard> {
   @override
   Widget build(BuildContext context) {
     final s = SurfaceStyle.of(context), c = widget.controller;
+    // 窗口重建、引擎被新窗口接管：实时地图归旧窗口所有，已经关掉了。这里只把
+    // 本地句柄作废，下面的 scheduleSync() 会照新的原生宿主重建一张。
+    final hostEpoch = c.hostEpoch;
+    if (_hostEpoch != hostEpoch) {
+      _hostEpoch = hostEpoch;
+      if (channel != null) _forgetNative();
+    }
     final displayName = c.appName(
         {'package': package, 'label': widget.navigation['label'] ?? '高德地图'});
     final allowed = EmbeddedContentPolicy.allowed(context);
