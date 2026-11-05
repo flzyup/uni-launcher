@@ -467,7 +467,7 @@ class _UniDockPopupRoute extends PopupRoute<String> {
                       key: const ValueKey('uni-menu-transfer'),
                       icon:
                           Icon(Icons.upload_file, size: Design.px(29 * scale)),
-                      title: '传文件',
+                      title: '传文件/通网盘',
                       scale: scale,
                       onTap: () => Navigator.pop(context, 'transfer')),
                   SizedBox(height: Design.px(8)),

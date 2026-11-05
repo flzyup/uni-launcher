@@ -1,9 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import '../controller/launcher_controller.dart';
 import '../theme/design_tokens.dart';
 import '../theme/launcher_theme.dart';
 import 'glass_surface.dart';
+import 'quark_panel.dart';
 import 'dock_window_scope.dart';
 
 /// A compact, right-aligned panel above the global dock.
@@ -54,9 +58,40 @@ class _TransferRoute extends PopupRoute<void> {
       FadeTransition(opacity: animation, child: child);
 }
 
-class _TransferPanel extends StatelessWidget {
+class _TransferPanel extends StatefulWidget {
   final LauncherController controller;
   const _TransferPanel({required this.controller});
+
+  @override
+  State<_TransferPanel> createState() => _TransferPanelState();
+}
+
+class _TransferPanelState extends State<_TransferPanel> {
+  /// 0 = 手机上传（默认，保持旧行为），1 = 夸克网盘。
+  int _tab = 0;
+
+  /// 刚复制过的那条文本 id；1.6 秒后回到「复制」，给一个不需要弹窗的反馈。
+  String? _copiedId;
+  Timer? _copiedTimer;
+
+  LauncherController get controller => widget.controller;
+
+  @override
+  void dispose() {
+    _copiedTimer?.cancel();
+    super.dispose();
+  }
+
+  /// 车机上点一下就进系统剪贴板，用户可以粘到导航搜索、聊天或别处。
+  void _copyText(String id, String text) {
+    Clipboard.setData(ClipboardData(text: text));
+    _copiedTimer?.cancel();
+    setState(() => _copiedId = id);
+    _copiedTimer = Timer(const Duration(milliseconds: 1600), () {
+      if (!mounted) return;
+      setState(() => _copiedId = null);
+    });
+  }
 
   /// 待下载任务的状态文案；失败时带原因，避免只看到一个红字。
   static String _linkStatus(Map link) {
@@ -141,8 +176,49 @@ class _TransferPanel extends StatelessWidget {
         ]);
   }
 
-  Widget _fileRow(SurfaceStyle s, Map file, String? host) {
-    final name = '${file['name'] ?? ''}';
+  /// 手机发来的一条文本：整块可点（复制），右侧还有复制/删除按钮。
+  Widget _textRow(SurfaceStyle s, Map note) {
+    final id = '${note['id'] ?? ''}';
+    final text = '${note['text'] ?? ''}';
+    final copied = _copiedId == id;
+    return Padding(
+        key: ValueKey('transfer-text-$id'),
+        padding: EdgeInsets.symmetric(vertical: Design.px(5)),
+        child: InkWell(
+            borderRadius: BorderRadius.circular(s.controlRadius),
+            onTap: () => _copyText(id, text),
+            child: Container(
+                padding: EdgeInsets.symmetric(
+                    horizontal: Design.px(10), vertical: Design.px(8)),
+                decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(s.controlRadius),
+                    border: Border.all(
+                        color: copied ? s.accent : s.muted.withValues(alpha: .35))),
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(children: [
+                        _sourceTag('手机文本', s),
+                        SizedBox(width: Design.px(8)),
+                        Text(copied ? '已复制 ✓' : '点击复制',
+                            style: TextStyle(
+                                fontSize: Design.px(15),
+                                color: copied ? s.accent : s.muted)),
+                        const Spacer(),
+                        _button(copied ? '已复制' : '复制',
+                            () => _copyText(id, text)),
+                        _button('删除',
+                            () => controller.command('transfer-text-remove', value: id)),
+                      ]),
+                      SizedBox(height: Design.px(4)),
+                      Text(text,
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontSize: Design.px(17))),
+                    ]))));
+  }
+
+  Widget _fileRow(SurfaceStyle s, Map file, String? host) {    final name = '${file['name'] ?? ''}';
     return _row(s,
         key: ValueKey('transfer-file-$name'),
         source: (host == null || host.isEmpty) ? '手机上传' : host,
@@ -151,6 +227,38 @@ class _TransferPanel extends StatelessWidget {
           _button('安装', () => controller.command('transfer-install', value: name)),
           _button('删除', () => controller.command('transfer-delete', value: name)),
         ]);
+  }
+
+  /// 两个来源的分段控件：左边是原来的手机扫码上传，右边是夸克网盘。
+  Widget _tabs(SurfaceStyle s) {
+    Widget item(String label, int index, String keyName) {
+      final active = _tab == index;
+      return Expanded(
+          child: InkWell(
+              key: ValueKey(keyName),
+              borderRadius: BorderRadius.circular(Design.px(10)),
+              onTap: () => setState(() => _tab = index),
+              child: Container(
+                  padding: EdgeInsets.symmetric(vertical: Design.px(9)),
+                  decoration: BoxDecoration(
+                      color: active ? s.accent.withValues(alpha: .16) : null,
+                      border: Border.all(
+                          color: active ? s.accent.withValues(alpha: .45) : s.edge),
+                      borderRadius: BorderRadius.circular(Design.px(10))),
+                  child: Text(label,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          fontSize: Design.px(18),
+                          color: active ? s.accent : s.muted)))));
+    }
+
+    return Padding(
+        padding: EdgeInsets.only(bottom: Design.px(8)),
+        child: Row(children: [
+          item('手机扫码', 0, 'transfer-tab-phone'),
+          SizedBox(width: Design.px(8)),
+          item('夸克网盘', 1, 'transfer-tab-quark'),
+        ]));
   }
 
   @override
@@ -165,6 +273,7 @@ class _TransferPanel extends StatelessWidget {
         final running = data['running'] == true;
         final url = '${data['url'] ?? ''}';
         final files = data['files'] is List ? data['files'] as List : [];
+        final texts = data['texts'] is List ? data['texts'] as List : [];
         final allLinks = data['links'] is List ? data['links'] as List : [];
         final links = [
           for (final link in allLinks)
@@ -177,6 +286,18 @@ class _TransferPanel extends StatelessWidget {
               '${link['name'] ?? ''}': '${link['host'] ?? ''}'
         };
         final rows = <Widget>[
+          if (texts.isNotEmpty) ...[
+            Row(children: [
+              Expanded(
+                  child: Text('手机发来的文本（${texts.length}）',
+                      style:
+                          TextStyle(fontSize: Design.px(17), color: s.muted))),
+              _button('清空', () => controller.command('transfer-text-clear')),
+            ]),
+            for (final note in texts)
+              _textRow(s, note is Map ? note : const {}),
+            SizedBox(height: Design.px(6)),
+          ],
           for (final link in links) _linkRow(s, link),
           for (final file in files)
             _fileRow(s, file is Map ? file : const {},
@@ -198,44 +319,53 @@ class _TransferPanel extends StatelessWidget {
                     framed: false,
                     onTap: () => Navigator.pop(context)),
               ]),
-              DesignSwitchTile(
-                  key: const ValueKey('transfer-switch'),
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('开启传文件'),
-                  subtitle: Text(running ? '手机与车机连接同一网络' : '开启后扫码上传文件'),
-                  value: running,
-                  onChanged: (v) => controller
-                      .command(v ? 'transfer-start' : 'transfer-stop')),
-              SizedBox(height: Design.px(10)),
-              if (running && url.isNotEmpty)
-                Center(
-                    child: Column(children: [
-                  Container(
-                      color: Colors.white,
-                      padding: EdgeInsets.all(Design.px(5)),
-                      child: QrImageView(
-                          data: url,
-                          size: Design.px(300),
-                          padding: EdgeInsets.zero,
-                          backgroundColor: Colors.white)),
-                  SizedBox(height: Design.px(8)),
-                  SelectableText(url,
-                      key: const ValueKey('transfer-url'),
-                      style:
-                          TextStyle(color: s.accent, fontSize: Design.px(19))),
-                ]))
-              else
-                Center(
-                    child: Padding(
-                        padding: EdgeInsets.symmetric(vertical: Design.px(20)),
-                        child: Text(running ? '未检测到可用网络地址' : '开启后显示二维码与访问地址',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(color: s.muted)))),
+              _tabs(s),
+              if (_tab == 0) ...[
+                DesignSwitchTile(
+                    key: const ValueKey('transfer-switch'),
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('开启传文件'),
+                    subtitle: Text(running ? '手机与车机连接同一网络' : '开启后扫码上传文件'),
+                    value: running,
+                    onChanged: (v) => controller
+                        .command(v ? 'transfer-start' : 'transfer-stop')),
+                SizedBox(height: Design.px(10)),
+                if (running && url.isNotEmpty)
+                  Center(
+                      child: Column(children: [
+                    Container(
+                        color: Colors.white,
+                        padding: EdgeInsets.all(Design.px(5)),
+                        child: QrImageView(
+                            data: url,
+                            size: Design.px(300),
+                            padding: EdgeInsets.zero,
+                            backgroundColor: Colors.white)),
+                    SizedBox(height: Design.px(8)),
+                    SelectableText(url,
+                        key: const ValueKey('transfer-url'),
+                        style:
+                            TextStyle(color: s.accent, fontSize: Design.px(19))),
+                  ]))
+                else
+                  Center(
+                      child: Padding(
+                          padding: EdgeInsets.symmetric(vertical: Design.px(20)),
+                          child: Text(
+                              running ? '未检测到可用网络地址' : '开启后显示二维码与访问地址',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: s.muted)))),
+              ] else
+                SizedBox(
+                    height: Design.px(430),
+                    child: QuarkBrowser(
+                        controller: controller,
+                        onShowPhone: () => setState(() => _tab = 0))),
               SizedBox(height: Design.px(10)),
               Expanded(
                   child: rows.isEmpty
                       ? Center(
-                          child: Text('还没有文件，扫码上传或让手机发送链接',
+                          child: Text('还没有文件，扫码上传或让手机发送链接/文本',
                               textAlign: TextAlign.center,
                               style: TextStyle(color: s.muted)))
                       : ListView(children: rows)),

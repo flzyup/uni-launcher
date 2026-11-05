@@ -41,6 +41,10 @@ public final class LanTransfer {
     /** 手机端粘贴的下载链接长度上限；再长基本是粘错了。 */
     private static final int MAX_LINK_LENGTH = 2048;
     private static final int MAX_LINKS = 50;
+    /** 手机发来的文本：留最近 30 条，单条 20000 字，够放一段话/一个序列号/一篇文章。 */
+    private static final int MAX_TEXTS = 30;
+    private static final int MAX_TEXT_CHARS = 20000;
+    private static final int MAX_TEXT_BODY = 64 * 1024;
 
     private final Context context;
     private final Runnable changed;
@@ -59,21 +63,46 @@ public final class LanTransfer {
      *  车机流量与磁盘都不该被手机随意驱动。列表持久化，重启后仍在。 */
     private static final class Link {
         final String id, url, host;
+        /** http = 手机发来的地址；quark = 夸克网盘的 fid，地址在点下载时才换。 */
+        final String kind;
+        final String fid;
         final long time;
         volatile String name = "", status = "queued", error = "";
         volatile long size;
         volatile boolean cancelled;
-        Link(String id, String url, String host, long time) {
+        Link(String id, String url, String host, long time, String kind, String fid) {
             this.id = id;
             this.url = url;
             this.host = host;
             this.time = time;
+            this.kind = kind == null || kind.isEmpty() ? "http" : kind;
+            this.fid = fid == null ? "" : fid;
         }
     }
     private final List<Link> links = new ArrayList<>();
     private final Object linkLock = new Object();
     private final AtomicInteger linkSeq = new AtomicInteger();
     private final File linkStore;
+
+    /**
+     * 手机发来的文本。车机上点一下就复制到剪贴板，所以正文要原样留着，
+     * 不能在落盘时按 HTML 或按空白清洗。
+     */
+    private static final class Note {
+        final String id;
+        final String text;
+        final long time;
+        Note(String id, String text, long time) {
+            this.id = id;
+            this.text = text;
+            this.time = time;
+        }
+    }
+    private final List<Note> notes = new ArrayList<>();
+    private final Object noteLock = new Object();
+    private final AtomicInteger noteSeq = new AtomicInteger();
+    private final File noteStore;
+    private volatile QuarkPan quark;
     private final ExecutorService downloader = Executors.newFixedThreadPool(2, r -> {
         Thread t = new Thread(r, "uni-transfer-download");
         t.setDaemon(true);
@@ -86,8 +115,15 @@ public final class LanTransfer {
         dir = new File(this.context.getFilesDir(), "transfers");
         if (!dir.exists()) dir.mkdirs();
         linkStore = new File(this.context.getFilesDir(), "transfer-links.json");
+        noteStore = new File(this.context.getFilesDir(), "transfer-texts.json");
         refreshFiles();
         loadLinks();
+        loadNotes();
+    }
+
+    /** 夸克下载走同一套队列/落盘/持久化，只在取链这一步不同。 */
+    public void attach(QuarkPan pan) {
+        quark = pan;
     }
 
     /** 启动服务器；返回状态对象，失败时 running=false。 */
@@ -197,6 +233,11 @@ public final class LanTransfer {
                     byte[] body = page().getBytes("UTF-8");
                     writeHead(out, "200 OK", "text/html; charset=utf-8", body.length);
                     out.write(body);
+                } else if ("/texts".equals(path)) {
+                    // 给 curl/调试用：手机端页面走 POST /text，不读这个
+                    byte[] body = notesJson().toString().getBytes("UTF-8");
+                    writeHead(out, "200 OK", "application/json; charset=utf-8", body.length);
+                    out.write(body);
                 } else {
                     writeHead(out, "404 Not Found", "text/plain; charset=utf-8", 0);
                 }
@@ -253,6 +294,27 @@ public final class LanTransfer {
                 out.flush();
                 return;
             }
+            if ("POST".equalsIgnoreCase(method) && "/text".equals(path)) {
+                // 手机粘贴一段文本推到车机；车机上点一下复制到剪贴板。
+                String text = queryParam(query, "text");
+                if ((text == null || text.isEmpty()) && contentLength > 0 && contentLength <= MAX_TEXT_BODY) {
+                    byte[] body = new byte[contentLength];
+                    int off = 0;
+                    while (off < contentLength) {
+                        int n = in.read(body, off, contentLength - off);
+                        if (n < 0) break;
+                        off += n;
+                    }
+                    String raw = new String(body, 0, off, "UTF-8");
+                    text = decodeTextBody(raw);
+                }
+                String id = addText(text);
+                byte[] reply = (id == null ? "BAD" : "OK " + id).getBytes("UTF-8");
+                writeHead(out, id == null ? "400 Bad Request" : "200 OK", "text/plain; charset=utf-8", reply.length);
+                out.write(reply);
+                out.flush();
+                return;
+            }
             writeHead(out, "405 Method Not Allowed", "text/plain; charset=utf-8", 0);
             out.flush();
         } catch (Throwable ignored) {
@@ -260,7 +322,6 @@ public final class LanTransfer {
             try { socket.close(); } catch (Exception ignored) {}
         }
     }
-
     private void writeHead(OutputStream out, String status, String contentType, int length) throws Exception {
         out.write(("HTTP/1.1 " + status + "\r\nContent-Type: " + contentType
                 + "\r\nContent-Length: " + length + "\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n").getBytes("UTF-8"));
@@ -276,8 +337,27 @@ public final class LanTransfer {
         return c < 0 && sb.length() == 0 ? null : sb.toString();
     }
 
-    private static String queryParam(String query, String key) {
-        if (query == null || query.isEmpty()) return null;
+    /**
+     * 文本请求体三种写法都收：表单 {@code text=...}、JSON {@code {"text":"..."}}、裸文本。
+     * 表单和 JSON 都要解码，否则中文会变成百分号转义序列。
+     */
+    static String decodeTextBody(String raw) {
+        if (raw == null) return "";
+        String body = raw.trim();
+        if (body.isEmpty()) return "";
+        if (body.startsWith("{")) {
+            try {
+                return new JSONObject(body).optString("text", "");
+            } catch (Exception ignored) {
+                // JSON 坏掉就按表单继续试
+            }
+        }
+        String fromForm = queryParam(body, "text");
+        if (fromForm != null) return fromForm;
+        return raw;
+    }
+
+    private static String queryParam(String query, String key) {        if (query == null || query.isEmpty()) return null;
         for (String pair : query.split("&")) {
             int eq = pair.indexOf('=');
             if (eq > 0 && key.equals(pair.substring(0, eq))) {
@@ -327,7 +407,7 @@ public final class LanTransfer {
         try {
             j.put("running", running.get()).put("ip", ip).put("port", port)
              .put("url", url).put("mode", mode).put("files", filesJson)
-             .put("links", linksJson());
+             .put("links", linksJson()).put("texts", notesJson());
         } catch (Exception ignored) {}
         return j;
     }
@@ -382,7 +462,7 @@ public final class LanTransfer {
                     if ("done".equals(links.get(i).status)) { links.remove(i); break; }
                 }
             }
-            created = new Link(newId(), url, host, System.currentTimeMillis());
+            created = new Link(newId(), url, host, System.currentTimeMillis(), "http", "");
             created.name = sanitize(filenameOf(url));
             links.add(created);
             Log.i(TAG, "queued link " + url);
@@ -392,9 +472,144 @@ public final class LanTransfer {
         return created.id;
     }
 
+    /**
+     * 夸克文件入队。地址不留存：{@code download_url} 的签名绑定取链时的 cookie，
+     * 几分钟就会失效，恢复任务时必须按 fid 重新取。
+     */
+    public String addQuarkLink(String fid, String name, long sizeHint) {
+        if (fid == null || fid.isEmpty()) return null;
+        Link created;
+        synchronized (linkLock) {
+            for (Link existing : links) {
+                if (fid.equals(existing.fid) && "quark".equals(existing.kind)
+                        && !"done".equals(existing.status)) return existing.id;
+            }
+            if (links.size() >= MAX_LINKS) {
+                for (int i = links.size() - 1; i >= 0; i--) {
+                    if ("done".equals(links.get(i).status)) { links.remove(i); break; }
+                }
+            }
+            created = new Link(newId(), "", "夸克网盘", System.currentTimeMillis(), "quark", fid);
+            created.name = sanitize(name == null || name.isEmpty() ? "quark-" + fid : name);
+            created.size = sizeHint;
+            links.add(created);
+            Log.i(TAG, "queued quark " + created.name);
+        }
+        persistAsync();
+        notifyChanged();
+        return created.id;
+    }
+
+    // =====================================================================
+    // 手机发来的文本：网页里粘贴一段话，车机上点一下复制
+    // =====================================================================
+
+    /** 规整提交上来的文本：只把换行统一、去掉控制字符，正文内容一个字都不改。 */
+    static String cleanText(String raw) {
+        if (raw == null) return "";
+        String text = raw.replace("\r\n", "\n").replace('\r', '\n');
+        text = text.replaceAll("[\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f]", "");
+        text = text.trim();
+        if (text.length() > MAX_TEXT_CHARS) text = text.substring(0, MAX_TEXT_CHARS);
+        return text;
+    }
+
+    /** 手机提交文本，返回 id；空内容或超额返回 null。同一条连点两次只留一条。 */
+    public String addText(String raw) {
+        String text = cleanText(raw);
+        if (text.isEmpty()) return null;
+        Note created;
+        synchronized (noteLock) {
+            for (Note n : notes) {
+                if (n.text.equals(text)) {
+                    // 同一段话重复提交（手机端刷新/重发）只保留最上面那条
+                    notes.remove(n);
+                    notes.add(0, n);
+                    persistNotes();
+                    notifyChanged();
+                    return n.id;
+                }
+            }
+            created = new Note(newId(), text, System.currentTimeMillis());
+            notes.add(0, created);
+            while (notes.size() > MAX_TEXTS) notes.remove(notes.size() - 1);
+        }
+        Log.i(TAG, "received text (" + text.length() + " chars)");
+        persistNotes();
+        notifyChanged();
+        return created.id;
+    }
+
+    public boolean removeText(String id) {
+        if (id == null) return false;
+        boolean hit = false;
+        synchronized (noteLock) {
+            for (int i = 0; i < notes.size(); i++) {
+                if (notes.get(i).id.equals(id)) {
+                    notes.remove(i);
+                    hit = true;
+                    break;
+                }
+            }
+        }
+        if (hit) {
+            persistNotes();
+            notifyChanged();
+        }
+        return hit;
+    }
+
+    public void clearTexts() {
+        synchronized (noteLock) {
+            if (notes.isEmpty()) return;
+            notes.clear();
+        }
+        persistNotes();
+        notifyChanged();
+    }
+
+    private JSONArray notesJson() {
+        JSONArray arr = new JSONArray();
+        synchronized (noteLock) {
+            for (Note n : notes) {
+                try {
+                    arr.put(new JSONObject().put("id", n.id).put("text", n.text).put("time", n.time));
+                } catch (Exception ignored) {}
+            }
+        }
+        return arr;
+    }
+
+    private void persistNotes() {
+        JSONArray arr = notesJson();
+        try (FileOutputStream fos = new FileOutputStream(noteStore)) {
+            fos.write(arr.toString().getBytes("UTF-8"));
+        } catch (Exception e) {
+            Log.w(TAG, "persist texts failed", e);
+        }
+    }
+
+    private void loadNotes() {
+        if (!noteStore.isFile()) return;
+        try {
+            JSONArray arr = new JSONArray(new String(readAll(noteStore), "UTF-8"));
+            synchronized (noteLock) {
+                notes.clear();
+                for (int i = 0; i < arr.length() && i < MAX_TEXTS; i++) {
+                    JSONObject o = arr.optJSONObject(i);
+                    if (o == null) continue;
+                    String text = cleanText(o.optString("text", ""));
+                    if (text.isEmpty()) continue;
+                    notes.add(new Note(o.optString("id", newId()), text, o.optLong("time", 0)));
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "load texts failed", e);
+        }
+    }
+
     /** 车机上点「下载」时才真正拉取文件，落到与上传同一个目录。 */
-    public boolean downloadLink(String id) {
-        Link link = find(id);
+    public boolean downloadLink(String id) {        Link link = find(id);
         if (link == null) return false;
         if ("downloading".equals(link.status)) return true;
         link.cancelled = false;
@@ -432,11 +647,23 @@ public final class LanTransfer {
     private void runDownload(Link link) {
         File part = null;
         try {
-            java.net.HttpURLConnection conn = (java.net.HttpURLConnection) new java.net.URL(link.url).openConnection();
+            java.net.HttpURLConnection conn;
+            if ("quark".equals(link.kind)) {
+                QuarkPan pan = quark;
+                if (pan == null) throw new java.io.IOException("夸克模块未初始化");
+                // 取链与拉流必须用同一份 cookie 快照，否则 403（签名绑定请求时的 cookie）。
+                QuarkPan.Fetch fetch = pan.resolve(link.fid);
+                conn = (java.net.HttpURLConnection) new java.net.URL(fetch.url).openConnection();
+                conn.setRequestProperty("Cookie", fetch.cookie);
+                conn.setRequestProperty("Referer", fetch.referer);
+                conn.setRequestProperty("User-Agent", fetch.userAgent);
+            } else {
+                conn = (java.net.HttpURLConnection) new java.net.URL(link.url).openConnection();
+                conn.setRequestProperty("User-Agent", "UNI-Launcher/1.0 (uni-transfer)");
+            }
             conn.setInstanceFollowRedirects(true);
             conn.setConnectTimeout(15000);
             conn.setReadTimeout(20000);
-            conn.setRequestProperty("User-Agent", "UNI-Launcher/1.0 (uni-transfer)");
             int code = conn.getResponseCode();
             if (code < 200 || code >= 300) throw new java.io.IOException("HTTP " + code);
             if (conn.getContentLengthLong() > MAX_UPLOAD_BYTES) throw new java.io.IOException("文件超过 2GB");
@@ -525,6 +752,7 @@ public final class LanTransfer {
             for (Link l : links) {
                 try {
                     arr.put(new JSONObject().put("id", l.id).put("url", l.url).put("host", l.host)
+                            .put("kind", l.kind).put("fid", l.fid)
                             .put("name", l.name == null ? "" : l.name).put("status", l.status)
                             .put("size", l.size).put("time", l.time)
                             .put("error", l.error == null ? "" : l.error));
@@ -544,6 +772,7 @@ public final class LanTransfer {
             for (Link l : links) {
                 try {
                     arr.put(new JSONObject().put("id", l.id).put("url", l.url).put("host", l.host)
+                            .put("kind", l.kind).put("fid", l.fid)
                             .put("name", l.name == null ? "" : l.name)
                             // 进程被杀时正在下载的任务回到队列，屏幕上仍是「待下载」。
                             .put("status", "downloading".equals(l.status) ? "queued" : l.status)
@@ -568,8 +797,13 @@ public final class LanTransfer {
                     JSONObject o = arr.optJSONObject(i);
                     if (o == null) continue;
                     String url = o.optString("url", "");
-                    if (url.isEmpty()) continue;
-                    Link l = new Link(o.optString("id", newId()), url, o.optString("host", ""), o.optLong("time", now));
+                    String kind = "quark".equals(o.optString("kind", "http")) ? "quark" : "http";
+                    String fid = o.optString("fid", "");
+                    // 夸克任务没有地址（地址会过期），只有 fid；缺 fid 的旧数据按普通链接处理。
+                    if ("http".equals(kind) && url.isEmpty()) continue;
+                    if ("quark".equals(kind) && fid.isEmpty()) continue;
+                    Link l = new Link(o.optString("id", newId()), url, o.optString("host", ""),
+                            o.optLong("time", now), kind, fid);
                     l.name = o.optString("name", "");
                     l.size = o.optLong("size", 0);
                     l.status = "done".equals(o.optString("status", "queued")) ? "done" : "queued";
@@ -739,11 +973,18 @@ public final class LanTransfer {
             + "#u{width:100%;padding:13px 14px;border-radius:12px;border:1px solid #30363d;background:#0d1117;color:#e6edf3;"
             + "font-size:14px;margin-bottom:14px}#u::placeholder{color:#6e7681}"
             + "#dl{background:#1f6feb}#s2{margin-top:14px;font-size:13px;color:#8b949e;min-height:18px}"
+            + "#t{width:100%;min-height:96px;padding:12px 14px;border-radius:12px;border:1px solid #30363d;"
+            + "background:#0d1117;color:#e6edf3;font-size:14px;font-family:inherit;resize:vertical;margin-bottom:14px}"
+            + "#t::placeholder{color:#6e7681}#tx{background:#6e40c9}#s3{margin-top:14px;font-size:13px;color:#8b949e;min-height:18px}"
             + "</style></head><body><div class=\"card\">"
             + "<h1>向车机传文件</h1><p>选择 APK，点击上传，车机端可选择安装</p>"
             + "<label for=\"f\" id=\"pick\">点击选择 APK 文件（QQ 下载的 .apk.1 也可以）</label>"
             + "<input type=\"file\" id=\"f\" accept=\".apk,.apk.1,application/vnd.android.package-archive,application/octet-stream\">"
             + "<button id=\"go\" disabled>上传</button><div id=\"s\"></div>"
+            + "<div class=\"sep\"></div>"
+            + "<h2>发一段文本到车机</h2><p>地址、口令、笔记都行；车机上点一下就能复制</p>"
+            + "<textarea id=\"t\" placeholder=\"在这里粘贴文本…\"></textarea>"
+            + "<button id=\"tx\">发送到车机</button><div id=\"s3\"></div>"
             + "<div class=\"sep\"></div>"
             + "<h2>让车机下载链接</h2><p>粘贴文件地址，车机会收到一条待下载任务，点一下才开始下载</p>"
             + "<input id=\"u\" type=\"url\" inputmode=\"url\" autocomplete=\"off\" "
@@ -758,6 +999,16 @@ public final class LanTransfer {
             + "s.textContent=/\\.apk\\.\\d{1,2}$/i.test(file.name)?'完成 ✓ 已按 .apk 保存，可在车机安装':'完成 ✓ 可在车机选择安装';}"
             + "else{s.textContent='失败 ('+x.status+')';go.disabled=false;}};"
             + "x.onerror=function(){s.textContent='网络错误，请重试';go.disabled=false;};x.send(file);};"
+            + "var t=document.getElementById('t'),tx=document.getElementById('tx'),s3=document.getElementById('s3');"
+            + "tx.onclick=function(){var v=t.value;"
+            + "if(!v.trim()){s3.textContent='先粘贴一段文本';return;}"
+            + "tx.disabled=true;s3.textContent='发送中…';"
+            + "var x=new XMLHttpRequest();x.open('POST','/text');"
+            + "x.setRequestHeader('Content-Type','application/x-www-form-urlencoded');"
+            + "x.onload=function(){if(x.status===200){s3.textContent='已发送 ✓ 请在车机上点击复制';t.value='';}"
+            + "else{s3.textContent='发送失败 ('+x.status+')';}tx.disabled=false;};"
+            + "x.onerror=function(){s3.textContent='网络错误，请重试';tx.disabled=false;};"
+            + "x.send('text='+encodeURIComponent(v));};"
             + "var u=document.getElementById('u'),dl=document.getElementById('dl'),s2=document.getElementById('s2');"
             + "dl.onclick=function(){var v=u.value.trim();"
             + "if(!/^https?:\\/\\//i.test(v)){s2.textContent='请填写 http:// 或 https:// 开头的地址';return;}"
