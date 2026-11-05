@@ -48,6 +48,32 @@ public final class OfficialCarCommandTest {
         check(plan("pressure-set", "left", "1", 0) == null, "no tyre writes");
         check(OfficialCarCommand.matches(22.5f, 22.5d), "numeric readback");
         check(!OfficialCarCommand.matches(false, 0), "no enum/boolean conflation");
-        System.out.println("OfficialCarCommandTest passed (31 offline command/encoding/readback checks)");
+        // 记忆配置：驾驶模式与自动启停（写入函数 + 读回目标值）
+        OfficialCarCommand pure = OfficialCarCommand.driveMode("PURE");
+        check(pure.function == 0x22010100 && pure.zone == 0 && pure.intValue == 0x22010106
+                && "PURE".equals(pure.expected), "drive mode selection");
+        check(OfficialCarCommand.driveMode("INDIVIDUAL").intValue == 0x22010140, "INDIVIDUAL selection");
+        check(OfficialCarCommand.driveMode("RACE").intValue == 0x22010115
+                && "RACE".equals(OfficialCarCommand.driveMode("RACE").expected), "RACE maps to SPORT_PLUS");
+        check(OfficialCarCommand.driveMode("SPORT_PLUS") == null, "SDK-only alias is not an input");
+        check(OfficialCarCommand.driveMode("CUSTOM") == null, "SDK-only alias is not an input");
+        check(OfficialCarCommand.driveMode("pure") == null, "case sensitive drive mode");
+        check(OfficialCarCommand.driveMode("") == null && OfficialCarCommand.driveMode(null) == null,
+                "empty drive mode");
+        OfficialCarCommand on = OfficialCarCommand.startStop("on");
+        check(on.function == 0x20020100 && on.zone == 0 && on.intValue == 1
+                && Boolean.TRUE.equals(on.expected), "start-stop ON");
+        OfficialCarCommand off = OfficialCarCommand.startStop("off");
+        check(off.intValue == 0 && Boolean.FALSE.equals(off.expected), "start-stop OFF");
+        check(OfficialCarCommand.startStop("1") == null && OfficialCarCommand.startStop("") == null,
+                "strict start-stop input");
+        check("driveMode".equals(OfficialCarCommand.key("drive-mode", "", "PURE")), "drive mode field key");
+        check("startStop".equals(OfficialCarCommand.key("start-stop", "", "on")), "start-stop field key");
+        check(OfficialCarCommand.isSetting("drive-mode") && OfficialCarCommand.isSetting("start-stop")
+                && !OfficialCarCommand.isSetting("climate-mode"), "setting routing");
+        check("RACE".equals(OfficialCarContract.driveModeNameForSelection(0x22010115)), "selection to DID name");
+        check(OfficialCarContract.driveModeSelection("COMFORT_HEV") == 0x22010111, "DID name to selection");
+        check(OfficialCarContract.driveModeName(7).equals("PURE"), "DID name table");
+        System.out.println("OfficialCarCommandTest passed (47 offline command/encoding/readback checks)");
     }
 }

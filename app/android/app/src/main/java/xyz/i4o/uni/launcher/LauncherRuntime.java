@@ -50,6 +50,9 @@ public final class LauncherRuntime {
     private final LanTransfer transfer;
     private final QuarkPan quark;
     private final StorageCleaner cleaner;
+    /** 开机自启动计划：锚定开机秒数，进程内每计划只启动一次。 */
+    private final BootLaunch bootLaunch;
+    private final WirelessAdb wirelessAdb;
     private final DebugBridge debugBridge;
     /**
      * 需要 Activity 才能弹系统权限框的能力。面板窗口没有 Activity，统一借用主窗口。
@@ -107,6 +110,8 @@ public final class LauncherRuntime {
         if(!prefs.contains("demo"))prefs.edit().putBoolean("demo",Build.FINGERPRINT.contains("generic")||Build.MODEL.contains("sdk_gphone")||Build.MODEL.contains("Android SDK")).apply();
         long afterPrefs=android.os.SystemClock.uptimeMillis();
         apps=new AppRepository(context);catalog=new OfficialCatalog(context);
+        bootLaunch=new BootLaunch(context,prefs,apps,main,this::publish);
+        wirelessAdb=new WirelessAdb(context,prefs,main,this::publish);
         long afterRepos=android.os.SystemClock.uptimeMillis();
         vehicle=new VehicleTelemetry(context,this::publish);navigation=new NavigationApps(context,prefs);
         long afterTelemetry=android.os.SystemClock.uptimeMillis();
@@ -247,6 +252,18 @@ public final class LauncherRuntime {
                 .put("globalNavigationGranted",context.checkSelfPermission("android.permission.WRITE_SECURE_SETTINGS")==android.content.pm.PackageManager.PERMISSION_GRANTED)
                 .put("dark",(context.getResources().getConfiguration().uiMode&Configuration.UI_MODE_NIGHT_MASK)==Configuration.UI_MODE_NIGHT_YES)
                 .put("climate",climate).put("vehicle",telemetry).put("version",xyz.i4o.uni.launcher.BuildConfig.VERSION_NAME+"-flutter");
+            JSONObject memory=new JSONObject();
+            try{
+                memory.put("driveModeEnabled",prefs.getBoolean("memoryDriveModeEnabled",false))
+                    .put("driveMode",prefs.getString("memoryDriveMode",""))
+                    .put("startStopEnabled",prefs.getBoolean("memoryStartStopEnabled",false))
+                    .put("startStop",prefs.getBoolean("memoryStartStop",true))
+                    .put("driveModes",new JSONArray(java.util.Arrays.asList(CommandPolicy.DRIVE_MODES)))
+                    .put("demo",prefs.getBoolean("demo",false));
+            }catch(Exception ignored){}
+            state.put("vehicleMemory",memory);
+            state.put("bootLaunch",bootLaunch.snapshot());
+            state.put("wirelessAdb",wirelessAdb.snapshot());
             state.put("desktopSelected",homeVisible&&desktopContent);
             state.put("trafficLights",trafficLights.snapshot());
             JSONObject mediaState=prefs.getBoolean("demo",false)?demoMedia():media.snapshot().put("preferredPackage",prefs.getString("mediaPackage","auto"));
@@ -411,6 +428,66 @@ public final class LauncherRuntime {
             return true;
         }
         if("cleaner-permission".equals(action)){cleaner.refreshPermission();return true;}
+        // 记忆配置：只记录偏好，真正写入由启动流程或用户点「立即应用」触发。
+        if("memory-drive-mode-enabled".equals(action)){
+            prefs.edit().putBoolean("memoryDriveModeEnabled",request.optBoolean("enabled",false)).apply();publish();return true;
+        }
+        if("memory-drive-mode-target".equals(action)){
+            if(!CommandPolicy.validDriveMode(value)){toast("该驾驶模式不可用于记忆");return true;}
+            prefs.edit().putString("memoryDriveMode",value).apply();publish();return true;
+        }
+        if("memory-start-stop-enabled".equals(action)){
+            prefs.edit().putBoolean("memoryStartStopEnabled",request.optBoolean("enabled",false)).apply();publish();return true;
+        }
+        if("memory-start-stop-target".equals(action)){
+            if(!"on".equals(value)&&!"off".equals(value)){toast("启停记忆值无效");return true;}
+            prefs.edit().putBoolean("memoryStartStop","on".equals(value)).apply();publish();return true;
+        }
+        if("memory-apply-now".equals(action)){
+            if(prefs.getBoolean("demo",false)){toast("演示模式不写入车辆设置");return true;}
+            boolean any=false;
+            if(("driveMode".equals(value)||"all".equals(value))&&prefs.getBoolean("memoryDriveModeEnabled",false)){
+                any=true;
+                if(!vehicle.command("drive-mode","",prefs.getString("memoryDriveMode","")))toast("车辆未连接或不支持该驾驶模式");
+            }
+            if(("startStop".equals(value)||"all".equals(value))&&prefs.getBoolean("memoryStartStopEnabled",false)){
+                any=true;
+                if(!vehicle.command("start-stop","",prefs.getBoolean("memoryStartStop",true)?"on":"off"))toast("车辆未连接或不支持启停设置");
+            }
+            if(!any)toast("请先开启要应用的记忆项");
+            publish();return true;
+        }
+        // 开机自启动计划：只记录计划；真正启动由开机落点窗口里的排程执行。
+        if("boot-launch-enabled".equals(action)){
+            bootLaunch.setEnabled(request.optBoolean("enabled",false));publish();return true;
+        }
+        if("boot-launch-add".equals(action)){
+            int delay=-1;
+            try{delay=Integer.parseInt(zone==null?"0":zone.trim());}catch(Exception ignored){}
+            if(delay<0||delay>BootLaunch.MAX_DELAY){toast("启动秒数需在 0 到 "+BootLaunch.MAX_DELAY+" 之间");return true;}
+            if(!bootLaunch.add(value,delay)){
+                toast("计划已存在或已达到 "+BootLaunch.MAX_PLANS+" 条上限");
+            }
+            publish();return true;
+        }
+        if("boot-launch-remove".equals(action)){
+            if(!bootLaunch.remove(value))toast("计划已不存在");
+            publish();return true;
+        }
+        if("boot-launch-clear".equals(action)){
+            bootLaunch.clear();publish();return true;
+        }
+        if("boot-launch-run".equals(action)){
+            if(prefs.getBoolean("demo",false)){toast("演示模式不启动应用");return true;}
+            if(!bootLaunch.runNow(value))toast("计划已不存在");
+            publish();return true;
+        }
+        if("wireless-adb-enabled".equals(action)){
+            wirelessAdb.setEnabled(request.optBoolean("enabled",false));publish();return true;
+        }
+        if("wireless-adb-run".equals(action)){
+            wirelessAdb.ensureNow();publish();return true;
+        }
         if("transfer-start".equals(action)){transfer.start();publish();return true;}
         if("transfer-stop".equals(action)){transfer.stop();publish();return true;}
         if("transfer-install".equals(action)){if(!transfer.install(value))toast("未找到可安装的文件，或系统未允许安装");publish();return true;}
@@ -448,6 +525,10 @@ public final class LauncherRuntime {
                 return true;
             }
             if(!apps.launchPackage(catalog.packageFor(value)))toast("此设备未安装对应原车应用");return true;
+        }
+        if(CommandPolicy.isSettingAction(action)){
+            if(prefs.getBoolean("demo",false)){toast("演示模式不写入车辆设置");return true;}
+            if(!vehicle.command(action,"",value))toast("车辆未连接或未确认该设置值");publish();return true;
         }
         if(CommandPolicy.isClimateAction(action)){
             boolean demo=prefs.getBoolean("demo",false);
@@ -539,6 +620,22 @@ public final class LauncherRuntime {
             bootAutoPlayScheduled=true;
             if(android.os.SystemClock.elapsedRealtime()>5*60*1000)return null;
             main.postDelayed(this::autoPlayMusic,12000);
+            return null;
+        });
+    }
+
+    /** 开机自启动：只在开机窗口内按计划排程，桌面进程重启不会重放同一条计划。 */
+    public void scheduleBootLaunch(){
+        onMain(()->{
+            bootLaunch.schedule();
+            return null;
+        });
+    }
+
+    /** 开机自动启动无线 adb：只在开关打开时动手，失败会按 20 秒间隔重试几次。 */
+    public void scheduleWirelessAdb(){
+        onMain(()->{
+            if(wirelessAdb.enabled())wirelessAdb.schedule();
             return null;
         });
     }

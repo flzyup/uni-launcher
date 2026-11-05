@@ -1,5 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
   <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS"/>
+  <!-- 无线 adb 桥（xyz.i4o.uni.adbbridge，uid 1000）的 signature 权限，只有同签名能发 SET -->
+  <uses-permission android:name="xyz.i4o.uni.adb.BRIDGE"/>
   <uses-permission android:name="android.permission.CHANGE_COMPONENT_ENABLED_STATE"/>
   <uses-permission android:name="android.permission.MANAGE_USB"/>
   <uses-permission android:name="android.permission.BIND_APPWIDGET"/>

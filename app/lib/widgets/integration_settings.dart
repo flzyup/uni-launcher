@@ -108,15 +108,6 @@ class IntegrationSettings extends StatelessWidget {
                   onPressed: () => controller.command('launch-player'),
                   child: const Text('打开关联播放器')),
               SizedBox(height: Design.px(10)),
-              DesignSwitchTile(
-                  key: const ValueKey('auto-play-music'),
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('开机自动播放音乐'),
-                  subtitle: const Text('启动后恢复上次音源，播放器不会跳到前台'),
-                  value: prefs['autoPlayMusic'] == true,
-                  onChanged: (v) =>
-                      controller.command('auto-play-music', enabled: v)),
-              SizedBox(height: Design.px(10)),
               Text(
                   '选择网易云、QQ 音乐或原车音乐后，歌曲、封面、歌词和播放控制均跟随该应用。请先在播放器中播放一首歌曲并授权媒体访问。',
                   style: TextStyle(

@@ -218,6 +218,7 @@ public final class MainActivity extends FlutterActivity {
         rt=LauncherRuntime.get(this);
         // 垃圾清理要读写公开存储：面板一打开就由这里申请权限，界面上没有「去授权」这一步。
         rt.attachPermissionHost(this::requestStoragePermission);
+        rt.scheduleBootLaunch();rt.scheduleWirelessAdb();
         rt.scheduleBootAutoPlay();
         StartupTrace.mark("runtime");
         initialSettings=isSettingsIntent(getIntent());

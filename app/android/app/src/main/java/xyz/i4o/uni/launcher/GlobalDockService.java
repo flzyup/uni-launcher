@@ -197,7 +197,7 @@ public final class GlobalDockService extends Service {
     }
     private static void toast(Context c,String text){android.widget.Toast.makeText(c,text,android.widget.Toast.LENGTH_SHORT).show();}
     @Override public void onCreate(){
-        super.onCreate();active=this;runtime=LauncherRuntime.get(this);runtime.scheduleBootAutoPlay();recentTasks=new RecentTasksRepository(this);
+        super.onCreate();active=this;runtime=LauncherRuntime.get(this);runtime.scheduleBootAutoPlay();runtime.scheduleBootLaunch();runtime.scheduleWirelessAdb();recentTasks=new RecentTasksRepository(this);
         if(!Settings.canDrawOverlays(this)||!runtime.prefs().getBoolean("globalDockEnabled",false)){stopSelf();return;}
         startForeground(753,notification());
         windows=(WindowManager)getSystemService(WINDOW_SERVICE);

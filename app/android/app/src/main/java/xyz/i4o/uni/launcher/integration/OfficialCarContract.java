@@ -94,6 +94,90 @@ public final class OfficialCarContract {
     public static final int CB_VENT = 0x21402113;
     public static final int CB_FRONT_MAX = 0x21402126, CB_REAR_DEFROST = 0x21402127;
 
+    /**
+     * Drive mode and engine start-stop, the two settings the launcher may apply
+     * once at startup ("记忆配置").
+     *
+     * Drive mode is written through DM_FUNC_DRIVE_MODE_SELECT (0x22010100) and
+     * read back from DID_DM_Selected (0x21403018), which is an Integer property.
+     * The write path in the audited JAR is
+     * setFunctionValue(0x22010100, selection) -> CarFunctionValueImpl ->
+     * VehicleSignalManager.setCbDmSelected -> CarPropertyManager.setProperty(
+     * Integer.class, CB_DM_Selected 0x2140203B, 0, 1..12). CB_DM_Selected is
+     * access 0x2 (WRITE) on this car; DID_DM_Selected is access 0x1 (READ), so
+     * only the DID can confirm anything.
+     *
+     * The eight/six/one selection values below are the SDK's own constants. The
+     * SDK maps SPORT_PLUS to the DID value RACE and CUSTOM to INDIVIDUAL, so
+     * {@link #driveModeSelection(String)} accepts the DID names and returns the
+     * matching selection: a confirmed read then compares equal to the request.
+     *
+     * Start-stop is SETTING_FUNC_ENGINE_STOP_START (0x20020100) -> CbSsActivation
+     * (0/1) -> CarPropertyManager.setProperty(Integer.class, CB_SS_Activation
+     * 0x21400202, 0, 0|1). 0x21400202 is access 0x2 (WRITE) on this car. Its
+     * state is PA_SS_Activation 0x2170F200 (READ). The SDK mappers for this pair
+     * are broken: both PaSsActivationData.fromInteger and
+     * CarFunctionValueUtil.getMappedFunctionValue(PaSsActivation) end in an
+     * unconditional ON/1, so getFunctionValue(0x20020100) always reads 1. The
+     * confirmation therefore decodes the PA bytes here, never the SDK getter.
+     */
+    public static final int DRIVE_MODE = 0x22010100;
+    public static final int DRIVE_MODE_ECO = 0x22010101, DRIVE_MODE_COMFORT = 0x22010102;
+    public static final int DRIVE_MODE_DYNAMIC = 0x22010103, DRIVE_MODE_XC = 0x22010104;
+    public static final int DRIVE_MODE_HDC = 0x22010105, DRIVE_MODE_PURE = 0x22010106;
+    public static final int DRIVE_MODE_HYBRID = 0x22010107, DRIVE_MODE_POWER = 0x22010108;
+    public static final int DRIVE_MODE_ECO_HEV_PHEV = 0x22010110, DRIVE_MODE_COMFORT_HEV = 0x22010111;
+    public static final int DRIVE_MODE_SPORT_PLUS = 0x22010115, DRIVE_MODE_CUSTOM = 0x22010140;
+
+    public static final int START_STOP = 0x20020100;
+    public static final int PA_DRIVE_MODE = 0x21403018, PA_START_STOP = 0x2170F200;
+    public static final int DID_START_STOP_STATUS = 0x21400203;
+    public static final int CB_DRIVE_MODE = 0x2140203B, CB_START_STOP = 0x21400202;
+
+    /** DID_DM_Selected raw value minus one indexes this table. */
+    static final String[] DRIVE_MODE_NAMES = {
+        "ECO", "COMFORT", "DYNAMIC", "INDIVIDUAL", "XC", "HDC",
+        "PURE", "HYBRID", "POWER", "RACE", "ECO_HEV_PHEV", "COMFORT_HEV"
+    };
+
+    static String driveModeName(Integer raw) {
+        return raw != null && raw >= 1 && raw <= DRIVE_MODE_NAMES.length ? DRIVE_MODE_NAMES[raw - 1] : null;
+    }
+
+    /** DID name -> SDK selection value, or -1 when the name is not a drive mode. */
+    static int driveModeSelection(String name) {
+        if (name == null) return -1;
+        switch (name) {
+            case "ECO": return DRIVE_MODE_ECO;
+            case "COMFORT": return DRIVE_MODE_COMFORT;
+            case "DYNAMIC": return DRIVE_MODE_DYNAMIC;
+            case "INDIVIDUAL": return DRIVE_MODE_CUSTOM;
+            case "XC": return DRIVE_MODE_XC;
+            case "HDC": return DRIVE_MODE_HDC;
+            case "PURE": return DRIVE_MODE_PURE;
+            case "HYBRID": return DRIVE_MODE_HYBRID;
+            case "POWER": return DRIVE_MODE_POWER;
+            case "RACE": return DRIVE_MODE_SPORT_PLUS;
+            case "ECO_HEV_PHEV": return DRIVE_MODE_ECO_HEV_PHEV;
+            case "COMFORT_HEV": return DRIVE_MODE_COMFORT_HEV;
+            default: return -1;
+        }
+    }
+
+    static boolean containsValue(int[] values, int value) {
+        if (values == null) return false;
+        for (int candidate : values) if (candidate == value) return true;
+        return false;
+    }
+
+    /** Inverse of {@link #driveModeSelection(String)}: the DID name a selection
+     * produces, so a readback can be compared with the request. */
+    static String driveModeNameForSelection(int selection) {
+        for (String name : DRIVE_MODE_NAMES)
+            if (driveModeSelection(name) == selection) return name;
+        return null;
+    }
+
     public static final int[] WATCHED_FUNCTIONS = {
         POWER, AUTO, AC, FAN, CIRCULATION, SYNC, TEMP, HEAT, VENT,
         FRONT_MAX, REAR_DEFROST, BLOWING

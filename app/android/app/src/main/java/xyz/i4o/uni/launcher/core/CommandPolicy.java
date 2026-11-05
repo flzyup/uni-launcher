@@ -12,6 +12,19 @@ public final class CommandPolicy {
     public static boolean isSeatAction(String action) {
         return "seat-heat".equals(action) || "seat-vent".equals(action);
     }
+    /** 记忆配置: two vehicle settings that are not climate controls but travel the
+     * same audited command channel. */
+    public static boolean isSettingAction(String action) {
+        return "drive-mode".equals(action) || "start-stop".equals(action);
+    }
+    /** DID_DM_Selected names, the only values a confirmed readback can report. */
+    public static boolean validDriveMode(String value) {
+        if (value == null) return false;
+        for (String name : DRIVE_MODES) if (name.equals(value)) return true;
+        return false;
+    }
+    public static final String[] DRIVE_MODES = {"ECO", "COMFORT", "DYNAMIC", "INDIVIDUAL",
+        "XC", "HDC", "PURE", "HYBRID", "POWER", "RACE", "ECO_HEV_PHEV", "COMFORT_HEV"};
     /** Per-control capability key; null means the action/zone pair is unsupported. */
     public static String seatControl(String action, String zone) {
         if ("seat-heat".equals(action)) {

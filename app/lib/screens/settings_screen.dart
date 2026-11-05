@@ -16,6 +16,7 @@ import '../widgets/system_settings.dart';
 import '../widgets/setting_block.dart';
 import '../widgets/dock_size_settings.dart';
 import '../widgets/integration_settings.dart';
+import '../widgets/vehicle_memory_settings.dart';
 import '../widgets/spectrum_painter.dart';
 import '../ota/update_controller.dart';
 import '../ota/update_ui.dart';
@@ -104,6 +105,11 @@ class SettingsScreen extends StatelessWidget {
                                           '氛围灯'
                                         ),
                                         (
+                                          'memory',
+                                          Icons.tune_outlined,
+                                          '记忆配置'
+                                        ),
+                                        (
                                           'system',
                                           Icons.settings_suggest_outlined,
                                           '系统与调试'
@@ -112,7 +118,7 @@ class SettingsScreen extends StatelessWidget {
                                       ].indexed)
                                         Padding(
                                             padding: EdgeInsets.only(
-                                                bottom: index == 6
+                                                bottom: index == 7
                                                     ? 0
                                                     : Design.px(10)),
                                             child: _SettingsTab(
@@ -136,6 +142,7 @@ class SettingsScreen extends StatelessWidget {
                           'connections' => const ConnectionSettings(),
                           'motion' => PageMotionSettings(controller: c),
                           'ambient' => AmbientLightSettingsTab(controller: c),
+                          'memory' => VehicleMemorySettings(controller: c),
                           'system' => SystemSettingsPanel(controller: c),
                           'about' => update == null
                               ? const Center(child: Text('更新服务暂不可用'))

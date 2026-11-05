@@ -182,3 +182,20 @@ python3 tools/test_official_car.py --skip-android-compile
 胎压卡直接使用用户提供的领克 05 多视图图稿中第一张俯视图提取出的透明线稿 [`lynk-05-top-line.png`](../app/assets/art/lynk-05-top-line.png)，不再以 Flutter `Path` 近似重画。资产固定为 `1826 × 833`（宽高比 `2.192`），组件只做等比缩放和主题色着色，保留外轮廓、前后风挡、分段全景天窗、机盖、后视镜、门缝、门把手、灯组和徽标的相对坐标、曲率与间距。
 
 同一图稿中的车尾、车头及左右侧视图保留为后续设计依据，用于完善车门、尾门、机舱盖、车窗、灯光和车身姿态状态；当前胎压卡不混入这些视角，在原车信号未经确认前也不展示推测状态。
+
+## 0.7 记忆配置：驾驶模式与自动启停写入
+
+设置页新增「记忆配置」标签，两项各自独立开关，关掉的那一项不发送任何车辆写入。写入按节流重试：开机后 3 秒起每 20 秒试一次，最多 6 次、5 分钟窗口内有效；原车还没上报 PA 值或支持表为空时视为「稍后再试」，只有真的不支持、已确认或本来就是记忆值才停手。用户点「立即应用」走同一条写链，不受重试计数影响。
+
+| 项 | 写函数 | HAL 命令属性 | 读回 | 写入值 |
+| --- | --- | --- | --- | --- |
+| 驾驶模式 | `DM_FUNC_DRIVE_MODE_SELECT` `0x22010100` | `CB_DM_Selected` `0x2140203B`（access `0x2`） | DID `0x21403018`（access `0x1`，Integer 1..12） | SDK selection：ECO `0x22010101`、COMFORT `0x22010102`、DYNAMIC `0x22010103`、XC `0x22010104`、HDC `0x22010105`、PURE `0x22010106`、HYBRID `0x22010107`、POWER `0x22010108`、ECO_HEV_PHEV `0x22010110`、COMFORT_HEV `0x22010111`、RACE `0x22010115`、INDIVIDUAL `0x22010140` |
+| 自动启停 | `SETTING_FUNC_ENGINE_STOP_START` `0x20020100` | `CB_SS_Activation` `0x21400202`（access `0x2`） | PA `0x2170F200`（access `0x1`，OFF 0／ON 1） | `0` 关闭、`1` 开启 |
+
+驾驶模式写链：`setFunctionValue(0x22010100, selection)` → `CarFunctionValueImpl` → `VehicleSignalManager.setCbDmSelected(CbDmSelectedValue)` → `CarPropertyManager.setProperty(Integer.class, 0x2140203B, 0, 1..12)`。启停写链：`setFunctionValue(0x20020100, 0|1)` → `CarFunctionValueUtil.getMappedCbSsActivationValue` → `setCbSsActivation(CbSsActivationValue)` → `setProperty(Integer.class, 0x21400202, 0, 0|1)`。两条链均在已审计 adapter JAR 的 dalvik 中逐条核对，两个 CB 属性在本车 `dumpsys car_service` 中都是 `access:0x2`。
+
+SDK 侧两个缺陷必须绕开：`PaSsActivationData.fromInteger()` 与 `CarFunctionValueUtil.getMappedFunctionValue(PaSsActivation)` 的 `switch` 两个分支都是 `break`，函数尾无条件 `return ON`／`return 1`，因此 `getFunctionValue(0x20020100)` 永远读到 `1`；启停状态只能由 `0x2170F200` 的 PA 字节（field4 ZigZag → 0/1）解码。驾驶模式的 SDK selection 会把 `SPORT_PLUS` 折叠成 `RACE`、`CUSTOM` 折叠成 `INDIVIDUAL`，所以接受集只用「selection 能反向映射回同名 DID 值」的 12 个名字，`SPORT_PLUS`／`CUSTOM` 不作输入。
+
+写入前置条件（任一不满足即不发送，只记录原因）：`CAR_VENDOR_EXTENSION` 已授予、SDK 写签名齐备（`setFunctionValue(int,int)`）、`getSupportedFunctionValue(function)` 含目标值（空数组表示本车不实现，禁止盲写）、目标项当前值已读到（`0x21403018` 或 `0x2170F200` 有效）且与目标不同。确认沿用既有管线：写入后 5 秒内要求 PA／DID 时间戳推进且值等于目标，超时记 `timeout`，断线即失败，不重放。发布字段：`vehicle.settings.{driveMode,startStop}` 给 `current/readable/supported/commandable/writeFunction/writeChannel`，`vehicle.memory.*` 给启动应用结果（`queued/sent/confirmed/unchanged/failed/timeout/skipped` + 原因）。
+
+尚未实车确认：写入是否要求 P 档／静止、行车中是否被整车策略拒绝、上电后原车是否把启停复位为 ON、本车 PHEV 实际支持的驾驶模式集合（以 `getSupportedFunctionValue(0x22010100)` 实时返回为准，UI 只列该返回）。离线回归 `OfficialCarCommandTest` 扩到 47 项，覆盖 selection 编码、别名拒绝、启停 0/1、字段键与反向映射；`OfficialHybridReaderTest` 增加启停 PA 与新鲜度字段。
