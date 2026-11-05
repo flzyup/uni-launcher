@@ -24,6 +24,8 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import xyz.i4o.uni.launcher.integration.NavigationApps;
+import xyz.i4o.uni.launcher.log.LogTags;
+import xyz.i4o.uni.launcher.log.UniLog;
 
 /** Android 9 navigation rendered directly into Flutter's live texture.
  * The display and producer Surface survive page/modal visibility changes.
@@ -40,6 +42,7 @@ public final class LiveNavigationHost {
     private boolean closed,hostVisible=true;
     public LiveNavigationHost(Activity activity,BinaryMessenger messenger,TextureRegistry textures){
         this.activity=activity;this.messenger=messenger;this.textures=textures;
+        UniLog.enter(LogTags.NAV,"nav/host");
         host=new MethodChannel(messenger,"xyz.i4o.uni.launcher/navigation");
         host.setMethodCallHandler((call,result)->{
             try{
@@ -60,6 +63,7 @@ public final class LiveNavigationHost {
                 }else result.notImplemented();
             }catch(Exception|LinkageError error){result.error("navigation_unavailable","地图实时容器无法启动",null);}
         });
+        UniLog.done(LogTags.NAV,"nav/host");
     }
     private NavigationApps apps(){return new NavigationApps(activity,activity.getSharedPreferences("launcher",0));}
     /** 纹理缩放系数，只接受 (0.3, 1] 以免误配出无法使用的画面。 */
@@ -89,7 +93,7 @@ public final class LiveNavigationHost {
     public org.json.JSONArray snapshot(){
         org.json.JSONArray result=new org.json.JSONArray();if(map!=null)result.put(new org.json.JSONObject(map.status()));return result;
     }
-    public void close(){if(closed)return;closed=true;main.removeCallbacksAndMessages(null);host.setMethodCallHandler(null);if(map!=null){map.close();map=null;}}
+    public void close(){if(closed)return;closed=true;UniLog.enter(LogTags.NAV,"nav/host","stage","detach");main.removeCallbacksAndMessages(null);host.setMethodCallHandler(null);if(map!=null){map.close();map=null;}UniLog.done(LogTags.NAV,"nav/host","stage","detach");}
 
     private final class LiveMap {
         final int id;
@@ -112,6 +116,7 @@ public final class LiveNavigationHost {
         LiveMap(int id,String pkg,int logicalWidth,int logicalHeight,float scale)throws Exception{
             this.id=id;this.pkg=pkg;this.scale=scale;
             this.width=pixels(logicalWidth);this.height=pixels(logicalHeight);
+            UniLog.enter(LogTags.NAV,"nav/map","id",id,"package",pkg,"width",width,"height",height);
             channel=new MethodChannel(messenger,"xyz.i4o.uni.launcher/map/"+id);
             channel.setMethodCallHandler((call,result)->{
                 try{
@@ -128,7 +133,8 @@ public final class LiveNavigationHost {
                 }catch(Exception|LinkageError error){result.error("navigation_unavailable","地图操作暂不可用",null);}
             });
             try{createDisplay();}
-            catch(Exception|LinkageError error){close();throw error;}
+            catch(Exception|LinkageError error){UniLog.fail(LogTags.NAV,"nav/map","id",id,"package",pkg,"error",error.getClass().getSimpleName());close();throw error;}
+            UniLog.done(LogTags.NAV,"nav/map","id",id,"package",pkg,"displayId",display.getDisplay().getDisplayId());
         }
         Map<String,Object> status(){
             Map<String,Object> status=new HashMap<>();
@@ -203,7 +209,7 @@ public final class LiveNavigationHost {
                 main.postDelayed(()->verifyPlacement(epoch),200);
                 if(!ready){phase="loading";reason="正在载入实时地图";main.removeCallbacks(timeout);main.postDelayed(timeout,10000);}
                 publish();
-            }catch(Exception|LinkageError error){phase="unavailable";reason="地图实时接入失败，请使用全屏入口";android.util.Log.w("UniMap","Live display launch",error);publish();}
+            }catch(Exception|LinkageError error){phase="unavailable";reason="地图实时接入失败，请使用全屏入口";UniLog.w(LogTags.NAV,"Live display launch",error,"tag","UniMap");UniLog.fail(LogTags.NAV,"nav/map","id",id,"package",pkg,"reason","activate-failed");publish();}
         }
         ComponentName placeExistingTask()throws Exception{
             Object manager=Class.forName("android.app.ActivityManager").getMethod("getService").invoke(null);
@@ -230,7 +236,7 @@ public final class LiveNavigationHost {
             try{
                 if(placeExistingTask()!=null)return;
                 if(++placementAttempts<20)main.postDelayed(()->verifyPlacement(epoch),250);
-            }catch(Exception|LinkageError error){android.util.Log.w("UniMap","Live map placement",error);}
+            }catch(Exception|LinkageError error){UniLog.w(LogTags.NAV,"Live map placement",error,"tag","UniMap");}
         }
         void touch(Object raw)throws Exception{
             if(disposed||!hostVisible||!requestedVisible||!(raw instanceof Map))return;

@@ -11,6 +11,8 @@ import android.provider.Settings;
 import org.json.*;
 import java.lang.reflect.*;
 import java.util.*;
+import xyz.i4o.uni.launcher.log.LogTags;
+import xyz.i4o.uni.launcher.log.UniLog;
 
 /** Read-only sources used by XCSystemUIPlugin's seven right-hand icon slots.
  * Does not register a second system status bar or replace its service callbacks. */
@@ -45,12 +47,23 @@ public final class SystemStatusAdapter {
             next.put("memory",new JSONObject().put("totalBytes",memory.totalMem).put("usedBytes",memory.totalMem-memory.availMem));
         }catch(Exception|LinkageError ignored){}
         if(!running||token!=generation||owner!=worker)return;
-        String raw=next.toString();if(!raw.equals(state)){state=raw;main.post(()->{if(running)changed.run();});}
+        String raw=next.toString();if(!raw.equals(state)){UniLog.d(LogTags.SYS,"系统状态有变化","changed",changedKeys(state,raw));state=raw;main.post(()->{if(running)changed.run();});}
         if(running)worker.postDelayed(this,xyz.i4o.uni.launcher.LauncherVisibility.visible()?2000:5000);
     }};
+    // 只列变化的字段名：采样每 2 秒一次，整份快照落盘会把车机存储写满。
+    private static String changedKeys(String before,String after){
+        try{
+            JSONObject a=new JSONObject(before),b=new JSONObject(after);StringBuilder sb=new StringBuilder();
+            java.util.Iterator<String> keys=b.keys();
+            while(keys.hasNext()){String key=keys.next();if(!a.optString(key,"").equals(b.optString(key,""))){if(sb.length()>0)sb.append(',');sb.append(key);}}
+            return sb.toString();
+        }catch(Exception e){return "?";}
+    }
     public SystemStatusAdapter(Context context,Runnable changed){this.context=context;this.changed=changed;}
     public void start(){
         if(running)return;running=true;generation++;
+        UniLog.enter(LogTags.SYS,"sys/poll");
+        UniLog.i(LogTags.SYS,"系统状态采样已启动");
         if(thread==null){thread=new HandlerThread("uni-system-status");thread.start();worker=new Handler(thread.getLooper());}
         IntentFilter f=new IntentFilter();for(String a:new String[]{BluetoothAdapter.ACTION_STATE_CHANGED,BluetoothAdapter.ACTION_CONNECTION_STATE_CHANGED,
             "android.bluetooth.a2dp-sink.profile.action.CONNECTION_STATE_CHANGED","android.bluetooth.headsetclient.profile.action.CONNECTION_STATE_CHANGED",
@@ -61,6 +74,8 @@ public final class SystemStatusAdapter {
     }
     public void stop(){
         if(!running)return;running=false;generation++;
+        UniLog.i(LogTags.SYS,"系统状态采样已停止");
+        UniLog.done(LogTags.SYS,"sys/poll");
         try{context.unregisterReceiver(receiver);}catch(Exception|LinkageError ignored){}
         try{((TelephonyManager)context.getSystemService(Context.TELEPHONY_SERVICE)).listen(phoneListener,PhoneStateListener.LISTEN_NONE);}catch(Exception|LinkageError ignored){}
         if(worker!=null)worker.removeCallbacksAndMessages(null);

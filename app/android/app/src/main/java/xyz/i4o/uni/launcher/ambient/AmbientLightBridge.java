@@ -155,6 +155,18 @@ public final class AmbientLightBridge {
         return writer.status();
     }
 
+    /**
+     * Capability and last write state of the shared writer, without a bridge.
+     *
+     * <p>The diagnostic package is exported from the settings page, where no
+     * bridge instance is reachable; the writer itself lives for the whole
+     * process, so the state is still available.
+     */
+    public static Map<String, Object> currentStatus() {
+        AmbientLightWriter current = sharedWriter;
+        return current == null ? new java.util.HashMap<String, Object>() : current.status();
+    }
+
     /** Detaches the channel. The shared writer lives as long as the process. */
     public void close() {
         writer.removeStateListener(listener);

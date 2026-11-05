@@ -23,6 +23,8 @@ import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.regex.Pattern;
+import xyz.i4o.uni.launcher.log.LogTags;
+import xyz.i4o.uni.launcher.log.UniLog;
 
 /**
  * Most players keep their lyric text in their own window and publish none of it in
@@ -64,6 +66,8 @@ public final class LyricsResolver {
     private final Map<String, Long> misses = Collections.synchronizedMap(new HashMap<String, Long>());
     private String pending = "";
     private long generation;
+    /** Which catalogue produced the last text (worker thread only). */
+    private String sourceUsed = "";
 
     public LyricsResolver(File cacheDir, Runnable changed) {
         this.dir = cacheDir;
@@ -85,27 +89,34 @@ public final class LyricsResolver {
         if (key.isEmpty()) return;
         final long token;
         synchronized (this) {
+            // A repeat request is not logged: the snapshot asks for the lyrics
+            // on every tick while the song plays without them.
             if (memory.containsKey(key) || missed(key) || key.equals(pending)) return;
             pending = key;
             token = ++generation;
         }
+        UniLog.enter(LogTags.LYRIC, "lyric/resolve", "title", title, "artist", artist, "durationMs", durationMs);
         try {
             worker.execute(() -> resolve(key, title, artist, durationMs, token));
         } catch (RuntimeException shuttingDown) {
             synchronized (this) { if (key.equals(pending)) pending = ""; }
+            UniLog.fail(LogTags.LYRIC, "lyric/resolve", "reason", "worker-rejected", "title", title, "artist", artist);
         }
     }
 
     private void resolve(String key, String title, String artist, long durationMs, long token) {
         try {
+            sourceUsed = "";
             String text = load(key);
             if (text.isEmpty()) text = search(title, artist, durationMs);
             if (text.isEmpty()) {
                 misses.put(key, System.currentTimeMillis());
                 if (misses.size() > 64) misses.clear();
+                UniLog.fail(LogTags.LYRIC, "lyric/resolve", "reason", "no-catalogue-match", "title", title, "artist", artist, "durationMs", durationMs);
             } else {
                 memory.put(key, text);
                 store(key, text);
+                UniLog.done(LogTags.LYRIC, "lyric/resolve", "source", sourceUsed, "length", text.length(), "title", title, "artist", artist);
                 if (token == generation && changed != null) main.post(changed);
             }
         } finally {
@@ -211,14 +222,14 @@ public final class LyricsResolver {
             if (songId > 0) {
                 String text = neteaseLyrics(fetch("https://music.163.com/api/song/lyric?id=" + songId
                         + "&lv=-1&kv=-1&tv=-1", "https://music.163.com/"));
-                if (!text.isEmpty()) return text;
+                if (!text.isEmpty()) { sourceUsed = "netease"; return text; }
             }
             String mid = pickQqMid(fetch("https://c.y.qq.com/soso/fcgi-bin/client_search_cp?p=1&n=10&w="
                     + words + "&format=json", "https://y.qq.com/"), query[0], query[1], durationMs);
             if (!mid.isEmpty()) {
                 String text = qqLyrics(fetch("https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg?songmid="
                         + encode(mid) + "&format=json&nobase64=1", "https://y.qq.com/"));
-                if (!text.isEmpty()) return text;
+                if (!text.isEmpty()) { sourceUsed = "qq"; return text; }
             }
             String hash = pickKugouHash(fetch("https://songsearch.kugou.com/song_search_v2?keyword=" + words
                     + "&page=1&pagesize=10&userid=-1&clientver=&platform=WebFilter", "https://www.kugou.com/"),
@@ -228,10 +239,13 @@ public final class LyricsResolver {
                     + "&client=pc&hash=" + encode(hash), "https://www.kugou.com/"));
             int cut = candidate.indexOf('\u0000');
             if (cut < 0) return "";
-            return kugouLyrics(fetch("https://lyrics.kugou.com/download?ver=1&client=pc&id="
+            String text = kugouLyrics(fetch("https://lyrics.kugou.com/download?ver=1&client=pc&id="
                     + encode(candidate.substring(0, cut)) + "&accesskey=" + encode(candidate.substring(cut + 1))
                     + "&fmt=lrc&charset=utf8", "https://www.kugou.com/"));
+            if (!text.isEmpty()) { sourceUsed = "kugou"; return text; }
+            return "";
         } catch (Exception unreachableCatalogue) {
+            UniLog.w(LogTags.LYRIC, "歌词目录查询异常", "error", unreachableCatalogue.getClass().getSimpleName(), "reason", String.valueOf(unreachableCatalogue.getMessage()));
             return "";
         }
     }
@@ -254,8 +268,10 @@ public final class LyricsResolver {
                     id = song.optLong("id", -1);
                 }
             }
+            if (best < ACCEPT) UniLog.d(LogTags.LYRIC, "网易云候选未达阈值", "catalogue", "netease", "best", best, "accept", ACCEPT, "title", title, "artist", artist);
             return best >= ACCEPT ? id : -1;
         } catch (Exception malformed) {
+            UniLog.w(LogTags.LYRIC, "网易云候选响应无法解析", "error", malformed.getClass().getSimpleName(), "reason", String.valueOf(malformed.getMessage()));
             return -1;
         }
     }
@@ -263,8 +279,13 @@ public final class LyricsResolver {
     static String neteaseLyrics(String lyricJson) {
         try {
             JSONObject lrc = new JSONObject(lyricJson).optJSONObject("lrc");
-            return lrc == null ? "" : limit(lrc.optString("lyric"));
+            if (lrc == null) {
+                UniLog.w(LogTags.LYRIC, "网易云歌词响应没有 lrc 字段", "catalogue", "netease", "bytes", lyricJson == null ? 0 : lyricJson.length());
+                return "";
+            }
+            return limit(lrc.optString("lyric"));
         } catch (Exception malformed) {
+            UniLog.w(LogTags.LYRIC, "网易云歌词响应无法解析", "catalogue", "netease", "error", malformed.getClass().getSimpleName(), "reason", String.valueOf(malformed.getMessage()));
             return "";
         }
     }
@@ -289,8 +310,10 @@ public final class LyricsResolver {
                     mid = item.optString("songmid");
                 }
             }
+            if (best < ACCEPT) UniLog.d(LogTags.LYRIC, "网易云候选未达阈值", "catalogue", "netease", "best", best, "accept", ACCEPT, "title", title, "artist", artist);
             return best >= ACCEPT ? mid : "";
         } catch (Exception malformed) {
+            UniLog.w(LogTags.LYRIC, "QQ 音乐候选响应无法解析", "error", malformed.getClass().getSimpleName(), "reason", String.valueOf(malformed.getMessage()));
             return "";
         }
     }
@@ -299,6 +322,7 @@ public final class LyricsResolver {
         try {
             return limit(decodeEntities(new JSONObject(lyricJson).optString("lyric")));
         } catch (Exception malformed) {
+            UniLog.w(LogTags.LYRIC, "QQ 音乐歌词响应无法解析", "catalogue", "qq", "error", malformed.getClass().getSimpleName(), "reason", String.valueOf(malformed.getMessage()));
             return "";
         }
     }
@@ -320,8 +344,10 @@ public final class LyricsResolver {
                     hash = item.optString("FileHash");
                 }
             }
+            if (best < ACCEPT) UniLog.d(LogTags.LYRIC, "酷狗候选未达阈值", "catalogue", "kugou", "best", best, "accept", ACCEPT, "title", title, "artist", artist);
             return best >= ACCEPT ? hash : "";
         } catch (Exception malformed) {
+            UniLog.w(LogTags.LYRIC, "酷狗候选响应无法解析", "error", malformed.getClass().getSimpleName(), "reason", String.valueOf(malformed.getMessage()));
             return "";
         }
     }
@@ -331,11 +357,19 @@ public final class LyricsResolver {
         try {
             JSONArray candidates = new JSONObject(candidateJson).optJSONArray("candidates");
             JSONObject first = candidates == null ? null : candidates.optJSONObject(0);
-            if (first == null) return "";
+            if (first == null) {
+                UniLog.w(LogTags.LYRIC, "酷狗候选列表为空", "catalogue", "kugou", "bytes", candidateJson == null ? 0 : candidateJson.length());
+                return "";
+            }
             String id = first.optString("id");
             String accesskey = first.optString("accesskey");
-            return id.isEmpty() || accesskey.isEmpty() ? "" : id + "\u0000" + accesskey;
+            if (id.isEmpty() || accesskey.isEmpty()) {
+                UniLog.w(LogTags.LYRIC, "酷狗候选缺少 id 或 accesskey", "catalogue", "kugou", "id", id, "accesskey", accesskey);
+                return "";
+            }
+            return id + "\u0000" + accesskey;
         } catch (Exception malformed) {
+            UniLog.w(LogTags.LYRIC, "酷狗候选响应无法解析", "catalogue", "kugou", "error", malformed.getClass().getSimpleName(), "reason", String.valueOf(malformed.getMessage()));
             return "";
         }
     }
@@ -343,10 +377,14 @@ public final class LyricsResolver {
     static String kugouLyrics(String downloadJson) {
         try {
             String content = new JSONObject(downloadJson).optString("content");
-            if (content.isEmpty()) return "";
+            if (content.isEmpty()) {
+                UniLog.w(LogTags.LYRIC, "酷狗歌词响应没有 content", "catalogue", "kugou");
+                return "";
+            }
             byte[] raw = android.util.Base64.decode(content, android.util.Base64.DEFAULT);
             return limit(new String(raw, UTF8).replace("\ufeff", "").trim());
         } catch (Exception malformed) {
+            UniLog.w(LogTags.LYRIC, "酷狗歌词响应无法解析", "catalogue", "kugou", "error", malformed.getClass().getSimpleName(), "reason", String.valueOf(malformed.getMessage()));
             return "";
         }
     }
@@ -386,14 +424,21 @@ public final class LyricsResolver {
             connection.setRequestProperty("User-Agent", USER_AGENT);
             connection.setRequestProperty("Accept", "application/json,text/plain,*/*");
             if (referer != null) connection.setRequestProperty("Referer", referer);
-            if (connection.getResponseCode() / 100 != 2) return "";
+            int status = connection.getResponseCode();
+            if (status / 100 != 2) {
+                UniLog.w(LogTags.LYRIC, "歌词目录请求失败", "url", address, "status", status);
+                return "";
+            }
             InputStream stream = connection.getInputStream();
             try {
                 ByteArrayOutputStream buffer = new ByteArrayOutputStream();
                 byte[] block = new byte[8192];
                 int read;
                 while ((read = stream.read(block)) != -1) {
-                    if (buffer.size() + read > MAX_RESPONSE) return "";
+                    if (buffer.size() + read > MAX_RESPONSE) {
+                        UniLog.w(LogTags.LYRIC, "歌词响应过大已丢弃", "url", address, "limit", MAX_RESPONSE);
+                        return "";
+                    }
                     buffer.write(block, 0, read);
                 }
                 return new String(buffer.toByteArray(), UTF8);
@@ -401,6 +446,7 @@ public final class LyricsResolver {
                 stream.close();
             }
         } catch (Exception offline) {
+            UniLog.w(LogTags.LYRIC, "歌词目录请求异常", "url", address, "error", offline.getClass().getSimpleName(), "reason", String.valueOf(offline.getMessage()));
             return "";
         } finally {
             if (connection != null) connection.disconnect();
@@ -421,8 +467,10 @@ public final class LyricsResolver {
                 if (buffer.size() + read > MAX_LYRICS) return "";
                 buffer.write(block, 0, read);
             }
+            sourceUsed = "disk-cache";
             return new String(buffer.toByteArray(), UTF8);
         } catch (IOException unreadable) {
+            UniLog.w(LogTags.LYRIC, "歌词缓存读取失败", "error", unreadable.getClass().getSimpleName(), "reason", String.valueOf(unreadable.getMessage()));
             return "";
         }
     }
@@ -434,6 +482,7 @@ public final class LyricsResolver {
             stream.write(text.getBytes(UTF8));
         } catch (IOException unwritable) {
             /* Read-only cache directory: the in-memory copy still serves this session. */
+            UniLog.w(LogTags.LYRIC, "歌词缓存写入失败", "error", unwritable.getClass().getSimpleName(), "reason", String.valueOf(unwritable.getMessage()));
         }
     }
 

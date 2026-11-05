@@ -15,11 +15,15 @@ import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.FutureTask;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import org.json.JSONObject;
 import org.json.JSONArray;
 import xyz.i4o.uni.launcher.core.ClimateState;
 import xyz.i4o.uni.launcher.core.CommandPolicy;
 import xyz.i4o.uni.launcher.integration.*;
+import xyz.i4o.uni.launcher.log.LogTags;
+import xyz.i4o.uni.launcher.log.UniLog;
 
 /** One Application-scoped native data source for all Flutter engines.
  * Adapter access and listener delivery are serialized on Android's main thread.
@@ -113,10 +117,15 @@ public final class LauncherRuntime {
         installed=new JSONArray();
         refreshAppsInBackground();
         long afterApps=android.os.SystemClock.uptimeMillis();
-        android.util.Log.i("UNI-Startup","runtime split: prefs="+(afterPrefs-traceStart)
-            +" repos="+(afterRepos-afterPrefs)+" telemetry="+(afterTelemetry-afterRepos)
-            +" adapters="+(afterAdapters-afterTelemetry)+" settings="+(afterSettings-afterAdapters)
-            +" apps="+(afterApps-afterSettings)+" runtime="+(afterApps-traceStart));
+        // 分段耗时必须落盘：冷启动慢的时候，诊断包里要能直接看出是哪一段。
+        UniLog.i(LogTags.APP,"运行时构建分段",
+            "prefsMs",(afterPrefs-traceStart),
+            "reposMs",(afterRepos-afterPrefs),
+            "telemetryMs",(afterTelemetry-afterRepos),
+            "adaptersMs",(afterAdapters-afterTelemetry),
+            "settingsMs",(afterSettings-afterAdapters),
+            "appsMs",(afterApps-afterSettings),
+            "runtimeMs",(afterApps-traceStart));
         IntentFilter filter=new IntentFilter();
         filter.addAction(Intent.ACTION_PACKAGE_ADDED);filter.addAction(Intent.ACTION_PACKAGE_REMOVED);filter.addAction(Intent.ACTION_PACKAGE_CHANGED);filter.addDataScheme("package");
         // One Application-lifetime package receiver/cache, independent of windows.
@@ -127,12 +136,80 @@ public final class LauncherRuntime {
         new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
             ()->new Thread(()->{systemSettings.prewarm();navigationAudio.prewarm();main.post(()->{settingsRevision++;publish();});},"uni-warmup").start(),
             1500);
-        android.util.Log.i("UNI-Startup","runtime ready after receiver: "
-            +(android.os.SystemClock.uptimeMillis()-traceStart));
+        UniLog.i(LogTags.APP,"运行时就绪",
+            "elapsedMs",(android.os.SystemClock.uptimeMillis()-traceStart));
     }
 
     public SharedPreferences prefs(){return prefs;}
 
+    /**
+     * Live subsystem states for the diagnostic package.
+     *
+     * <p>Read-only: it must never write to the head unit. The vehicle adapter
+     * is only asked for what it already cached, so exporting a package cannot
+     * change the car state.
+     *
+     * <p>Every section is guarded on its own: one broken adapter must not hide
+     * the state of the others, and a failing read is reported instead of
+     * silently producing an empty section.
+     *
+     * <p>The read runs on the main thread, like the regular snapshot does.
+     * The export happens on a background thread, and the adapter snapshots
+     * touch binder-backed state (the media controller, the vehicle reader);
+     * reading them off the main thread would race with the normal publish
+     * path.
+     *
+     * <p>The wait is bounded: the export must never hang because the main
+     * thread is busy. A timeout is reported as a note instead.
+     */
+    public String describeAdapters(){
+        if(Looper.myLooper()==Looper.getMainLooper())return describeAdaptersOnMain();
+        FutureTask<String> task=new FutureTask<>(this::describeAdaptersOnMain);
+        if(!main.post(task))return "(主线程不可用，无法读取子系统状态)\n";
+        try{return task.get(2,TimeUnit.SECONDS);}
+        catch(TimeoutException e){task.cancel(true);return "(读取子系统状态超时：主线程繁忙)\n";}
+        catch(InterruptedException e){Thread.currentThread().interrupt();return "(读取子系统状态被中断)\n";}
+        catch(ExecutionException e){return "(读取子系统状态失败: "+e.getCause()+")\n";}
+    }
+
+    private String describeAdaptersOnMain(){
+        StringBuilder sb=new StringBuilder();
+        section(sb,"车辆",()->vehicle.snapshot());
+        section(sb,"媒体",()->media.snapshot());
+        section(sb,"导航",()->navigation.snapshot());
+        section(sb,"红绿灯",()->trafficLights.snapshot());
+        section(sb,"天气",()->weather.snapshot());
+        section(sb,"系统状态",()->systemStatus.snapshot());
+        section(sb,"日历",()->calendar.snapshot());
+        section(sb,"局域网传输",()->transfer.snapshot());
+        section(sb,"调试桥",()->debugBridge.snapshot());
+        return sb.toString();
+    }
+
+    /** One labelled snapshot section; a failing read is reported, not swallowed. */
+    private static void section(StringBuilder sb,String label,Supplier snapshot){
+        sb.append(label).append(": ");
+        try{sb.append(String.valueOf(snapshot.get()));}
+        catch(Throwable t){sb.append("读取失败: ").append(t.getMessage()==null?t.getClass().getSimpleName():t.getMessage());}
+        sb.append('\n');
+    }
+
+    /** A snapshot supplier that may fail; the section reports the failure. */
+    private interface Supplier{Object get() throws Exception;}
+
+    /**
+     * Live subsystem states, or a note when the runtime was never created.
+     *
+     * <p>The diagnostic package can be exported before the launcher window
+     * exists (for example from the boot receiver); in that case there is
+     * nothing to describe and the caller gets an explicit line.
+     */
+    public static String describeAdaptersIfAlive(Context context){
+        LauncherRuntime current=instance;
+        if(current==null)return "(运行时尚未创建，无子系统状态)\n";
+        try{return current.describeAdapters();}
+        catch(Throwable t){return "(读取子系统状态失败: "+t.getMessage()+")\n";}
+    }
     /** 普通快照：按游标只补发变化的分组，不携带设置目录（Dock/面板用）。 */
     public JSONObject snapshot(StaticCursor cursor){return onMain(()->buildSnapshot(cursor,false));}
 
@@ -189,7 +266,7 @@ public final class LauncherRuntime {
             if(wantDesign)cursor.design=designRevision;
             if(wantMedia)cursor.media=mediaRevision;
             if(wantSettings)cursor.settings=settingsRevision;
-        }catch(Exception e){android.util.Log.e("UniState","Snapshot failed",e);}return state;
+        }catch(Exception e){UniLog.e(LogTags.APP,"快照构建失败",e);}return state;
     }
 
     /** 布局指纹按内容计算：即使键数或字符串长度不变，内容变化也会推进 designRevision。 */
@@ -208,7 +285,7 @@ public final class LauncherRuntime {
                 .put("lyrics","[00:00.00]晨光沿着海岸慢慢亮起\n[00:03.00]风把远方带进了呼吸\n[00:06.00]穿过山与海的交界\n[00:09.00]每一程都有新的风景\n[00:12.00]跟着潮声向前去\n[00:15.00]让今天从容开启")
                 .put("lyricsSource","demo").put("durationMs",258000).put("positionMs",demoPosition()).put("positionKnown",true)
                 .put("sampledAtMs",System.currentTimeMillis()).put("speed",1);
-    }catch(Exception e){android.util.Log.e("UniState","Demo media failed",e);return new JSONObject();}}
+    }catch(Exception e){UniLog.e(LogTags.MEDIA,"演示媒体状态失败",e);return new JSONObject();}}
     private boolean saveDesignOnMain(String raw){
             if(raw==null||raw.length()>65536)return false;
             try{
@@ -258,7 +335,7 @@ public final class LauncherRuntime {
     private boolean handleOnMain(JSONObject request)throws Exception{
         String action=request.optString("action"),value=request.optString("value"),zone=request.optString("zone");
         // 车机上没有调试器，出问题时先看这一行有没有出现，就能分清「没点到」还是「动作失败」。
-        if(action.startsWith("transfer-"))android.util.Log.i("UniTransfer","action "+action+(value.isEmpty()?"":" "+value));
+        if(action.startsWith("transfer-"))UniLog.i(LogTags.TRANSFER,"传输动作","action",action,"value",value);
         if("rename-app".equals(action)){
             if(zone.length()==0||zone.length()>255||zone.indexOf('\n')>=0||zone.indexOf('\r')>=0||value.length()>96||value.indexOf('\n')>=0||value.indexOf('\r')>=0)return true;
             JSONObject names=storedAppNames();
@@ -414,7 +491,7 @@ public final class LauncherRuntime {
         for(Map.Entry<Object,Runnable> entry:new IdentityHashMap<>(listeners).entrySet()){
             if(listeners.get(entry.getKey())!=entry.getValue())continue;
             try{entry.getValue().run();}
-            catch(RuntimeException e){android.util.Log.w("UniState","Listener failed",e);}
+            catch(RuntimeException e){UniLog.w(LogTags.APP,"快照监听器异常",e);}
         }
     };
 
@@ -485,7 +562,7 @@ public final class LauncherRuntime {
                     applyApps(next);
                     publish();
                 });
-            }catch(RuntimeException e){android.util.Log.w("UniApps","App refresh failed",e);}
+            }catch(RuntimeException e){UniLog.w(LogTags.APPS,"应用列表刷新失败",e);}
         },"uni-apps").start();
     }
 

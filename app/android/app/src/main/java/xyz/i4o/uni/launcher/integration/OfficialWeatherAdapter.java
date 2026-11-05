@@ -11,6 +11,8 @@ import java.util.Calendar;
 import java.util.Iterator;
 import java.util.concurrent.*;
 import java.util.regex.*;
+import xyz.i4o.uni.launcher.log.LogTags;
+import xyz.i4o.uni.launcher.log.UniLog;
 
 /** Read-only XCHome V2023-08-03 callback contract, verified from installed APK.
  * Current conditions always remain OEM values. The optional public forecast is
@@ -54,14 +56,17 @@ public final class OfficialWeatherAdapter {
                 if(!service.transact(1,in,out,0))throw new IllegalStateException("Weather callback unsupported");
                 out.readException();connected=out.readInt()!=0;
                 reason=connected?"等待原车天气回调":"原车天气注册未完成";
-            }catch(Exception e){connected=false;reason="原车天气连接暂不可用";android.util.Log.w("UniWeather","Unable to register OEM weather callback",e);}
+                UniLog.i(LogTags.WEATHER,"原车天气回调注册结果","connected",connected,"service",SERVICE);
+            }catch(Exception e){connected=false;reason="原车天气连接暂不可用";UniLog.w(LogTags.WEATHER,"Unable to register OEM weather callback",e,"service",SERVICE);}
             finally{in.recycle();out.recycle();}
             changed.run();
         }
-        public void onServiceDisconnected(ComponentName name){connected=false;reason="原车天气服务已断开";if(active)changed.run();}
+        public void onServiceDisconnected(ComponentName name){connected=false;reason="原车天气服务已断开";UniLog.i(LogTags.WEATHER,"原车天气服务已断开","service",SERVICE);if(active)changed.run();}
         @Override public void onNullBinding(ComponentName name){
             if(!active)return;
             connected=false;reason="等待原车天气组件";
+            // 原车没有给回调接口，只能退回旧版天气小组件：来源变了要看得见。
+            UniLog.w(LogTags.WEATHER,"原车天气组件没有回调接口，改用旧版天气小组件","component",String.valueOf(name));
             if(legacyWidget==null)legacyWidget=new LegacyWeatherWidget(context,new LegacyWeatherWidget.Listener(){
                 public void onWeather(String area,String condition,double temperature){
                     if(!active)return;
@@ -76,9 +81,10 @@ public final class OfficialWeatherAdapter {
                             .put("source","原车天气").put("sourcePackage","com.ecarx.smartcloud")
                             .put("syncedAtMs",System.currentTimeMillis());
                         connected=true;reason="";changed.run();requestForecast(city,region,false);
-                    }catch(Exception e){android.util.Log.w("UniWeather","Legacy weather data unavailable",e);}
+                        UniLog.i(LogTags.WEATHER,"原车天气已更新","city",city,"region",region,"temperature",temperature,"condition",condition,"source","legacy-widget");
+                    }catch(Exception e){UniLog.w(LogTags.WEATHER,"Legacy weather data unavailable",e,"area",area);}
                 }
-                public void onUnavailable(String message){if(active){reason=message;changed.run();}}
+                public void onUnavailable(String message){if(active){reason=message;UniLog.w(LogTags.WEATHER,"旧版天气小组件不可用","reason",message);changed.run();}}
             });
             legacyWidget.start();changed.run();
         }
@@ -93,13 +99,15 @@ public final class OfficialWeatherAdapter {
                 .setComponent(new ComponentName("com.ecarx.smartcloud","ecarx.home.service.CoreService"));
             bound=context.bindService(intent,connection,Context.BIND_AUTO_CREATE);
             if(!bound)reason="原车天气服务未就绪";
-        }catch(Exception e){reason="此设备未提供原车天气服务";}
+            UniLog.i(LogTags.WEATHER,"原车天气服务绑定结果","bound",bound,"package","com.ecarx.smartcloud");
+        }catch(Exception e){reason="此设备未提供原车天气服务";UniLog.w(LogTags.WEATHER,"原车天气服务不可用",e,"package","com.ecarx.smartcloud");}
     }
     public void stop(){
         if(!active)return;
         active=false;forecastGate.stop();main.removeCallbacks(retryForecast);
         if(forecastLoading)forecastAttemptMs=0;
         forecastLoading=false;connected=false;
+        UniLog.i(LogTags.WEATHER,"原车天气适配器已停止","bound",bound);
         if(bound){try{context.unbindService(connection);}catch(IllegalArgumentException ignored){}bound=false;}
         if(legacyWidget!=null){legacyWidget.stop();legacyWidget=null;}
         if(forecastTask!=null){forecastTask.cancel(true);forecastTask=null;}
@@ -110,9 +118,15 @@ public final class OfficialWeatherAdapter {
             JSONObject packet=new JSONObject(raw);String temp=packet.optString("temprature","").replace('−','-').trim();
             Matcher match=Pattern.compile("^[+-]?[0-9]+(?:\\.[0-9]+)?").matcher(temp);
             String city=packet.optString("city",""),area=packet.optString("area",""),code=packet.optString("code","");
-            if(!match.find()||(city.isEmpty()&&area.isEmpty())||code.isEmpty()){reason="原车天气暂未返回当前城市数据";changed.run();return;}
+            if(!match.find()||(city.isEmpty()&&area.isEmpty())||code.isEmpty()){
+                reason="原车天气暂未返回当前城市数据";
+                // 解析不出来时把原始报文记下来：不然只能靠猜。
+                UniLog.w(LogTags.WEATHER,"原车天气报文缺少可用字段","raw",rawOf(raw),"temperature",temp,"city",city,"area",area,"code",code);
+                changed.run();return;}
             double degrees=Double.parseDouble(match.group());
-            if(degrees< -90||degrees>70||city.length()>80||area.length()>80||code.length()>8)return;
+            if(degrees< -90||degrees>70||city.length()>80||area.length()>80||code.length()>8){
+                UniLog.w(LogTags.WEATHER,"原车天气数值超出可信范围","raw",rawOf(raw),"temperature",degrees,"city",city,"area",area,"code",code);
+                return;}
             int numeric=-1;try{numeric=Integer.parseInt(code);}catch(NumberFormatException ignored){}
             String description=numeric>=0&&numeric<CONDITIONS.length?CONDITIONS[numeric]:numeric==53?"霾":"未知";
             data=new JSONObject().put("available",true).put("city",area.isEmpty()?city:area).put("region",city)
@@ -121,11 +135,15 @@ public final class OfficialWeatherAdapter {
                 .put("source","原车天气").put("sourcePackage","com.ecarx.smartcloud")
                 .put("syncedAtMs",System.currentTimeMillis());
             reason="";changed.run();requestForecast(area.isEmpty()?city:area,city,false);
-        }catch(Exception e){reason="原车天气数据格式暂不支持";changed.run();}
+            UniLog.i(LogTags.WEATHER,"原车天气已更新","city",area.isEmpty()?city:area,"region",city,"temperature",degrees,"condition",description,"source","oem-callback");
+        }catch(Exception e){reason="原车天气数据格式暂不支持";UniLog.w(LogTags.WEATHER,"原车天气数据格式暂不支持",e,"raw",rawOf(raw));changed.run();}
     }
+    // 解析结果不可信时打印原始报文：排查只能靠原厂实际下发的内容。
+    private static String rawOf(String raw){return raw==null?"":raw.substring(0,Math.min(600,raw.length()));}
     public void refreshForecast(){
         String city=data.optString("city","");
-        if(city.isEmpty()){forecastReason="等待原车返回当前城市";changed.run();return;}
+        if(city.isEmpty()){forecastReason="等待原车返回当前城市";UniLog.skip(LogTags.WEATHER,"weather/fetch","trigger","manual","reason",forecastReason);changed.run();return;}
+        UniLog.i(LogTags.WEATHER,"用户请求刷新未来天气","city",city,"region",data.optString("region",""));
         requestForecast(city,data.optString("region",""),true);
     }
     private void requestForecast(String city,String region,boolean force){
@@ -143,6 +161,7 @@ public final class OfficialWeatherAdapter {
         forecastCity=requestedCity;forecastAttemptMs=now;forecastLoading=true;forecastReason="正在获取未来天气";changed.run();
         final String area=city,requestedRegion=region;
         final long request=forecastGate.next();
+        UniLog.enter(LogTags.WEATHER,"weather/fetch","city",area,"region",requestedRegion,"force",force,"request",request,"sameCity",sameCity);
         if(forecastTask!=null){forecastTask.cancel(true);forecastWorker.purge();}
         forecastTask=forecastWorker.submit(()->{
             try{
@@ -150,9 +169,12 @@ public final class OfficialWeatherAdapter {
                 main.post(()->{
                     if(!forecastGate.accepts(request))return;
                     forecast=next;forecastLoading=false;forecastReason="";changed.run();
+                    JSONArray days=next.optJSONArray("forecasts");
+                    UniLog.i(LogTags.WEATHER,"未来天气已更新","city",area,"request",request,"days",days==null?0:days.length(),"source",next.optString("forecastSource",""));
+                    UniLog.done(LogTags.WEATHER,"weather/fetch","city",area,"request",request,"days",days==null?0:days.length());
                 });
             }catch(Exception e){
-                android.util.Log.w("UniWeather","Unable to load forecast for "+requestedCity,e);
+                UniLog.w(LogTags.WEATHER,"Unable to load forecast for "+requestedCity,e,"city",area,"request",request);
                 main.post(()->{
                     if(!forecastGate.accepts(request))return;
                     forecastLoading=false;
@@ -164,6 +186,7 @@ public final class OfficialWeatherAdapter {
                         :"未来天气加载失败，请稍后刷新";
                     main.postDelayed(retryForecast,60_000);
                     changed.run();
+                    UniLog.fail(LogTags.WEATHER,"weather/fetch","city",area,"request",request,"reason",forecastReason);
                 });
             }
         });
@@ -176,7 +199,21 @@ public final class OfficialWeatherAdapter {
         if(results!=null)for(int i=0;i<results.length();i++){
             JSONObject p=results.getJSONObject(i);
             list.add(new WeatherLocationResolver.Place(p.optString("name"),p.optString("country_code"),p.optString("admin1"),p.optString("admin2"),p.optString("admin3"),p.optString("feature_code"),p.optDouble("latitude",Double.NaN),p.optDouble("longitude",Double.NaN),p.optLong("population",0)));
-        }return list;
+        }
+        // 候选原样记下来：选错城市时不用再复现一次请求。
+        if(list.isEmpty())UniLog.w(LogTags.WEATHER,"地理编码没有候选","query",query,"raw",rawOf(places.toString()));
+        else UniLog.i(LogTags.WEATHER,"地理编码候选结果","query",query,"count",list.size(),"candidates",candidates(list));
+        return list;
+    }
+    // 候选摘要：名字加行政区类型与坐标，选错城市时能直接看出匹配到了哪一级。
+    private static String candidates(java.util.List<WeatherLocationResolver.Place> list){
+        StringBuilder sb=new StringBuilder();
+        for(int i=0;i<list.size()&&i<8;i++){
+            WeatherLocationResolver.Place p=list.get(i);
+            if(sb.length()>0)sb.append(';');
+            sb.append(p.name).append('/').append(p.feature).append('@').append(p.latitude).append(',').append(p.longitude);
+        }
+        return sb.length()==0?"none":sb.toString();
     }
     private static String romanize(String text){
         try{
@@ -186,8 +223,18 @@ public final class OfficialWeatherAdapter {
         }catch(Exception|LinkageError e){return text;}
     }
     private static JSONObject downloadForecast(String city,String region)throws Exception{
-        WeatherLocationResolver.Location location=WeatherLocationResolver.resolve(city,region,OfficialWeatherAdapter::searchPlaces,OfficialWeatherAdapter::romanize);
+        UniLog.enter(LogTags.WEATHER,"weather/locate","city",city,"region",region);
+        WeatherLocationResolver.Location location;
+        try{
+            location=WeatherLocationResolver.resolve(city,region,OfficialWeatherAdapter::searchPlaces,OfficialWeatherAdapter::romanize);
+        }catch(Exception e){
+            UniLog.fail(LogTags.WEATHER,"weather/locate","city",city,"region",region,"reason",e.getClass().getSimpleName());
+            throw e;
+        }
         double latitude=location.place.latitude,longitude=location.place.longitude;
+        // 坐标来自地理编码服务，与原车天气的城市分开记：城市对但坐标偏的情况要能看出来。
+        UniLog.i(LogTags.WEATHER,"天气定位已解析","city",location.label,"latitude",latitude,"longitude",longitude,"feature",location.place.feature,"cityFallback",location.cityFallback,"source","open-meteo-geocoding");
+        UniLog.done(LogTags.WEATHER,"weather/locate","city",location.label,"latitude",latitude,"longitude",longitude,"cityFallback",location.cityFallback);
         String url="https://api.open-meteo.com/v1/forecast?latitude="+latitude+"&longitude="+longitude
             +"&current=relative_humidity_2m,apparent_temperature,wind_speed_10m,wind_direction_10m"
             +"&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max"

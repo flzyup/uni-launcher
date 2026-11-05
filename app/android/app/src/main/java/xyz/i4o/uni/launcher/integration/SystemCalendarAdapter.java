@@ -13,6 +13,8 @@ import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Locale;
 import org.json.JSONObject;
+import xyz.i4o.uni.launcher.log.LogTags;
+import xyz.i4o.uni.launcher.log.UniLog;
 
 /** System calendar source. Date fields are always available; agenda fields are
  * read only after Android grants READ_CALENDAR. */
@@ -24,6 +26,8 @@ public final class SystemCalendarAdapter {
     private Handler worker;
     private volatile boolean running;
     private volatile String state="{}";
+    // 仅用于日志：日历每分钟轮询一次，内容不变就不再打印。
+    private String traced="",tracedPermission="";
     private final ContentObserver observer=new ContentObserver(main){
         @Override public void onChange(boolean selfChange){refresh();}
     };
@@ -58,7 +62,7 @@ public final class SystemCalendarAdapter {
     private JSONObject read(){
         JSONObject result=dateBase();boolean authorized=context.checkSelfPermission(Manifest.permission.READ_CALENDAR)==PackageManager.PERMISSION_GRANTED;
         try{result.put("authorized",authorized).put("eventAvailable",false);
-            if(!authorized)return result.put("reason","点击授权后显示系统日程");
+            if(!authorized){traceQuery("denied","","",0);return result.put("reason","点击授权后显示系统日程");}
             Calendar now=Calendar.getInstance(),end=(Calendar)now.clone();end.add(Calendar.DAY_OF_YEAR,7);
             String[] projection={CalendarContract.Instances.TITLE,CalendarContract.Instances.EVENT_LOCATION,
                 CalendarContract.Instances.BEGIN,CalendarContract.Instances.END,CalendarContract.Instances.ALL_DAY};
@@ -66,12 +70,30 @@ public final class SystemCalendarAdapter {
                 if(cursor!=null&&cursor.moveToFirst()){
                     long begin=cursor.getLong(2),finish=cursor.getLong(3);String title=clean(cursor.getString(0)),location=clean(cursor.getString(1));
                     boolean today=begin<startOfNextDay(now).getTimeInMillis();
+                    traceQuery("granted",title,location,begin);
                     result.put("eventAvailable",true).put("title",title.isEmpty()?"未命名日程":title).put("location",location)
                         .put("beginMs",begin).put("endMs",finish).put("allDay",cursor.getInt(4)!=0).put("today",today).put("reason","");
-                }else result.put("reason","未来七天没有日程");
+                }else{traceQuery("granted","","",0);result.put("reason","未来七天没有日程");}
             }
-        }catch(Exception|LinkageError e){try{result.put("eventAvailable",false).put("reason","系统日历暂不可读取");}catch(Exception ignored){}}
+        }catch(Exception|LinkageError e){try{result.put("eventAvailable",false).put("reason","系统日历暂不可读取");UniLog.w(LogTags.CALENDAR,"系统日历暂不可读取",e);}catch(Exception ignored){}traceQuery("error","","",0);}
         return result;
+    }
+    // 只在权限或日程真的变化时记录：轮询每分钟一次，无变化时打印没有价值。
+    private synchronized void traceQuery(String permission,String title,String location,long begin){
+        if(!permission.equals(tracedPermission)){
+            tracedPermission=permission;
+            if("denied".equals(permission))UniLog.i(LogTags.CALENDAR,"日历读取权限未授予","permission","READ_CALENDAR");
+            else if("granted".equals(permission))UniLog.i(LogTags.CALENDAR,"日历读取权限已授予","permission","READ_CALENDAR");
+        }
+        String signature=permission+"|"+title+"|"+location+"|"+begin;
+        if(signature.equals(traced))return;
+        traced=signature;
+        if("denied".equals(permission)){UniLog.skip(LogTags.CALENDAR,"calendar/query","permission","denied");return;}
+        if("error".equals(permission)){UniLog.fail(LogTags.CALENDAR,"calendar/query","permission","error");return;}
+        UniLog.enter(LogTags.CALENDAR,"calendar/query","permission","granted");
+        if(title.isEmpty())UniLog.i(LogTags.CALENDAR,"未来七天没有日程","permission","granted");
+        else UniLog.i(LogTags.CALENDAR,"日程已读取","title",title,"location",location,"beginMs",begin);
+        UniLog.done(LogTags.CALENDAR,"calendar/query","title",title,"beginMs",begin);
     }
     private static Calendar startOfDay(Calendar value){Calendar out=(Calendar)value.clone();out.set(Calendar.HOUR_OF_DAY,0);out.set(Calendar.MINUTE,0);out.set(Calendar.SECOND,0);out.set(Calendar.MILLISECOND,0);return out;}
     private static Calendar startOfNextDay(Calendar value){Calendar out=startOfDay(value);out.add(Calendar.DAY_OF_YEAR,1);return out;}

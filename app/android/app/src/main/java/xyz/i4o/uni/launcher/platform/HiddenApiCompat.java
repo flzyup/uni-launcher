@@ -1,6 +1,8 @@
 package xyz.i4o.uni.launcher.platform;
 
 import java.lang.reflect.Method;
+import xyz.i4o.uni.launcher.log.LogTags;
+import xyz.i4o.uni.launcher.log.UniLog;
 
 /**
  * Lifts the hidden API restriction for this process.
@@ -42,6 +44,7 @@ public final class HiddenApiCompat {
      */
     public static synchronized String tryExempt() {
         if (result != null) return result;
+        UniLog.enter(LogTags.SYS,"hidden/exempt");
         try {
             Class<?> vmRuntimeClass = Class.forName("dalvik.system.VMRuntime");
             Method getRuntime = vmRuntimeClass.getDeclaredMethod("getRuntime");
@@ -52,9 +55,13 @@ public final class HiddenApiCompat {
             // passing the array as one argument would hit the wrong overload.
             setExemptions.invoke(vmRuntime, new Object[]{new String[]{EXEMPT_PREFIX}});
             result = "已放开";
+            UniLog.done(LogTags.SYS,"hidden/exempt","prefix",EXEMPT_PREFIX);
         } catch (Throwable error) {
             result = "未放开(" + error.getClass().getSimpleName() + ": " + text(error) + ")";
+            UniLog.fail(LogTags.SYS,"hidden/exempt","error",error.getClass().getSimpleName());
         }
+        // 豁免只影响本进程，结果固定：调一次就够，但必须留痕，否则频谱回退无法解释。
+        UniLog.i(LogTags.SYS,"隐藏 API 豁免结果","status",result);
         return result;
     }
 

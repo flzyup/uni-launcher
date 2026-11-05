@@ -2,6 +2,8 @@ package xyz.i4o.uni.launcher.integration;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
+import xyz.i4o.uni.launcher.log.LogTags;
+import xyz.i4o.uni.launcher.log.UniLog;
 
 /** Read-only door candidates: only the IP753 driver door has been verified. */
 final class OfficialBodySignals {
@@ -13,6 +15,7 @@ final class OfficialBodySignals {
         int[] indexes = driverZone == 1 ? new int[]{0, 2, 1, 3, 4, -1}
                 : driverZone == 4 ? new int[]{2, 0, 3, 1, 4, -1}
                 : new int[]{-1, -1, -1, -1, 4, -1};
+        int valid = 0, verified = 0;
         for (int i = 0; i < names.length; i++) {
             JSONObject source = entries != null && indexes[i] >= 0 ? entries.optJSONObject(indexes[i]) : null;
             JSONObject field = new JSONObject().put("valid", false).put("verified", false)
@@ -36,6 +39,11 @@ final class OfficialBodySignals {
                 }
             }
             fields.put(names[i], field);
+            if (field.optBoolean("valid")) valid++;
+            if (field.optBoolean("verified")) verified++;
         }
+        // This mapper runs on every poll, so it only reports one summary line
+        // (logcat only); the persisted raw values come from the body/probe anchor.
+        UniLog.d(LogTags.SIGNAL, "车门候选映射", "driverZone", driverZone, "valid", valid, "verified", verified);
     }
 }

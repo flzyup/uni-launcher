@@ -8,7 +8,6 @@ import android.media.AudioPlaybackConfiguration;
 import android.media.audiofx.Visualizer;
 import android.os.Handler;
 import android.os.Looper;
-import android.util.Log;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
@@ -18,6 +17,8 @@ import io.flutter.embedding.engine.FlutterEngine;
 import io.flutter.plugin.common.EventChannel;
 import io.flutter.plugin.common.MethodChannel;
 import xyz.i4o.uni.launcher.MainActivity;
+import xyz.i4o.uni.launcher.log.LogTags;
+import xyz.i4o.uni.launcher.log.UniLog;
 
 /** One output-mix Visualizer for all engines, only while visible music widgets
  * request it. No microphone/AudioRecord, raw PCM, disk writes, or general-state
@@ -65,6 +66,7 @@ public final class SpectrumBridge {
         this.context=context;
         if(broker==null)broker=new Broker(context.getApplicationContext());
         broker.clients.put(this,Boolean.TRUE);
+        UniLog.i(LogTags.SPECTRUM,"频谱客户端已接入","clients",broker.clients.size(),"tag",TAG);
         methods=new MethodChannel(engine.getDartExecutor().getBinaryMessenger(),"xyz.i4o.uni.launcher/spectrum-control");
         events=new EventChannel(engine.getDartExecutor().getBinaryMessenger(),"xyz.i4o.uni.launcher/spectrum");
         methods.setMethodCallHandler((call,result)->{
@@ -79,12 +81,16 @@ public final class SpectrumBridge {
         });
     }
     public static SpectrumBridge attach(Context context,FlutterEngine engine){return new SpectrumBridge(context,engine);}
-    public static void permissionChanged(){if(broker!=null){broker.failed=false;broker.sync();broker.publish(null);}}
+    public static void permissionChanged(){
+        if(broker!=null){broker.failed=false;broker.sync();broker.publish(null);}
+        UniLog.i(LogTags.SPECTRUM,"频谱权限状态变更","granted",broker!=null&&broker.granted(),"tag",TAG);
+    }
     public static Map<String,Object> diagnostics(){return broker==null?new HashMap<>():broker.packet(null);}
     public void close(){
         if(closed)return;closed=true;active=false;sink=null;
         methods.setMethodCallHandler(null);events.setStreamHandler(null);
         broker.clients.remove(this);broker.sync();
+        UniLog.i(LogTags.SPECTRUM,"频谱客户端已退出","clients",broker.clients.size(),"tag",TAG);
     }
 
     private static final class Broker {
@@ -152,7 +158,10 @@ public final class SpectrumBridge {
         void publishState(){publish(null);}
 
         void sync(){
-            boolean needed=demand()>0&&granted();
+            int consumers=demand();
+            boolean permitted=granted();
+            if(consumers>0&&!permitted)UniLog.w(LogTags.SPECTRUM,"频谱权限未授予，采集不会启动","consumers",consumers,"tag",TAG);
+            boolean needed=consumers>0&&permitted;
             if(needed&&!running&&!failed){
                 startCapture();
             }else if(!needed&&running){
@@ -163,14 +172,22 @@ public final class SpectrumBridge {
         }
 
         void stopCapture(){
+            // The signal flag is cleared below, so the summary needs its own copy.
+            boolean hadSignal=signalSeen;
+            long capturedFrames=frames;
+            long capturedSignalFrames=signalFrames;
+            double capturedPeak=peakLevel;
             running=false;reason="idle";source="none";signalSeen=false;peakLevel=0;generation++;
             main.post(this::releaseVisualizer);
             publishState();
+            if(!hadSignal)UniLog.w(LogTags.SPECTRUM,"频谱采集已停止但没有采到信号","frames",capturedFrames,"signalFrames",capturedSignalFrames,"tag",TAG);
+            UniLog.done(LogTags.SPECTRUM,"spectrum/capture","action","stop","frames",capturedFrames,"signalFrames",capturedSignalFrames,"peakLevel",capturedPeak,"tag",TAG);
         }
 
         void startCapture(){
             running=true;reason="starting";detail="";signalSeen=false;startedAt=System.currentTimeMillis();
             int epoch=++generation;
+            UniLog.enter(LogTags.SPECTRUM,"spectrum/capture","action","start","consumers",demand(),"tag",TAG);
             watchPlayback();
             // 采集全程在主线程（车机 ROM 的 Visualizer 要求主线程）。
             main.post(()->attachOutputMix(epoch));
@@ -184,6 +201,7 @@ public final class SpectrumBridge {
                 source="output-mix";
                 reason="listening";detail="";
                 publishState();
+                UniLog.done(LogTags.SPECTRUM,"spectrum/capture","source","output-mix","captureSize",captureSize,"sampleRateHz",sampleRate,"tag",TAG);
                 schedulePoll(epoch);
             }catch(RuntimeException error){
                 // 主路径挂不上就退到播放会话（参照工程实机验证过的次选路径）。
@@ -207,6 +225,7 @@ public final class SpectrumBridge {
                     sessionId=id;source="session";
                     reason="listening";detail="";
                     publishState();
+                    UniLog.done(LogTags.SPECTRUM,"spectrum/capture","source","session","sessionId",id,"captureSize",captureSize,"sampleRateHz",sampleRate,"tag",TAG);
                     schedulePoll(epoch);
                 }catch(RuntimeException error){
                     detail="播放会话挂载失败："+message(error);
@@ -260,10 +279,19 @@ public final class SpectrumBridge {
          * say why — the light would simply never react.
          */
         int resolveSampleRate(Visualizer v){
-            int fromVisualizer=SpectrumBands.normalizeSampleRate(v.getSamplingRate());
-            if(SpectrumBands.isPlausibleSampleRate(fromVisualizer))return fromVisualizer;
+            int raw=v.getSamplingRate();
+            int fromVisualizer=SpectrumBands.normalizeSampleRate(raw);
+            if(SpectrumBands.isPlausibleSampleRate(fromVisualizer)){
+                // The head unit ROM reports millihertz, a stock device hertz.
+                if(raw!=fromVisualizer)UniLog.i(LogTags.SPECTRUM,"采样率单位不是赫兹","raw",raw,"rawUnit","millihertz","hz",fromVisualizer,"tag",TAG);
+                return fromVisualizer;
+            }
             int fromManager=SpectrumBands.normalizeSampleRate(outputSampleRate());
-            if(SpectrumBands.isPlausibleSampleRate(fromManager))return fromManager;
+            if(SpectrumBands.isPlausibleSampleRate(fromManager)){
+                UniLog.w(LogTags.SPECTRUM,"Visualizer 采样率不可用，改用音频输出采样率","raw",raw,"hz",fromManager,"tag",TAG);
+                return fromManager;
+            }
+            UniLog.w(LogTags.SPECTRUM,"采样率读不出来，使用默认值","raw",raw,"hz",SpectrumBands.DEFAULT_SAMPLE_RATE,"tag",TAG);
             return SpectrumBands.DEFAULT_SAMPLE_RATE;
         }
 
@@ -306,7 +334,7 @@ public final class SpectrumBridge {
                 for(int i=0;i<values.length;i++){values[i]=Math.max(values[i],previous[i]*.70);previous[i]=values[i];}
                 peakLevel=0;for(double value:values)peakLevel=Math.max(peakLevel,value);
                 frames++;
-                if(peakLevel>.02){signalFrames++;signalSeen=true;}
+                if(peakLevel>.02){signalFrames++;if(!signalSeen)onSignalSeen();signalSeen=true;}
                 sequence++;
                 // 静音的帧也要推：不然界面分不清「在采但没声音」和「没在采」，
                 // 而且灯也不会按快起慢落慢慢暗下去。
@@ -314,6 +342,15 @@ public final class SpectrumBridge {
                 maybeSwitchToSession(epoch);
                 main.postDelayed(poll,50);
             }catch(RuntimeException error){fail(epoch,error);}
+        }
+
+        /**
+         * The first frame with a signal ends the "no signal" state. It is
+         * logged once per capture cycle: the capture itself runs at frame
+         * rate and UniLog writes to a file.
+         */
+        void onSignalSeen(){
+            UniLog.i(LogTags.SPECTRUM,"频谱已采到信号","peakLevel",peakLevel,"captureSize",captureSize,"sampleRateHz",sampleRate,"source",source,"tag",TAG);
         }
 
         /**
@@ -333,6 +370,8 @@ public final class SpectrumBridge {
             failed=true;running=false;signalSeen=false;peakLevel=0;
             reason=isPermissionError(error)?"permission-required":"unavailable";
             detail=message(error);
+            UniLog.w(LogTags.SPECTRUM,"频谱采集失败","reason",reason,"detail",detail,"error",error.getClass().getSimpleName(),"source",source,"tag",TAG);
+            UniLog.fail(LogTags.SPECTRUM,"spectrum/capture","reason",reason,"detail",detail,"error",error.getClass().getSimpleName(),"tag",TAG);
             main.post(()->{if(epoch==generation){publish(new double[SpectrumBands.COUNT]);scheduleRetry(epoch);}});
         }
 
@@ -378,7 +417,7 @@ public final class SpectrumBridge {
                         main.post(()->onPlaybackSession(session));
                     }
                 },main);
-            }catch(Throwable error){Log.w(TAG,"注册播放配置监听失败（不影响输出混音主路径）",error);}
+            }catch(Throwable error){UniLog.w(LogTags.SPECTRUM,"注册播放配置监听失败（不影响输出混音主路径）",error,"tag",TAG);}
         }
 
         void onPlaybackSession(int id){
@@ -419,7 +458,7 @@ public final class SpectrumBridge {
                 Object value=method.invoke(config);
                 return value instanceof Integer?((Integer)value).intValue():0;
             }catch(Throwable error){
-                if(!sessionWarned){sessionWarned=true;Log.w(TAG,"取 audioSessionId 失败（隐藏 API 没放开？）",error);}
+                if(!sessionWarned){sessionWarned=true;UniLog.w(LogTags.SPECTRUM,"取 audioSessionId 失败（隐藏 API 没放开？）",error,"tag",TAG);}
                 return 0;
             }
         }

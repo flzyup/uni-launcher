@@ -21,6 +21,8 @@ import java.util.TreeSet;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.xmlpull.v1.XmlPullParser;
+import xyz.i4o.uni.launcher.log.LogTags;
+import xyz.i4o.uni.launcher.log.UniLog;
 
 /** Main-thread owned discovery cache. Snapshot never calls PackageManager. */
 public final class SystemSettingsRepository {
@@ -38,6 +40,7 @@ public final class SystemSettingsRepository {
 
     public void refresh(){
         synchronized(this){
+        UniLog.enter(LogTags.SYS,"settings/scan");
         intents.clear();entries=new JSONArray();
         Set<String> packages=new TreeSet<>();
         Set<String> actions=new TreeSet<>();
@@ -59,18 +62,20 @@ public final class SystemSettingsRepository {
         }catch(RuntimeException ignored){}
         for(String pkg:new TreeSet<>(packages))discoverManifest(pkg);
         warmed=true;
+        UniLog.i(LogTags.SYS,"设置目录已扫描","entries",entries.length(),"packages",packages.size(),"actions",actions.size());
+        UniLog.done(LogTags.SYS,"settings/scan","entries",entries.length(),"packages",packages.size());
         }
     }
 
     /** Runs the scan once, off the cold-start path. */
     public void prewarm(){
         if(warmed)return;
-        try{refresh();}catch(RuntimeException ignored){}
+        try{refresh();}catch(RuntimeException e){UniLog.fail(LogTags.SYS,"settings/scan","reason",e.getClass().getSimpleName());}
     }
 
     private void ensureWarmed(){
         if(warmed)return;
-        try{refresh();}catch(RuntimeException ignored){}
+        try{refresh();}catch(RuntimeException e){UniLog.fail(LogTags.SYS,"settings/scan","reason",e.getClass().getSimpleName());}
     }
 
     private void discover(String action,String pkg,Set<String> packages){
@@ -252,10 +257,14 @@ public final class SystemSettingsRepository {
 
     public boolean open(String id){
         ensureWarmed();
-        Intent intent=intents.get(id);if(intent==null)return false;
+        Intent intent=intents.get(id);if(intent==null){UniLog.i(LogTags.SYS,"设置入口未找到","id",id);UniLog.fail(LogTags.SYS,"settings/open","id",id,"reason","入口不存在");return false;}
+        UniLog.enter(LogTags.SYS,"settings/open","id",id);
         try{
-            if(!allowed(pm.getActivityInfo(intent.getComponent(),0)))return false;
-            context.startActivity(new Intent(intent));return true;
-        }catch(Exception|LinkageError e){return false;}
+            if(!allowed(pm.getActivityInfo(intent.getComponent(),0))){UniLog.i(LogTags.SYS,"设置入口已不可用","id",id);UniLog.fail(LogTags.SYS,"settings/open","id",id,"reason","入口不可用");return false;}
+            context.startActivity(new Intent(intent));
+            UniLog.i(LogTags.SYS,"设置入口已打开","id",id,"package",intent.getComponent().getPackageName());
+            UniLog.done(LogTags.SYS,"settings/open","id",id);
+            return true;
+        }catch(Exception|LinkageError e){UniLog.w(LogTags.SYS,"打开设置入口失败",e,"id",id);UniLog.fail(LogTags.SYS,"settings/open","id",id,"reason","打开失败");return false;}
     }
 }

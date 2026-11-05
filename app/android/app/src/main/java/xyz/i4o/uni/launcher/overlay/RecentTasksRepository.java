@@ -18,6 +18,8 @@ import java.util.List;
 import java.util.Set;
 import org.json.JSONArray;
 import org.json.JSONObject;
+import xyz.i4o.uni.launcher.log.LogTags;
+import xyz.i4o.uni.launcher.log.UniLog;
 
 /** Platform-signed Android 9 recent-task adapter. Task policy remains native;
  * Flutter only renders the cards and sends back task IDs from this allow-list. */
@@ -54,6 +56,7 @@ public final class RecentTasksRepository {
 
     @SuppressWarnings("deprecation")
     public synchronized JSONArray snapshot(){
+        UniLog.enter(LogTags.SYS,"recents/snapshot");
         JSONArray result=new JSONArray();allowed.clear();Set<String> seen=new HashSet<>();
         try{
             Set<Integer> running=new HashSet<>();
@@ -81,8 +84,10 @@ public final class RecentTasksRepository {
                 }
                 result.put(item);allowed.add(id);
             }
-        }catch(Exception e){android.util.Log.w("UniRecents","Unable to read recent tasks",e);}
+        }catch(Exception e){UniLog.w(LogTags.SYS,"Unable to read recent tasks",e,"tag","UniRecents");UniLog.fail(LogTags.SYS,"recents/snapshot","error",e.getClass().getSimpleName());}
         locked.retainAll(allowed);
+        // 一次快照一条汇总：逐任务打日志会把日志文件写满。
+        UniLog.done(LogTags.SYS,"recents/snapshot","count",result.length());
         return result;
     }
 
@@ -105,8 +110,8 @@ public final class RecentTasksRepository {
             }
             activities.moveTaskToFront(taskId,0);return true;
         }
-        catch(RuntimeException e){android.util.Log.w("UniRecents","Unable to open task "+taskId,e);return false;}
-        catch(Exception e){android.util.Log.w("UniRecents","Unable to restore task "+taskId,e);return false;}
+        catch(RuntimeException e){UniLog.w(LogTags.SYS,"Unable to open task "+taskId,e,"tag","UniRecents");UniLog.fail(LogTags.SYS,"recents/task","taskId",taskId,"reason","open-failed");return false;}
+        catch(Exception e){UniLog.w(LogTags.SYS,"Unable to restore task "+taskId,e,"tag","UniRecents");UniLog.fail(LogTags.SYS,"recents/task","taskId",taskId,"reason","open-failed");return false;}
     }
 
     public synchronized Boolean toggleLock(int taskId){
@@ -135,7 +140,7 @@ public final class RecentTasksRepository {
             Object service=ActivityManager.class.getMethod("getService").invoke(null);
             Object result=Class.forName("android.app.IActivityManager").getMethod("removeTask",int.class).invoke(service,taskId);
             return !(result instanceof Boolean)||((Boolean)result).booleanValue();
-        }catch(Exception e){android.util.Log.w("UniRecents","Unable to remove task "+taskId,e);return false;}
+        }catch(Exception e){UniLog.w(LogTags.SYS,"Unable to remove task "+taskId,e,"tag","UniRecents");UniLog.fail(LogTags.SYS,"recents/task","taskId",taskId,"reason","remove-failed");return false;}
     }
 
     @android.annotation.SuppressLint("BlockedPrivateApi")
@@ -153,7 +158,7 @@ public final class RecentTasksRepository {
             Bitmap hardware=(Bitmap)create.invoke(null,buffer);
             return hardware==null?null:hardware.copy(Bitmap.Config.ARGB_8888,false);
         }catch(Exception e){
-            android.util.Log.d("UniRecents","No snapshot for task "+taskId+": "+e.getClass().getSimpleName());
+            UniLog.d(LogTags.SYS,"No snapshot for task "+taskId+": "+e.getClass().getSimpleName(),"tag","UniRecents","taskId",taskId);
             return null;
         }
     }

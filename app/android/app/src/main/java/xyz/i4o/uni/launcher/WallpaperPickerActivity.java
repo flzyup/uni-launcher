@@ -18,6 +18,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.Locale;
+import xyz.i4o.uni.launcher.log.LogTags;
+import xyz.i4o.uni.launcher.log.UniLog;
 
 /** Small built-in file browser for head units without a documents provider. */
 public final class WallpaperPickerActivity extends Activity {
@@ -45,7 +47,7 @@ public final class WallpaperPickerActivity extends Activity {
         super.onRequestPermissionsResult(request,permissions,grants);
         if(request!=REQUEST_READ)return;
         if(grants.length>0&&grants[0]==PackageManager.PERMISSION_GRANTED)open(Environment.getExternalStorageDirectory());
-        else {heading.setText("需要存储访问权限才能选择本地图片");}
+        else {UniLog.w(LogTags.WALLPAPER,"未授予存储访问权限，无法选择壁纸");heading.setText("需要存储访问权限才能选择本地图片");}
     }
     private void open(File folder) {
         directory=folder;heading.setText("选择壁纸图片   ·   "+folder.getAbsolutePath());
@@ -57,7 +59,7 @@ public final class WallpaperPickerActivity extends Activity {
                 String n=file.getName().toLowerCase(Locale.ROOT);
                 return file.isFile()&&(n.endsWith(".jpg")||n.endsWith(".jpeg")||n.endsWith(".png")||n.endsWith(".webp"));
             });
-            if(found==null)found=new File[0];
+            if(found==null){UniLog.w(LogTags.WALLPAPER,"目录不可读","path",folder.getAbsolutePath());found=new File[0];}
             Arrays.sort(found,Comparator.comparing((File f)->!f.isDirectory()).thenComparing(File::getName,String.CASE_INSENSITIVE_ORDER));
             final File[] files=found;
             runOnUiThread(()->{
@@ -73,7 +75,16 @@ public final class WallpaperPickerActivity extends Activity {
                     if(index>=entries.size())return;
                     File selected=entries.get(index);
                     if(selected.isDirectory())open(selected);
-                    else {setResult(RESULT_OK,new Intent().putExtra("wallpaperPath",selected.getAbsolutePath()));finish();}
+                    else {
+                        // 真正的解码在桌面侧完成，这里只负责把选中的文件交回去；
+                        // 文件读不出来就先记一条，别等到导入时才报「无法读取这张图片」。
+                        UniLog.enter(LogTags.WALLPAPER,"wallpaper/import","path",selected.getAbsolutePath());
+                        boolean readable=selected.isFile()&&selected.length()>0;
+                        if(!readable)UniLog.fail(LogTags.WALLPAPER,"wallpaper/import","path",selected.getAbsolutePath(),"reason","unreadable");
+                        setResult(RESULT_OK,new Intent().putExtra("wallpaperPath",selected.getAbsolutePath()));
+                        if(readable)UniLog.done(LogTags.WALLPAPER,"wallpaper/import","path",selected.getAbsolutePath(),"bytes",selected.length());
+                        finish();
+                    }
                 });
             });
         },"uni-wallpaper-list").start();

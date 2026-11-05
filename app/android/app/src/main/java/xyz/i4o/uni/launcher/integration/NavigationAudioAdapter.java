@@ -6,6 +6,8 @@ import java.io.File;
 import java.lang.reflect.Method;
 import org.json.JSONArray;
 import org.json.JSONObject;
+import xyz.i4o.uni.launcher.log.LogTags;
+import xyz.i4o.uni.launcher.log.UniLog;
 
 /** Cached, fail-closed OEM navigation mixing control; call refresh explicitly.
  * Evidence: car-reports/20261026-066/ecarx.adapterapi.jar:
@@ -31,28 +33,36 @@ public final class NavigationAudioAdapter {
     public synchronized void refresh(){
         warmed=true;
         available=false;mode=-1;audio=null;setter=null;
+        UniLog.enter(LogTags.NAV,"nav/audio","op","probe");
         try{
             Class<?> api=loadAudioClass();
             Class<?> stateApi=Class.forName(API+"IAudioState",true,api.getClassLoader());
             if(stateApi.getField("NAVI_VOICE_MIX_AUTO").getInt(null)!=1
                     ||stateApi.getField("NAVI_VOICE_MIX_DIRECTLY").getInt(null)!=2){
-                reason="原车混音模式定义不兼容";return;
+                reason="原车混音模式定义不兼容";probeFail();return;
             }
             Object candidate=api.getMethod("create",Context.class).invoke(null,context);
-            if(candidate==null){reason="原车音频服务未连接";return;}
+            if(candidate==null){reason="原车音频服务未连接";probeFail();return;}
             Method write=candidate.getClass().getMethod("setNaviVoiceMixMode",int.class);
             Object state=api.getMethod("getAudioState").invoke(candidate);
-            if(state==null){reason="原车音频状态不可用";return;}
+            if(state==null){reason="原车音频状态不可用";probeFail();return;}
             Method read=state.getClass().getMethod("getNaviVoiceMixMode");
             if((API+"Audioimpl").equals(write.getDeclaringClass().getName())
                     ||(API+"AudioStateimpl").equals(read.getDeclaringClass().getName())){
-                reason="原车混音接口为空实现；暂不支持导航播报时音乐保持原音量（不压低、不暂停）";return;
+                reason="原车混音接口为空实现；暂不支持导航播报时音乐保持原音量（不压低、不暂停）";probeFail();return;
             }
             int current=((Number)stateApi.getMethod("getNaviVoiceMixMode").invoke(state)).intValue();
-            if(current!=1&&current!=2){reason="原车返回未定义混音模式";return;}
+            if(current!=1&&current!=2){reason="原车返回未定义混音模式";probeFail();return;}
             audio=candidate;setter=api.getMethod("setNaviVoiceMixMode",int.class);
             mode=current;available=true;reason="";
-        }catch(ReflectiveOperationException|RuntimeException|LinkageError e){reason="原车音频接口不可用或权限不足";}
+            UniLog.i(LogTags.NAV,"原车导航混音模式已读取","mode",mode);
+            UniLog.done(LogTags.NAV,"nav/audio","op","probe","mode",mode,"available",true);
+        }catch(ReflectiveOperationException|RuntimeException|LinkageError e){reason="原车音频接口不可用或权限不足";UniLog.w(LogTags.NAV,"原车混音接口探测异常",e,"reason",reason);probeFail();}
+    }
+    // 探测失败的原因必须落盘：模式读不到时设置入口会直接失败。
+    private void probeFail(){
+        UniLog.i(LogTags.NAV,"原车导航混音模式不可用","reason",reason);
+        UniLog.fail(LogTags.NAV,"nav/audio","op","probe","reason",reason);
     }
 
     private Class<?> loadAudioClass()throws ClassNotFoundException{
@@ -68,17 +78,20 @@ public final class NavigationAudioAdapter {
 
     public boolean setMode(String value){
         // Reject undefined, malformed and overflowing values before any OEM access.
-        if(!"1".equals(value)&&!"2".equals(value))return false;
+        if(!"1".equals(value)&&!"2".equals(value)){UniLog.fail(LogTags.NAV,"nav/audio","op","set","requested",value,"reason","非法的混音模式值");return false;}
         refresh();
-        if(!available)return false;
+        if(!available){UniLog.fail(LogTags.NAV,"nav/audio","op","set","requested",value,"reason",reason);return false;}
         int requested=Integer.parseInt(value);
+        UniLog.enter(LogTags.NAV,"nav/audio","op","set","requested",requested);
         try{
             setter.invoke(audio,requested);
             refresh();
-            if(available&&mode==requested)return true;
-            available=false;reason="原车未确认混音模式变更";return false;
+            if(available&&mode==requested){UniLog.i(LogTags.NAV,"导航播报混音模式已切换","mode",mode,"requested",requested);UniLog.done(LogTags.NAV,"nav/audio","op","set","mode",mode);return true;}
+            available=false;reason="原车未确认混音模式变更";UniLog.i(LogTags.NAV,"导航播报混音模式未生效","reason",reason);UniLog.fail(LogTags.NAV,"nav/audio","op","set","requested",requested,"reason",reason);return false;
         }catch(ReflectiveOperationException|RuntimeException|LinkageError e){
-            available=false;mode=-1;audio=null;setter=null;reason="原车拒绝混音模式变更";return false;
+            available=false;mode=-1;audio=null;setter=null;reason="原车拒绝混音模式变更";
+            UniLog.w(LogTags.NAV,"原车拒绝混音模式变更",e,"requested",requested);
+            UniLog.fail(LogTags.NAV,"nav/audio","op","set","requested",requested,"reason",reason);return false;
         }
     }
 

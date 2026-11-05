@@ -14,6 +14,8 @@ import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import java.util.List;
+import xyz.i4o.uni.launcher.log.LogTags;
+import xyz.i4o.uni.launcher.log.UniLog;
 
 /** Own host IDs only; RemoteViews stay inside the OEM application data boundary. */
 public final class OfficialWidgetActivity extends Activity {
@@ -198,7 +200,7 @@ public final class OfficialWidgetActivity extends Activity {
                 int width = Math.max(1, Math.round((r - l) / density));
                 int height = Math.max(1, Math.round((b - t) / density));
                 try { view.updateAppWidgetSize(null, width, height, width, height); }
-                catch (Exception e) { android.util.Log.w("UniWidget", "Unable to update widget size", e); }
+                catch (Exception e) { UniLog.w(LogTags.APP, "无法更新原厂卡片尺寸", e); }
             }
         });
         prefs.edit().putInt(type, widgetId).remove(type + ".pending").apply();
@@ -228,7 +230,7 @@ public final class OfficialWidgetActivity extends Activity {
     private void cleanup() {
         if (committed || widgetId == -1) return;
         try { deleteOwned(widgetId); }
-        catch (Exception e) { android.util.Log.w("UniWidget", "Unable to release pending widget", e); }
+        catch (Exception e) { UniLog.w(LogTags.APP, "无法释放待处理的原厂卡片", e); }
         // Keep the journal if deletion failed so the next attempt can recover it.
         try { if (!owns(widgetId)) prefs.edit().remove(type + ".pending").apply(); }
         catch (Exception ignored) { }
@@ -236,7 +238,7 @@ public final class OfficialWidgetActivity extends Activity {
     }
 
     private void fail(String text, Exception error) {
-        if (error != null) android.util.Log.w("UniWidget", text, error);
+        if (error != null) UniLog.w(LogTags.APP, text, error);
         pendingRequest = 0;
         cleanup();
         retry.setEnabled(true);
@@ -258,7 +260,7 @@ public final class OfficialWidgetActivity extends Activity {
     }
     @Override protected void onStop() {
         try { host.stopListening(); }
-        catch (Exception e) { android.util.Log.w("UniWidget", "Unable to stop listening", e); }
+        catch (Exception e) { UniLog.w(LogTags.APP, "无法停止原厂卡片监听", e); }
         super.onStop();
     }
     @Override protected void onDestroy() { if (isFinishing()) cleanup(); super.onDestroy(); }

@@ -7,6 +7,8 @@ import android.content.pm.PackageManager;
 import android.os.*;
 import java.io.*;
 import java.lang.reflect.Method;
+import xyz.i4o.uni.launcher.log.LogTags;
+import xyz.i4o.uni.launcher.log.UniLog;
 
 /** Code-free resource adapter bundled only in the platform-signed car APK.
  * Native navigation insets keep system confirmation controls above the dock.
@@ -30,25 +32,32 @@ public final class NavigationInsets {
     }
     public static boolean activate(Context c,SharedPreferences p){
         if(c.checkSelfPermission("android.permission.CHANGE_OVERLAY_PACKAGES")!=PackageManager.PERMISSION_GRANTED)return false;
+        UniLog.enter(LogTags.SYS,"sys/insets","action","activate");
         try{
             Object manager=manager();int user=android.os.Process.myUid()/100000;
             Object info=invoke(manager,"getOverlayInfo",new Class<?>[]{String.class,int.class},PACKAGE,user);
-            if(info==null)return false;
+            if(info==null){UniLog.skip(LogTags.SYS,"sys/insets","action","activate","reason","overlay-not-installed");return false;}
             boolean was=(Boolean)info.getClass().getMethod("isEnabled").invoke(info);
             if(!p.contains(SAVED))p.edit().putBoolean(SAVED,was).commit();
             invoke(manager,"setHighestPriority",new Class<?>[]{String.class,int.class},PACKAGE,user);
             boolean ok=Boolean.TRUE.equals(invoke(manager,"setEnabled",new Class<?>[]{String.class,boolean.class,int.class},PACKAGE,true,user));
-            if(ok){p.edit().putBoolean(APPLIED,true).commit();refreshPolicy(c);}return ok;
-        }catch(Exception e){android.util.Log.w("UniInsets","Native navigation resources unavailable",e);return false;}
+            if(ok){p.edit().putBoolean(APPLIED,true).commit();refreshPolicy(c);}
+            if(ok)UniLog.done(LogTags.SYS,"sys/insets","action","activate","wasEnabled",was);
+            else UniLog.fail(LogTags.SYS,"sys/insets","action","activate","reason","set-enabled-rejected");
+            return ok;
+        }catch(Exception e){UniLog.w(LogTags.SYS,"Native navigation resources unavailable",e,"tag","UniInsets");UniLog.fail(LogTags.SYS,"sys/insets","action","activate","error",e.getClass().getSimpleName());return false;}
     }
     public static void restore(Context c,SharedPreferences p){
-        if(!p.contains(SAVED))return;
+        if(!p.contains(SAVED)){UniLog.skip(LogTags.SYS,"sys/insets","action","restore","reason","nothing-saved");return;}
+        UniLog.enter(LogTags.SYS,"sys/insets","action","restore");
         try{
             Object manager=manager();int user=android.os.Process.myUid()/100000;
-            invoke(manager,"setEnabled",new Class<?>[]{String.class,boolean.class,int.class},PACKAGE,p.getBoolean(SAVED,false),user);
+            boolean previous=p.getBoolean(SAVED,false);
+            invoke(manager,"setEnabled",new Class<?>[]{String.class,boolean.class,int.class},PACKAGE,previous,user);
             p.edit().remove(SAVED).remove(APPLIED).commit();
             refreshPolicy(c);
-        }catch(Exception e){android.util.Log.w("UniInsets","Unable to restore native navigation resources",e);}
+            UniLog.done(LogTags.SYS,"sys/insets","action","restore","restored",previous);
+        }catch(Exception e){UniLog.w(LogTags.SYS,"Unable to restore native navigation resources",e,"tag","UniInsets");UniLog.fail(LogTags.SYS,"sys/insets","action","restore","error",e.getClass().getSimpleName());}
     }
     private static void refreshPolicy(Context c){
         // Android 9 caches policy dimensions independently of app resources.
@@ -64,17 +73,19 @@ public final class NavigationInsets {
                     int density=((Number)type.getMethod("getBaseDisplayDensity",int.class).invoke(binder,0)).intValue();
                     type.getMethod("setForcedDisplayDensityForUser",int.class,int.class,int.class).invoke(binder,0,density,user);
                 }
-            }catch(Exception e){android.util.Log.w("UniInsets","Navigation policy refresh unavailable",e);}
+            }catch(Exception e){UniLog.w(LogTags.SYS,"Navigation policy refresh unavailable",e,"tag","UniInsets");UniLog.fail(LogTags.SYS,"sys/insets","action","policy-refresh","error",e.getClass().getSimpleName());}
         },250);
     }
     public static void prepare(Context c,Runnable done){
-        try{c.getPackageManager().getPackageInfo(PACKAGE,0);done.run();return;}catch(PackageManager.NameNotFoundException ignored){}
-        if(c.checkSelfPermission("android.permission.INSTALL_PACKAGES")!=PackageManager.PERMISSION_GRANTED){done.run();return;}
+        UniLog.enter(LogTags.SYS,"sys/insets","action","prepare");
+        try{c.getPackageManager().getPackageInfo(PACKAGE,0);UniLog.skip(LogTags.SYS,"sys/insets","action","prepare","reason","already-installed");done.run();return;}catch(PackageManager.NameNotFoundException ignored){}
+        if(c.checkSelfPermission("android.permission.INSTALL_PACKAGES")!=PackageManager.PERMISSION_GRANTED){UniLog.skip(LogTags.SYS,"sys/insets","action","prepare","reason","no-install-permission");done.run();return;}
         InputStream asset;
-        try{asset=c.getAssets().open("uni-nav-insets.apk");}catch(IOException e){done.run();return;}
+        try{asset=c.getAssets().open("uni-nav-insets.apk");}catch(IOException e){UniLog.skip(LogTags.SYS,"sys/insets","action","prepare","reason","asset-missing");done.run();return;}
         Handler main=new Handler(Looper.getMainLooper());String action=c.getPackageName()+".NATIVE_INSETS_INSTALLED";
         BroadcastReceiver receiver=new BroadcastReceiver(){public void onReceive(Context context,Intent intent){
             try{context.unregisterReceiver(this);}catch(RuntimeException ignored){}
+            UniLog.done(LogTags.SYS,"sys/insets","action","prepare");
             done.run();
         }};
         c.registerReceiver(receiver,new IntentFilter(action));
@@ -90,7 +101,8 @@ public final class NavigationInsets {
                 }
             }catch(Exception e){
                 if(id>=0)try{installer.abandonSession(id);}catch(RuntimeException ignored){}
-                android.util.Log.w("UniInsets","Resource adapter installation unavailable",e);
+                UniLog.w(LogTags.SYS,"Resource adapter installation unavailable",e,"tag","UniInsets");
+                UniLog.fail(LogTags.SYS,"sys/insets","action","prepare","error",e.getClass().getSimpleName());
                 main.post(()->{try{c.unregisterReceiver(receiver);}catch(RuntimeException ignored){}done.run();});
             }
         },"uni-native-insets").start();

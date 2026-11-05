@@ -25,6 +25,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.json.JSONArray;
 import org.json.JSONObject;
+import xyz.i4o.uni.launcher.log.LogTags;
+import xyz.i4o.uni.launcher.log.UniLog;
 
 /**
  * DCY11 reader/controller with no OEM binary dependency. Only an explicit UI
@@ -68,6 +70,8 @@ public final class OfficialCarReader implements VehicleAdapter {
     private volatile boolean writeSignaturesAvailable;
     private volatile String lastCommandJson = "{}";
     private volatile int cameraCapability = -1;
+    /** 上一次落盘的「读不到」原因；用来避免每秒重复写同一句话。 */
+    private volatile String lastUnavailableReason = "";
     // Diagnostic only: IP753 door zone/value semantics require an open/close
     // comparison before any readings may be published as vehicle state.
     private long bodyProbeAt;
@@ -90,6 +94,7 @@ public final class OfficialCarReader implements VehicleAdapter {
     public synchronized void start() {
         if (started || closed) return;
         started = true;
+        UniLog.i(LogTags.VEHICLE, "车辆读取器启动", "source", "official");
         main.post(new Runnable() { public void run() { initializeOnMain(); } });
         // A fixed 1s period walks the OEM bus even while another app is on screen.
         // Reschedule instead so the cadence can follow our visibility.
@@ -98,7 +103,16 @@ public final class OfficialCarReader implements VehicleAdapter {
 
     private final Runnable poll = new Runnable() { public void run() {
         if (closed) return;
-        try { collectSafely(); } catch (RuntimeException ignored) {}
+        // Sampled for the log line only; the schedule below keeps its own read.
+        boolean visible = xyz.i4o.uni.launcher.LauncherVisibility.visible();
+        // The poll runs every second. Its anchors stay at DEBUG so they reach
+        // Logcat without filling the persisted file — at INFO this alone would
+        // write a few hundred lines a minute and push the real events out.
+        UniLog.enterDebug(LogTags.VEHICLE, "vehicle/poll", "visible", visible);
+        long began = SystemClock.elapsedRealtime();
+        try { collectSafely(); } catch (RuntimeException e) { UniLog.w(LogTags.VEHICLE, "轮询异常", e); }
+        UniLog.doneDebug(LogTags.VEHICLE, "vehicle/poll", "visible", visible,
+                "durationMs", SystemClock.elapsedRealtime() - began);
         if (closed) return;
         try {
             worker.schedule(this, xyz.i4o.uni.launcher.LauncherVisibility.visible() ? 1 : 3, TimeUnit.SECONDS);
@@ -121,24 +135,51 @@ public final class OfficialCarReader implements VehicleAdapter {
     @Override public synchronized boolean command(final String action, final String zone, final String mode) {
         boolean acquired = false;
         final String key = OfficialCarCommand.key(action, zone, mode);
-        if (key == null || closed || !started || !sdkReady || propertyManager == null || !permitted()) return false;
+        if (key == null || closed || !started || !sdkReady || propertyManager == null || !permitted()) {
+            UniLog.w(LogTags.VEHICLE, "命令被拒绝：车辆通道未就绪", "action", action, "zone", zone,
+                    "mode", mode, "key", key, "sdkReady", sdkReady, "manager", propertyManager != null,
+                    "permitted", permitted());
+            return false;
+        }
         try {
             JSONObject state = snapshot();
             JSONObject field = state.getJSONObject("fields").optJSONObject(key);
             if ("power".equals(key) && retainedClimate.optBoolean("power", true) == false)
                 field = powerFallback(field);
-            if (!writeSignaturesAvailable || !freshWritable(field)) return false;
+            if (!writeSignaturesAvailable || !freshWritable(field)) {
+                // A stale or unsupported field is the usual reason: keep the raw
+                // reason so a diagnostic package can tell "no write contract"
+                // from "read too old".
+                UniLog.w(LogTags.VEHICLE, "命令被拒绝：目标字段不可写或读数已过期", "key", key, "action", action,
+                        "writeSignatures", writeSignaturesAvailable,
+                        "reason", field == null ? "FIELD_ABSENT" : field.optString("reason"),
+                        "support", field == null ? null : field.optString("supportStatus"));
+                return false;
+            }
             if ("climate-power".equals(action) && Boolean.TRUE.equals(field.opt("value")))
                 nextRestoreProfile = captureClimateProfile(state);
-            if (OfficialCarCommand.plan(action, zone, mode, field.opt("value"), state.optInt("driverZone"), 16, 31, 0.5) == null) return false;
-            if (!commandBusy.compareAndSet(false, true)) return false;
+            if (OfficialCarCommand.plan(action, zone, mode, field.opt("value"), state.optInt("driverZone"), 16, 31, 0.5) == null) {
+                UniLog.w(LogTags.VEHICLE, "命令被拒绝：参数超出允许范围", "key", key, "action", action,
+                        "zone", zone, "mode", mode, "value", field.opt("value"));
+                return false;
+            }
+            if (!commandBusy.compareAndSet(false, true)) {
+                UniLog.w(LogTags.VEHICLE, "命令被拒绝：上一条命令仍在执行", "key", key, "action", action);
+                return false;
+            }
             acquired = true;
             final long id = ++commandSequence, requestedAt = SystemClock.elapsedRealtime();
             final int epoch = connectionEpoch.get();
+            UniLog.enter(LogTags.VEHICLE, "vehicle/command", "id", id, "key", key, "action", action,
+                    "zone", zone, "mode", mode);
             commandStatus(id, key, "queued", "等待发送");
             worker.execute(new Runnable() { public void run() { executeUiCommand(id, key, action, zone, mode, requestedAt, epoch); } });
             return true;
-        } catch (Exception e) { if (acquired) commandBusy.set(false); return false; }
+        } catch (Exception e) {
+            if (acquired) commandBusy.set(false);
+            UniLog.w(LogTags.VEHICLE, "命令入队失败", e, "key", key, "action", action);
+            return false;
+        }
     }
 
     /** Latest official PAC camera gate: -1 disconnected/unknown, otherwise
@@ -196,18 +237,28 @@ public final class OfficialCarReader implements VehicleAdapter {
                 propertyManager = call(androidCar, "getCarManager", new Class<?>[]{String.class}, "property");
                 if (propertyManager == null) setupError = "PROPERTY_MANAGER_ABSENT";
             } catch (Exception | LinkageError e) { setupError = failure(e); }
+            UniLog.i(LogTags.VEHICLE, "属性通道已连接", "component", String.valueOf(name),
+                    "manager", propertyManager != null, "error", setupError.isEmpty() ? null : setupError);
             refreshSoon();
         }
         @Override public void onServiceDisconnected(ComponentName name) {
             connectionEpoch.incrementAndGet();
             propertyManager = null;
+            UniLog.w(LogTags.VEHICLE, "属性通道已断开", "component", String.valueOf(name));
             refreshSoon();
         }
     };
 
     private void initializeOnMain() {
         if (closed) return;
-        if (!permitted()) { publishUnavailable("车辆厂商读取权限未授权"); return; }
+        UniLog.enter(LogTags.VEHICLE, "vehicle/connect", "source", "official-reader");
+        if (!permitted()) {
+            UniLog.i(LogTags.VEHICLE, "车辆厂商读取权限未授权", "permission", OfficialCarContract.PERMISSION,
+                    "phase", "connect");
+            UniLog.fail(LogTags.VEHICLE, "vehicle/connect", "source", "official-reader", "reason", "PERMISSION_DENIED");
+            publishUnavailable("车辆厂商读取权限未授权");
+            return;
+        }
         try {
             attachSharedSdk();
             try {
@@ -222,8 +273,12 @@ public final class OfficialCarReader implements VehicleAdapter {
                     .invoke(null, context, propertyConnection);
             if (androidCar == null) throw new IllegalStateException("ANDROID_CAR_ABSENT");
             call(androidCar, "connect", NONE);
+            UniLog.done(LogTags.VEHICLE, "vehicle/connect", "source", "official-reader",
+                    "writeSignatures", writeSignaturesAvailable, "sdkReady", sdkReady);
         } catch (Exception | LinkageError e) {
             setupError = failure(e);
+            UniLog.e(LogTags.VEHICLE, "官方车辆接口初始化失败", e, "error", setupError);
+            UniLog.fail(LogTags.VEHICLE, "vehicle/connect", "source", "official-reader", "error", setupError);
             publishUnavailable("官方车辆接口初始化失败：" + setupError);
         }
     }
@@ -239,6 +294,8 @@ public final class OfficialCarReader implements VehicleAdapter {
                 Object watcher = proxy(type, new Callback() { public void event(String name, Object[] args) { dispatchSharedConnection(name); } });
                 call(car, "registerConnectWatcher", new Class<?>[]{type}, watcher);
                 sharedSdkCar = car; sharedFunctions = function; sharedSignals = signal; sharedWatcher = watcher;
+                UniLog.i(LogTags.VEHICLE, "官方 SDK 已创建", "sdk", OfficialCarContract.SDK_CAR,
+                        "signals", OfficialCarContract.SIGNALS);
             }
             sdkCar = sharedSdkCar; functions = sharedFunctions; signals = sharedSignals;
             sdkReady = sharedReady;
@@ -251,6 +308,7 @@ public final class OfficialCarReader implements VehicleAdapter {
             if ("onConnected".equals(name)) sharedReady = true;
             else if ("onDisConnected".equals(name)) sharedReady = false;
             else return;
+            UniLog.i(LogTags.VEHICLE, "官方 SDK 通道状态变更", "event", name, "ready", sharedReady);
             java.util.Iterator<WeakReference<OfficialCarReader>> iterator = readers.iterator();
             while (iterator.hasNext()) {
                 OfficialCarReader reader = iterator.next().get();
@@ -272,12 +330,37 @@ public final class OfficialCarReader implements VehicleAdapter {
         } catch (RejectedExecutionException e) { queued.set(false); }
     }
 
-    private synchronized void collectSafely() {
-        if (closed) return;
+    /**
+     * 记录「读不到」的原因，但只在**变化时**落盘。
+     *
+     * <p>轮询每秒一次；原因不变时重复写同一句话只会把真正的变化冲掉，
+     * 而且几小时就能把日志写满。恢复读取后原因会被清空，下次再坏会重新记。
+     */
+    private void noteUnavailable(String reason, Object... fields) {
+        if (reason.equals(lastUnavailableReason)) return;
+        lastUnavailableReason = reason;
+        UniLog.i(LogTags.VEHICLE, reason, fields);
+    }
+
+    private synchronized void collectSafely() {        if (closed) return;
+        // One read per poll second: the anchors stay at DEBUG, the persisted
+        // line is only written when something actually changed.
+        UniLog.enterDebug(LogTags.VEHICLE, "vehicle/read", "source", "official");
         if (pending != null && SystemClock.elapsedRealtime() > pending.deadline) finishCommand("timeout", "未在5秒内获得目标状态读回");
-        if (!permitted()) { publishUnavailable("车辆厂商读取权限未授权"); return; }
+        if (!permitted()) {
+            noteUnavailable("车辆厂商读取权限未授权", "permission", OfficialCarContract.PERMISSION);
+            UniLog.skipDebug(LogTags.VEHICLE, "vehicle/read", "reason", "PERMISSION_DENIED");
+            publishUnavailable("车辆厂商读取权限未授权");
+            return;
+        }
         if (!sdkReady || propertyManager == null) {
             if (pending != null) finishCommand("failed", "车辆服务已断开；命令不重放");
+            noteUnavailable(setupError.isEmpty() ? "等待官方车辆服务连接" : setupError,
+                    "sdkReady", sdkReady, "manager", propertyManager != null,
+                    "error", setupError.isEmpty() ? null : setupError);
+            UniLog.skipDebug(LogTags.VEHICLE, "vehicle/read", "reason", "SERVICE_NOT_READY",
+                    "sdkReady", sdkReady, "manager", propertyManager != null,
+                    "error", setupError.isEmpty() ? null : setupError);
             publishUnavailable(setupError.isEmpty() ? "等待官方车辆服务连接" : setupError);
             return;
         }
@@ -353,13 +436,48 @@ public final class OfficialCarReader implements VehicleAdapter {
             JSONArray sensorErrors=extraSensors.optJSONArray("errors");
             if(sensorErrors!=null)for(int i=0;i<sensorErrors.length();i++)errors.put(sensorErrors.get(i));
             int validCount = 0;
+            // One summary per cycle: the getter loop runs on every poll, so a line
+            // per field would drown the log file. The raw value stays next to the
+            // reason so a diagnostic package can settle the question on the car.
+            int invalidCount = 0;
+            StringBuilder invalidDetail = new StringBuilder();
+            StringBuilder unsupported = new StringBuilder();
             java.util.Iterator<String> keys = fields.keys();
             while (keys.hasNext()) {
                 String key = keys.next(); JSONObject field = fields.getJSONObject(key);
                 if (field.optBoolean("valid")) {
                     validCount++;
                     if (!key.startsWith("pressure")) climate.put(key, field.get("value"));
-                } else errors.put(key + ":" + field.optString("reason"));
+                } else {
+                    errors.put(key + ":" + field.optString("reason"));
+                    invalidCount++;
+                    String reason = field.optString("reason");
+                    if (invalidDetail.length() > 0) invalidDetail.append(';');
+                    invalidDetail.append(key).append('(').append(reason)
+                            .append(",raw=").append(field.opt("raw"))
+                            .append(",avail=").append(field.opt("availabilityRaw"))
+                            .append(",format=").append(field.opt("formatRaw"))
+                            .append(",status=").append(field.opt("statusRaw"))
+                            .append(",support=").append(field.optString("supportStatus")).append(')');
+                    if (reason.startsWith("FUNCTION_")) {
+                        if (unsupported.length() > 0) unsupported.append(';');
+                        unsupported.append(key).append('(').append(reason)
+                                .append(",function=").append(field.opt("functionId")).append(')');
+                    }
+                }
+            }
+            if (invalidCount > 0)
+                UniLog.w(LogTags.VEHICLE, "部分字段未取得有效读数", "invalidCount", invalidCount,
+                        "validCount", validCount, "details", invalidDetail.toString());
+            if (unsupported.length() > 0)
+                UniLog.i(LogTags.VEHICLE, "功能不受支持", "features", unsupported.toString());
+            // A Fahrenheit car would silently lose the temperature write contract.
+            JSONObject leftTemp = fields.optJSONObject("left");
+            if (leftTemp != null && leftTemp.optBoolean("valid")) {
+                String sourceUnit = leftTemp.optString("sourceUnit");
+                if (!sourceUnit.isEmpty() && !"°C".equals(sourceUnit))
+                    UniLog.w(LogTags.VEHICLE, "温度单位与写入契约不一致，温度写入已禁用",
+                            "sourceUnit", sourceUnit, "expected", "°C");
             }
             JSONObject seats = state.getJSONObject("seatCapabilities");
             for (String key : new String[]{"driverHeat", "driverVent", "passengerHeat"}) {
@@ -389,13 +507,21 @@ public final class OfficialCarReader implements VehicleAdapter {
             state.put("connected", true).put("validFieldCount", validCount)
                     .put("reason", validCount > 0 ? "已读取官方车辆状态；按各项能力接受用户操作" : "服务已连接，字段尚无有效读数");
             publish(state);
-        } catch (Exception | LinkageError e) { publishUnavailable("官方车辆读取失败：" + failure(e)); }
+            // 读到了就把「读不到」的原因清掉，下次再坏会重新记一条。
+            lastUnavailableReason = "";
+            UniLog.done(LogTags.VEHICLE, "vehicle/read", "validFields", validCount,
+                    "invalidFields", invalidCount, "writable", anyWritable, "errors", errors.length());
+        } catch (Exception | LinkageError e) {
+            UniLog.fail(LogTags.VEHICLE, "vehicle/read", "error", failure(e));
+            publishUnavailable("官方车辆读取失败：" + failure(e));
+        }
     }
 
     /** Candidate SDK values for supervised diagnostics only; never writes and
      * deliberately does not convert them to door-open/closed UI states. */
     private JSONObject readBodyProbe() {
         JSONObject result = new JSONObject();
+        UniLog.enter(LogTags.VEHICLE, "body/probe", "function", 553779968);
         try {
             final int function = 553779968;
             JSONArray zones = new JSONArray();
@@ -431,7 +557,38 @@ public final class OfficialCarReader implements VehicleAdapter {
             result.put("functionId", function).put("zones", zones).put("properties", properties)
                     .put("verified", false).put("observedAtMs", System.currentTimeMillis());
         } catch (Exception ignored) { }
+        // Aggregate instead of one line per zone/property: the door raw values are
+        // the point of this probe, and a diagnostic package needs them with the
+        // reason next to them.
+        int zoneRaw = 0, propertyRaw = 0;
+        StringBuilder details = new StringBuilder();
+        JSONArray probedZones = result.optJSONArray("zones");
+        if (probedZones != null) for (int i = 0; i < probedZones.length(); i++) {
+            JSONObject entry = probedZones.optJSONObject(i);
+            if (entry == null) continue;
+            if (entry.has("raw")) zoneRaw++;
+            else appendProbeDetail(details, "zone" + entry.optInt("zone"), entry.optString("reason"));
+        }
+        JSONArray probedProperties = result.optJSONArray("properties");
+        if (probedProperties != null) for (int i = 0; i < probedProperties.length(); i++) {
+            JSONObject entry = probedProperties.optJSONObject(i);
+            if (entry == null) continue;
+            if (entry.has("raw")) {
+                propertyRaw++;
+                if (details.length() > 0) details.append(';');
+                details.append(entry.optString("name")).append("(raw=").append(entry.opt("raw"))
+                        .append(",avail=").append(entry.opt("availabilityRaw"))
+                        .append(",status=").append(entry.opt("statusRaw")).append(')');
+            } else appendProbeDetail(details, entry.optString("name"), entry.optString("reason"));
+        }
+        UniLog.done(LogTags.VEHICLE, "body/probe", "zonesWithRaw", zoneRaw,
+                "propertiesWithRaw", propertyRaw, "details", details.toString());
         return result;
+    }
+
+    private static void appendProbeDetail(StringBuilder details, String name, String reason) {
+        if (details.length() > 0) details.append(';');
+        details.append(name).append("(reason=").append(reason).append(')');
     }
 
     private JSONObject readField(String key, int property, int function, int zone, String kind) throws Exception {
@@ -537,7 +694,9 @@ public final class OfficialCarReader implements VehicleAdapter {
             OfficialCarCommand plan = OfficialCarCommand.plan(action, zone, mode, fresh.opt("value"), driver, min, max, step);
             if (plan == null) throw new IllegalArgumentException("COMMAND_VALUE_OR_RANGE");
             if (OfficialCarCommand.matches(fresh.opt("value"), plan.expected)) {
-                commandStatus(id, key, "unchanged", "目标已达到，无需发送"); commandBusy.set(false); return;
+                commandStatus(id, key, "unchanged", "目标已达到，无需发送");
+                UniLog.done(LogTags.VEHICLE, "vehicle/command", "id", id, "key", key, "result", "unchanged");
+                commandBusy.set(false); return;
             }
             requireCommandConnection(requestedAt, epoch);
             Object accepted;
@@ -551,9 +710,15 @@ public final class OfficialCarReader implements VehicleAdapter {
             if (!Boolean.TRUE.equals(accepted)) throw new IllegalStateException("SDK_REJECTED");
             pending = new PendingCommand(id, key, plan.expected, fresh.optLong("sourceTimestampNanos"), epoch);
             commandStatus(id, key, "sent", "已发送，等待状态读回");
+            UniLog.i(LogTags.VEHICLE, "写入已发送，等待状态读回", "id", id, "key", key,
+                    "function", plan.function, "zone", plan.zone, "expected", plan.expected,
+                    "temperature", plan.temperature);
+            UniLog.done(LogTags.VEHICLE, "vehicle/command", "id", id, "key", key,
+                    "function", plan.function, "zone", plan.zone);
             refreshSoon();
         } catch (Exception | LinkageError e) {
             pending = null; commandStatus(id, key, "failed", failure(e)); commandBusy.set(false);
+            UniLog.fail(LogTags.VEHICLE, "vehicle/command", "id", id, "key", key, "error", failure(e));
         }
     }
 
@@ -590,6 +755,7 @@ public final class OfficialCarReader implements VehicleAdapter {
             if ("fan".equals(key) && "auto".equals(profile.opt(key))) continue;
             restoreQueue.add(new RestoreStep(key, profile.opt(key)));
         }
+        UniLog.enter(LogTags.VEHICLE, "vehicle/restore", "steps", restoreQueue.size());
         scheduleNextRestore();
     }
 
@@ -616,6 +782,7 @@ public final class OfficialCarReader implements VehicleAdapter {
             if (plan == null) throw new IllegalArgumentException("RESTORE_VALUE_OR_RANGE");
             if (OfficialCarCommand.matches(fresh.opt("value"), plan.expected)) {
                 commandStatus(++commandSequence, step.key, "confirmed", "打开后配置已保留");
+                UniLog.done(LogTags.VEHICLE, "vehicle/restore", "key", step.key, "result", "unchanged");
                 scheduleNextRestore(); return;
             }
             Object accepted;
@@ -629,8 +796,11 @@ public final class OfficialCarReader implements VehicleAdapter {
             pending = new PendingCommand(++commandSequence, step.key, plan.expected,
                     fresh.optLong("sourceTimestampNanos"), connectionEpoch.get());
             commandStatus(pending.id, step.key, "sent", "打开后恢复关闭前配置");
+            UniLog.done(LogTags.VEHICLE, "vehicle/restore", "key", step.key, "function", plan.function,
+                    "zone", plan.zone, "expected", plan.expected);
             refreshSoon();
         } catch (Exception | LinkageError e) {
+            UniLog.fail(LogTags.VEHICLE, "vehicle/restore", "key", step.key, "error", failure(e));
             cancelRestore("部分配置未恢复：" + failure(e));
         }
     }
@@ -639,6 +809,7 @@ public final class OfficialCarReader implements VehicleAdapter {
         restoreQueue.clear(); restoringClimate = false; commandBusy.set(false);
         if (pending != null) { commandStatus(pending.id, pending.key, "failed", reason); pending = null; }
         else commandStatus(++commandSequence, "climate", "failed", reason);
+        UniLog.fail(LogTags.VEHICLE, "vehicle/restore", "reason", reason);
     }
 
     private void requireCommandConnection(long requestedAt, int epoch) {
@@ -678,6 +849,12 @@ public final class OfficialCarReader implements VehicleAdapter {
         try { lastCommandJson = new JSONObject().put("id", id).put("field", key).put("status", status)
                 .put("reason", reason).put("updatedAtMs", System.currentTimeMillis()).toString(); }
         catch (Exception ignored) {}
+        // Every command transition passes through here, so this is the one place
+        // that can say whether a write went out and whether it was read back.
+        if ("failed".equals(status) || "timeout".equals(status) || "cancelled".equals(status))
+            UniLog.w(LogTags.VEHICLE, "命令未成功", "id", id, "key", key, "status", status, "reason", reason);
+        else if (!"queued".equals(status))
+            UniLog.i(LogTags.VEHICLE, "命令状态变更", "id", id, "key", key, "status", status, "reason", reason);
         notifyChanged();
     }
 
@@ -754,15 +931,23 @@ public final class OfficialCarReader implements VehicleAdapter {
             Object registered = call(functions, "registerFunctionValueWatcher", new Class<?>[]{int[].class, type}, OfficialCarContract.WATCHED_FUNCTIONS.clone(), listener);
             if (!Boolean.TRUE.equals(registered)) throw new IllegalStateException("WATCHER_REJECTED");
             registrations.add(new Registration(functions, type, listener, "unregisterFunctionValueWatcher"));
-        } catch (Exception | LinkageError e) { errors.put("functionCallback:" + failure(e)); }
+            UniLog.i(LogTags.VEHICLE, "已注册官方属性回调", "functions", OfficialCarContract.WATCHED_FUNCTIONS.length);
+        } catch (Exception | LinkageError e) {
+            errors.put("functionCallback:" + failure(e));
+            UniLog.w(LogTags.VEHICLE, "官方属性回调注册失败", e, "error", failure(e));
+        }
+        int registered = 0;
         for (String prefix : new String[]{"PaDTpmsTirePressureFrntLe", "PaDTpmsTirePressureFrntRi", "PaDTpmsTirePressureReLe", "PaDTpmsTirePressureReRi", "PaDTpmsUnitSetting"}) {
             try {
                 Class<?> type = Class.forName(OfficialCarContract.SIGNAL_PACKAGE + prefix + "ChangedCallback");
                 Object listener = proxy(type, new Callback() { public void event(String name, Object[] args) { refreshSoon(); } });
                 call(signals, "registerSignalChangedCallback", new Class<?>[]{type}, listener);
                 registrations.add(new Registration(signals, type, listener, "unregisterSignalChangedCallback"));
+                registered++;
             } catch (Exception | LinkageError e) { errors.put(prefix + ":" + failure(e)); }
         }
+        // One line for the whole group: the five registrations are one decision.
+        if (registered > 0) UniLog.i(LogTags.VEHICLE, "已注册官方信号回调", "count", registered);
     }
 
     private JSONObject base() throws Exception {
@@ -827,6 +1012,7 @@ public final class OfficialCarReader implements VehicleAdapter {
     @Override public synchronized void close() {
         if (closed) return;
         closed = true; sdkReady = false;
+        UniLog.i(LogTags.VEHICLE, "车辆读取器关闭", "source", "official");
         stateJson = unavailable("官方车辆读取器已关闭").toString();
         publishedAtElapsed = SystemClock.elapsedRealtime();
         worker.execute(new Runnable() { public void run() {
@@ -849,6 +1035,7 @@ public final class OfficialCarReader implements VehicleAdapter {
             try { if (androidCar != null) call(androidCar, "disconnect", NONE); }
             catch (Exception | LinkageError ignored) {}
             propertyManager = null;
+            UniLog.i(LogTags.VEHICLE, "车辆通道已断开", "source", "official");
         } });
     }
 

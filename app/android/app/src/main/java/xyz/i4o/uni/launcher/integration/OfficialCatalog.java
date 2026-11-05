@@ -8,6 +8,8 @@ import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
+import xyz.i4o.uni.launcher.log.LogTags;
+import xyz.i4o.uni.launcher.log.UniLog;
 
 /** Generated catalog is the same versioned evidence used by the design, not a second list. */
 public final class OfficialCatalog {
@@ -16,12 +18,18 @@ public final class OfficialCatalog {
     public OfficialCatalog(Context context) {
         this.context = context;
         JSONObject loaded = new JSONObject();
+        UniLog.enter(LogTags.APPS,"apps/catalog");
         try {
             InputStream in = context.getAssets().open("official-widgets.json");
             ByteArrayOutputStream out = new ByteArrayOutputStream(); byte[] b = new byte[4096]; int n;
             while ((n = in.read(b)) != -1) out.write(b, 0, n);
             in.close(); loaded = new JSONObject(out.toString("UTF-8"));
-        } catch (Exception e) { android.util.Log.e("UniCatalog", "Catalog unavailable", e); }
+            JSONArray types = loaded.optJSONArray("types");
+            UniLog.done(LogTags.APPS,"apps/catalog","types", types == null ? 0 : types.length());
+        } catch (Exception e) {
+            UniLog.fail(LogTags.APPS,"apps/catalog","error",String.valueOf(e.getMessage()));
+            UniLog.e(LogTags.APPS, "Catalog unavailable", e, "tag","UniCatalog");
+        }
         catalog = loaded;
     }
     public static String normalize(String type) {

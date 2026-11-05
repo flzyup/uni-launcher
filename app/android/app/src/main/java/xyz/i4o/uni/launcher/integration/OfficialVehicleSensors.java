@@ -5,6 +5,8 @@ import java.lang.reflect.InvocationTargetException;
 import java.util.Iterator;
 import org.json.JSONArray;
 import org.json.JSONObject;
+import xyz.i4o.uni.launcher.log.LogTags;
+import xyz.i4o.uni.launcher.log.UniLog;
 
 /**
  * Synchronous, read-only sensor helper for an existing OfficialCarReader worker.
@@ -49,6 +51,7 @@ public final class OfficialVehicleSensors {
     public synchronized JSONObject snapshot() {
         JSONObject state = new JSONObject(), fields = new JSONObject();
         JSONArray errors = new JSONArray();
+        UniLog.enter(LogTags.SIGNAL, "sensor/sample", "source", "official");
         try {
             state.put("connected", ready(signals)).put("writable", false)
                     .put("source", "官方 SDK / VehicleSignalManager 只读传感器")
@@ -59,16 +62,33 @@ public final class OfficialVehicleSensors {
                 catch (Exception | LinkageError e) { errors.put("sdkSensors:" + failure(e)); }
             }
             int count = 0;
+            // One summary per cycle: eight getters run on every poll, so a line
+            // per sensor would drown the log file. Raw stays next to the reason.
+            int invalid = 0;
+            StringBuilder details = new StringBuilder();
             for (Spec spec : SPECS) {
                 Sample sample = readSample(sensors, signals, spec, units);
                 JSONObject field = sample.json();
                 fields.put(spec.key, field);
                 if (sample.valid) count++;
-                else errors.put(spec.key + ":" + sample.reason);
+                else {
+                    errors.put(spec.key + ":" + sample.reason);
+                    invalid++;
+                    if (details.length() > 0) details.append(';');
+                    details.append(spec.key).append('(').append(sample.reason)
+                            .append(",raw=").append(sample.raw)
+                            .append(",avail=").append(sample.availability)
+                            .append(",sdk=").append(sample.sdkSupport)
+                            .append(",unit=").append(sample.unit).append(')');
+                }
             }
+            if (invalid > 0)
+                UniLog.w(LogTags.SIGNAL, "部分传感器未取得有效读数", "invalidCount", invalid,
+                        "validCount", count, "details", details.toString());
 
             float fuelCapacity = queryFuelCapacity(sdkCar);
             String powertrainType = queryVehicleType(sdkCar);
+            boolean capacityFallback = false;
 
             JSONObject batteryField = fields.optJSONObject("batteryPercent");
             boolean hasBattery = batteryField != null && batteryField.optBoolean("valid");
@@ -85,6 +105,7 @@ public final class OfficialVehicleSensors {
 
             if (fuelCapacity <= 0 && "FUEL".equals(powertrainType)) {
                 fuelCapacity = 54.0f; // Lynk & Co 01/05 ICE standard tank volume
+                capacityFallback = true;
             }
 
             if (fuelCapacity > 0) {
@@ -129,8 +150,14 @@ public final class OfficialVehicleSensors {
             }
             state.put("connected", connected).put("validFieldCount", count)
                     .put("updatedAtMs", System.currentTimeMillis());
+            // The capacity fallback is a guess, not a reading: flag it so nobody
+            // reads the number as a measured tank size.
+            UniLog.done(LogTags.SIGNAL, "sensor/sample", "valid", count, "invalid", invalid,
+                    "connected", connected, "powertrainType", powertrainType,
+                    "fuelCapacity", fuelCapacity, "fuelCapacityFallback", capacityFallback);
         } catch (Exception | LinkageError e) {
             try { state.put("connected", false).put("reason", failure(e)); } catch (Exception ignored) {}
+            UniLog.fail(LogTags.SIGNAL, "sensor/sample", "error", failure(e));
         }
         return state;
     }

@@ -16,6 +16,9 @@ __pycache__/
 # The emulator runs leave screenshots and reports behind.
 /verification/
 /app/verification/
+/shots/
+
+.DS_Store
 
 # Agent workspace notes and local-only debug tooling.
 /.workbuddy/

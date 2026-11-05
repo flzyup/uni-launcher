@@ -6,14 +6,19 @@ import android.content.Intent;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
+import xyz.i4o.uni.launcher.log.LogTags;
+import xyz.i4o.uni.launcher.log.UniLog;
 
 /** Original launcher batch broadcasts are sent once per Android boot. */
 public final class OtaBootReceiver extends BroadcastReceiver {
     private static final String PREFIX="com.ecarx.intent.action.EAS_LAUNCH_BAT_";
     @Override public void onReceive(Context context, Intent intent) {
         if (intent == null || !(PREFIX+"3RD").equals(intent.getAction())) return;
-        try { context.startService(new Intent(context, OtaBootService.class)); }
-        catch (RuntimeException e) { android.util.Log.w("UniOta", "Boot check service unavailable", e); }
+        UniLog.enter(LogTags.OTA,"ota/boot","action",intent.getAction());
+        try { context.startService(new Intent(context, OtaBootService.class));
+            UniLog.done(LogTags.OTA,"ota/boot","action",intent.getAction()); }
+        catch (RuntimeException e) { UniLog.w(LogTags.OTA, "Boot check service unavailable", e, "tag","UniOta");
+            UniLog.fail(LogTags.OTA,"ota/boot","reason","service-unavailable"); }
     }
     static void scheduleLauncherBroadcasts(Context context) {
         Context app=context.getApplicationContext();
@@ -30,9 +35,10 @@ public final class OtaBootReceiver extends BroadcastReceiver {
             handler.postDelayed(()->{
                 try { app.sendBroadcast(new Intent(action)); }
                 catch (SecurityException e) {
-                    android.util.Log.w("UniOta", "Protected boot broadcast: " + action, e);
+                    UniLog.w(LogTags.OTA, "Protected boot broadcast: " + action, e, "tag","UniOta");
                 }
             },delays[i]);
         }
+        UniLog.i(LogTags.OTA,"已安排开机广播批次","count",batches.length,"bootCount",boot);
     }
 }

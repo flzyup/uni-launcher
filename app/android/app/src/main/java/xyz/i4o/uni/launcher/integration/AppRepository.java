@@ -21,6 +21,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.HashSet;
 import java.util.Set;
+import xyz.i4o.uni.launcher.log.LogTags;
+import xyz.i4o.uni.launcher.log.UniLog;
 
 public final class AppRepository {
     private final Context context;
@@ -36,6 +38,7 @@ public final class AppRepository {
     }
 
     public Refresh refresh() {
+        UniLog.enter(LogTags.APPS,"apps/scan");
         long traceStart=android.os.SystemClock.uptimeMillis();
         Map<String, ComponentName> nextAllowed = new LinkedHashMap<String, ComponentName>();
         JSONArray result=new JSONArray();
@@ -84,12 +87,16 @@ public final class AppRepository {
                     .put("isSystem",!self.equals(pkg)&&(info.flags&(ApplicationInfo.FLAG_SYSTEM|ApplicationInfo.FLAG_UPDATED_SYSTEM_APP))!=0)
                     .put("canUninstall",uninstallable).put("isMusic",players.contains(pkg))
                     .put("icon","data:image/webp;base64,"+iconBase64(app,info,pkg,pm)));
-            }catch(Exception e){android.util.Log.w("UniApps","Unable to read app icon",e);}
+            }catch(Exception e){UniLog.w(LogTags.APPS,"Unable to read app icon",e,"tag","UniApps");}
         }
         long end=android.os.SystemClock.uptimeMillis();
-        android.util.Log.i("UNI-Startup","apps="+result.length()
+        UniLog.i(LogTags.APPS,"apps="+result.length()
             +" query="+(afterQuery-traceStart)+" labels="+(afterLabels-afterQuery)
-            +" icons="+(end-afterLabels)+" refresh="+(end-traceStart));
+            +" icons="+(end-afterLabels)+" refresh="+(end-traceStart),
+            "tag","UNI-Startup","count",result.length()
+            ,"queryMs",afterQuery-traceStart,"labelsMs",afterLabels-afterQuery
+            ,"iconsMs",end-afterLabels,"totalMs",end-traceStart);
+        UniLog.done(LogTags.APPS,"apps/scan","count",result.length());
         return new Refresh(result, nextAllowed);
     }
 
@@ -168,13 +175,18 @@ public final class AppRepository {
     }
     private boolean knownPackage(String pkg){for(ComponentName c:allowed.values())if(c.getPackageName().equals(pkg))return true;return false;}
     public boolean setEnabled(String pkg,boolean enabled){
-        if(!knownPackage(pkg)||context.getPackageName().equals(pkg))return false;
+        if(!knownPackage(pkg)||context.getPackageName().equals(pkg)){UniLog.skip(LogTags.APPS,"apps/enable","package",pkg,"enabled",enabled,"reason","unknown-package");return false;}
+        UniLog.enter(LogTags.APPS,"apps/enable","package",pkg,"enabled",enabled);
         try{
             PackageManager pm=context.getPackageManager();
             pm.setApplicationEnabledSetting(pkg,enabled?PackageManager.COMPONENT_ENABLED_STATE_ENABLED:
                 PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER,0);
-            return pm.getApplicationInfo(pkg,PackageManager.MATCH_DISABLED_COMPONENTS).enabled==enabled;
-        }catch(Exception e){android.util.Log.w("UniApps","Unable to change application state",e);return false;}
+            boolean applied=pm.getApplicationInfo(pkg,PackageManager.MATCH_DISABLED_COMPONENTS).enabled==enabled;
+            if(applied)UniLog.done(LogTags.APPS,"apps/enable","package",pkg,"enabled",enabled);
+            else UniLog.fail(LogTags.APPS,"apps/enable","package",pkg,"enabled",enabled,"reason","readback-mismatch");
+            return applied;
+        }catch(Exception e){UniLog.w(LogTags.APPS,"Unable to change application state",e,"tag","UniApps");
+            UniLog.fail(LogTags.APPS,"apps/enable","package",pkg,"enabled",enabled,"error",String.valueOf(e.getMessage()));return false;}
     }
     public boolean showInfo(String pkg){
         if(!knownPackage(pkg))return false;
@@ -183,23 +195,26 @@ public final class AppRepository {
         catch(RuntimeException e){return false;}
     }
     public boolean requestUninstall(String pkg){
-        if(!knownPackage(pkg)||!canUninstall(pkg))return false;
+        if(!knownPackage(pkg)||!canUninstall(pkg)){UniLog.skip(LogTags.APPS,"apps/uninstall","package",pkg,"reason","not-allowed");return false;}
+        UniLog.enter(LogTags.APPS,"apps/uninstall","package",pkg);
         try{context.startActivity(new Intent(Intent.ACTION_UNINSTALL_PACKAGE,android.net.Uri.parse("package:"+pkg))
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));return true;}
-        catch(RuntimeException e){return false;}
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));UniLog.done(LogTags.APPS,"apps/uninstall","package",pkg);return true;}
+        catch(RuntimeException e){UniLog.fail(LogTags.APPS,"apps/uninstall","package",pkg,"error",String.valueOf(e.getMessage()));return false;}
     }
     public boolean launch(String key) {
-        ComponentName c=allowed.get(key);if(c==null)return false;
-        try {if (!usable(context.getPackageManager().getActivityInfo(c,0))) return false;
-            context.startActivity(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setComponent(c).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));return true;}
-        catch(Exception e){return false;}
+        ComponentName c=allowed.get(key);if(c==null){UniLog.i(LogTags.APPS,"应用未找到","key",key);UniLog.fail(LogTags.APPS,"apps/launch","key",key,"reason","not-found");return false;}
+        UniLog.enter(LogTags.APPS,"apps/launch","key",key,"package",c.getPackageName());
+        try {if (!usable(context.getPackageManager().getActivityInfo(c,0))) {UniLog.i(LogTags.APPS,"应用不可启动","key",key,"package",c.getPackageName());UniLog.fail(LogTags.APPS,"apps/launch","key",key,"package",c.getPackageName(),"reason","not-launchable");return false;}
+            context.startActivity(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setComponent(c).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            UniLog.done(LogTags.APPS,"apps/launch","key",key,"package",c.getPackageName());return true;}
+        catch(Exception e){UniLog.fail(LogTags.APPS,"apps/launch","key",key,"package",c.getPackageName(),"error",String.valueOf(e.getMessage()));return false;}
     }
     public boolean launchPackage(String pkg) {
         try {
             Intent i = packageIntent(pkg);
-            if (i == null) return false;
+            if (i == null) {UniLog.i(LogTags.APPS,"应用不可启动","package",pkg);return false;}
             context.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));return true;
-        } catch(Exception e){return false;}
+        } catch(Exception e){UniLog.i(LogTags.APPS,"应用启动失败","package",pkg,"error",String.valueOf(e.getMessage()));return false;}
     }
     public String packageStatus(String pkg) {
         if (pkg == null || pkg.length() == 0) return "not-installed";

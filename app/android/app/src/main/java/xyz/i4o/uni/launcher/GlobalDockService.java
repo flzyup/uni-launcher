@@ -14,6 +14,8 @@ import io.flutter.embedding.android.FlutterTextureView;
 import io.flutter.embedding.android.FlutterView;
 import io.flutter.embedding.engine.FlutterEngine;
 import io.flutter.plugin.common.*;
+import xyz.i4o.uni.launcher.log.LogTags;
+import xyz.i4o.uni.launcher.log.UniLog;
 import xyz.i4o.uni.launcher.overlay.SystemNavigationPolicy;
 import xyz.i4o.uni.launcher.overlay.OverscanPolicy;
 import xyz.i4o.uni.launcher.overlay.WorkspacePolicy;
@@ -50,9 +52,11 @@ public final class GlobalDockService extends Service {
 
     public static void ensureStarted(Context c){
         SharedPreferences p=c.getSharedPreferences("launcher",0);
-        if(!p.getBoolean("globalDockEnabled",false)||!Settings.canDrawOverlays(c))return;
+        if(!p.getBoolean("globalDockEnabled",false))return;
+        // 缺悬浮窗权限时静默返回是预期行为，但要留痕：否则只看到「底栏没起来」，无从判断是授权掉了还是启动失败。
+        if(!Settings.canDrawOverlays(c)){UniLog.w(LogTags.DOCK,"缺少悬浮窗权限，全局底栏无法启动","tag","UniDock");return;}
         try{Intent i=new Intent(c,GlobalDockService.class);if(Build.VERSION.SDK_INT>=26)c.startForegroundService(i);else c.startService(i);}
-        catch(RuntimeException e){android.util.Log.w("UniDock","Unable to start global dock",e);}
+        catch(RuntimeException e){UniLog.w(LogTags.DOCK,"Unable to start global dock",e,"tag","UniDock");}
     }
     public static JSONObject snapshot(Context c){
         JSONObject j=new JSONObject();try{
@@ -93,7 +97,7 @@ public final class GlobalDockService extends Service {
             boolean on=r.optBoolean("enabled");
             p.edit().putBoolean("globalDockEnabled",on).apply();
             if(on){
-                if(!Settings.canDrawOverlays(c)){try{c.startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,Uri.parse("package:"+c.getPackageName())).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));}catch(RuntimeException e){toast(c,"请在系统设置允许 UNI 显示在其他应用上层");}}
+                if(!Settings.canDrawOverlays(c)){UniLog.w(LogTags.DOCK,"缺少悬浮窗权限，已提示用户授权","tag","UniDock");try{c.startActivity(new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,Uri.parse("package:"+c.getPackageName())).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));}catch(RuntimeException e){toast(c,"请在系统设置允许 UNI 显示在其他应用上层");}}
                 else ensureStarted(c);
             }else{
                 c.stopService(new Intent(c,GlobalDockService.class));
@@ -134,7 +138,7 @@ public final class GlobalDockService extends Service {
             if(active!=null&&!active.panel.isEmpty()){active.dismissPanel();return true;}
             new Thread(()->{
                 try{new android.app.Instrumentation().sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);}
-                catch(RuntimeException e){android.util.Log.w("UniBack","System back unavailable",e);new Handler(Looper.getMainLooper()).post(()->toast(c,"系统返回暂不可用"));}
+                catch(RuntimeException e){UniLog.w(LogTags.DOCK,"System back unavailable",e,"tag","UniBack");new Handler(Looper.getMainLooper()).post(()->toast(c,"系统返回暂不可用"));}
             },"uni-system-back").start();return true;
         }
         if("show-recents".equals(a)){
@@ -205,10 +209,15 @@ public final class GlobalDockService extends Service {
         workspace=new WorkspacePolicy(this,runtime.prefs());
         if(nativeInsets)workspace.stopAndRestore();
         workspace.start();
+        UniLog.enter(LogTags.DOCK,"dock/attach","surface","dock");
         try{dockWindow=new OverlayWindow(false);}catch(RuntimeException e){
-            android.util.Log.e("UniDock","Cannot create dock",e);
+            UniLog.fail(LogTags.DOCK,"dock/engine","surface","dock","error",String.valueOf(e.getMessage()));
+            UniLog.fail(LogTags.DOCK,"dock/attach","surface","dock","error",String.valueOf(e.getMessage()));
+            UniLog.e(LogTags.DOCK,"Cannot create dock",e,"tag","UniDock");
             toast(this,"全局底栏无法显示，请检查悬浮显示授权");stopSelf();return;
         }
+        UniLog.done(LogTags.DOCK,"dock/attach","surface","dock");
+        UniLog.i(LogTags.DOCK,"底栏窗口已创建","nativeInsets",nativeInsets,"workspace",workspace.available());
         runtime.addListener(this,this::update);update();
     }
     /** Each view retains its size for its entire lifetime. In particular a
@@ -231,8 +240,12 @@ public final class GlobalDockService extends Service {
         boolean requestedVisible;
         OverlayWindow(boolean isPanel){
             this.isPanel=isPanel;
+            String surface=isPanel?"panel":"dock";
+            UniLog.enter(LogTags.DOCK,"dock/engine","surface",surface);
             engine=LauncherEngines.create(GlobalDockService.this,isPanel?"globalPanelMain":"globalDockMain",false);
             spectrumBridge=xyz.i4o.uni.launcher.audio.SpectrumBridge.attach(GlobalDockService.this,engine);
+            // 底栏与面板是独立的 Flutter 引擎，它们的日志也要落进同一个文件。
+            xyz.i4o.uni.launcher.log.LogBridge.attach(GlobalDockService.this,engine);
             methods=new MethodChannel(engine.getDartExecutor().getBinaryMessenger(),"xyz.i4o.uni.launcher/platform");
             methods.setMethodCallHandler((call,result)->{
                 try{
@@ -278,6 +291,7 @@ public final class GlobalDockService extends Service {
             bounds.softInputMode=WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING;
             setBounds();windows.addView(view,bounds);
             view.attachToFlutterEngine(engine);attached=true;
+            UniLog.done(LogTags.DOCK,"dock/engine","surface",surface,"title",bounds.getTitle());
         }
         private boolean setBounds(){
             DisplayMetrics real=new DisplayMetrics();windows.getDefaultDisplay().getRealMetrics(real);
@@ -356,8 +370,10 @@ public final class GlobalDockService extends Service {
         if("recents".equals(panel))resetRecentItems();
         if(panel.isEmpty()||"recents".equals(panel))panelBackdrop=captureBackdrop();
         panel=kind;panelReady=false;panelRevision++;
+        UniLog.enter(LogTags.DOCK,"dock/attach","surface","panel","panel",kind);
         try{if(panelWindow==null)panelWindow=new OverlayWindow(true);}
-        catch(RuntimeException e){panel="";android.util.Log.e("UniDock","Cannot create panel",e);toast(this,"面板暂不可用");}
+        catch(RuntimeException e){panel="";UniLog.fail(LogTags.DOCK,"dock/engine","surface","panel","error",String.valueOf(e.getMessage()));UniLog.fail(LogTags.DOCK,"dock/attach","surface","panel","error",String.valueOf(e.getMessage()));UniLog.e(LogTags.DOCK,"Cannot create panel",e,"tag","UniDock");toast(this,"面板暂不可用");}
+        if(!panel.isEmpty())UniLog.done(LogTags.DOCK,"dock/attach","surface","panel","panel",kind);
         if(!panel.isEmpty())startForegroundCheck();
         update();
     }
@@ -380,7 +396,7 @@ public final class GlobalDockService extends Service {
             crop=android.graphics.Bitmap.createBitmap(bitmap,0,0,bitmap.getWidth(),Math.min(h,bitmap.getHeight()));
             java.io.ByteArrayOutputStream out=new java.io.ByteArrayOutputStream();
             crop.compress(android.graphics.Bitmap.CompressFormat.JPEG,80,out);return out.toByteArray();
-        }catch(Exception e){android.util.Log.w("UniDock","Glass backdrop unavailable",e);return null;}
+        }catch(Exception e){UniLog.w(LogTags.DOCK,"Glass backdrop unavailable",e,"tag","UniDock");return null;}
         finally{if(crop!=null&&crop!=bitmap)crop.recycle();if(bitmap!=null)bitmap.recycle();}
     }
     private void dismissPanel(){
@@ -402,7 +418,7 @@ public final class GlobalDockService extends Service {
             panel="recents";panelRevision++;recentTaskItems=new JSONArray();recentTasksReady=false;
             if(panelWindow==null)panelWindow=new OverlayWindow(true);
             startForegroundCheck();update();refreshRecentTasks();
-        }catch(Exception e){android.util.Log.w("UniDock","Recent task panel unavailable",e);toast(this,"系统任务列表暂不可用");}
+        }catch(Exception e){UniLog.w(LogTags.DOCK,"Recent task panel unavailable",e,"tag","UniDock");toast(this,"系统任务列表暂不可用");}
     }
     private void refreshRecentTasks(){
         final int revision=++recentTasksRevision;
@@ -513,13 +529,14 @@ public final class GlobalDockService extends Service {
         if(intent!=null&&STOP.equals(intent.getAction())){stopAndRestore(this);stopSelf();return START_NOT_STICKY;}
         if(intent!=null&&RESTORE.equals(intent.getAction())){
             try{handleCommand(this,new JSONObject().put("action","system-navigation-hidden").put("enabled",false));}
-            catch(Exception e){android.util.Log.w("UniDock","Unable to restore system navigation",e);}
+            catch(Exception e){UniLog.w(LogTags.DOCK,"Unable to restore system navigation",e,"tag","UniDock");}
             return START_STICKY;
         }
         return START_STICKY;
     }
     @Override public void onConfigurationChanged(android.content.res.Configuration config){super.onConfigurationChanged(config);update();}
     @Override public void onDestroy(){
+        UniLog.enter(LogTags.DOCK,"dock/detach","surface","dock");
         if(runtime!=null)runtime.removeListener(this);
         main.removeCallbacksAndMessages(null);
         if(workspace!=null)workspace.stopAndRestore();
@@ -527,6 +544,8 @@ public final class GlobalDockService extends Service {
         if(dockWindow!=null){dockWindow.close();dockWindow=null;}
         active=null;
         if(runtime!=null)runtime.publish();super.onDestroy();
+        UniLog.done(LogTags.DOCK,"dock/detach","surface","dock");
+        UniLog.i(LogTags.DOCK,"底栏窗口已销毁");
     }
     @Override public IBinder onBind(Intent intent){return null;}
     @Override protected void dump(java.io.FileDescriptor fd,java.io.PrintWriter writer,String[] args){try{JSONObject report=snapshot(this),all=runtime.snapshot(new LauncherRuntime.StaticCursor()),m=all.optJSONObject("media"),safe=new JSONObject();

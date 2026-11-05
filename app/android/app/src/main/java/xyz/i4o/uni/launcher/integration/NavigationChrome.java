@@ -5,6 +5,8 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.provider.Settings;
 import android.view.View;
+import xyz.i4o.uni.launcher.log.LogTags;
+import xyz.i4o.uni.launcher.log.UniLog;
 
 /** Official window flag path + Dudu's optional policy_control path, preserving prior policy. */
 public final class NavigationChrome {
@@ -33,6 +35,6 @@ public final class NavigationChrome {
                 }
                 prefs.edit().remove("savedPolicy").apply();
             }
-        } catch (SecurityException e) { android.util.Log.i("UniChrome", "Global navigation policy not authorized"); }
+        } catch (SecurityException e) { UniLog.i(LogTags.NAV, "全局导航栏策略未授权"); }
     }
 }

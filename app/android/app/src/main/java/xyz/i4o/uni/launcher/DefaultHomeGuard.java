@@ -9,6 +9,8 @@ import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import java.util.ArrayList;
 import java.util.List;
+import xyz.i4o.uni.launcher.log.LogTags;
+import xyz.i4o.uni.launcher.log.UniLog;
 
 /** Restores the launcher's HOME preference during the boot window. */
 public final class DefaultHomeGuard {
@@ -19,6 +21,7 @@ public final class DefaultHomeGuard {
         final Intent home = new Intent(Intent.ACTION_MAIN)
             .addCategory(Intent.CATEGORY_HOME)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        UniLog.enter(LogTags.SYS,"home/guard");
         try {
             ResolveInfo resolved = context.getPackageManager().resolveActivity(home, 0);
             ComponentName current = resolved == null || resolved.activityInfo == null ? null
@@ -27,7 +30,7 @@ public final class DefaultHomeGuard {
             // replacing the always record. That intermediate state cannot be
             // distinguished from a later user choice during the boot window, so
             // the launcher restores its own registered role on every check.
-            android.util.Log.i("UniHome", "current home=" + current);
+            UniLog.i(LogTags.SYS, "current home=" + current, "tag","UniHome");
 
             PackageManager pm = context.getPackageManager();
             List<ResolveInfo> candidates = pm.queryIntentActivities(home, PackageManager.MATCH_DEFAULT_ONLY);
@@ -37,7 +40,8 @@ public final class DefaultHomeGuard {
                     candidate.activityInfo.packageName, candidate.activityInfo.name));
             }
             if (!components.contains(own)) {
-                android.util.Log.w("UniHome", "UNI is not a HOME candidate");
+                UniLog.w(LogTags.SYS, "UNI is not a HOME candidate", "tag","UniHome");
+                UniLog.skip(LogTags.SYS,"home/guard","reason","not-a-home-candidate");
                 return false;
             }
             IntentFilter filter = new IntentFilter(Intent.ACTION_MAIN);
@@ -53,10 +57,13 @@ public final class DefaultHomeGuard {
             ResolveInfo after = pm.resolveActivity(home, PackageManager.MATCH_DEFAULT_ONLY);
             boolean success = after != null && after.activityInfo != null
                 && own.equals(new ComponentName(after.activityInfo.packageName, after.activityInfo.name));
-            android.util.Log.i("UniHome", "HOME restore result=" + success);
+            UniLog.i(LogTags.SYS, "HOME restore result=" + success, "tag","UniHome");
+            if(success)UniLog.done(LogTags.SYS,"home/guard","home",String.valueOf(current));
+            else UniLog.fail(LogTags.SYS,"home/guard","home",String.valueOf(current),"reason","not-restored");
             return success;
         } catch (Exception | LinkageError e) {
-            android.util.Log.w("UniHome", "Unable to restore default home", e);
+            UniLog.w(LogTags.SYS, "Unable to restore default home", e, "tag","UniHome");
+            UniLog.fail(LogTags.SYS,"home/guard","error",e.getClass().getSimpleName());
             return false;
         }
     }
@@ -75,7 +82,7 @@ public final class DefaultHomeGuard {
                 .addCategory(Intent.CATEGORY_HOME)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
         } catch (Exception | LinkageError e) {
-            android.util.Log.w("UniHome", "Unable to dismiss home resolver", e);
+            UniLog.w(LogTags.SYS, "Unable to dismiss home resolver", e, "tag","UniHome");
         }
     }
 }

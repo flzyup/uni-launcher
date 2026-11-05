@@ -15,6 +15,8 @@ import org.json.JSONObject;
 import org.json.JSONArray;
 import xyz.i4o.uni.launcher.core.MediaSourcePolicy;
 import xyz.i4o.uni.launcher.core.MediaTextRetention;
+import xyz.i4o.uni.launcher.log.LogTags;
+import xyz.i4o.uni.launcher.log.UniLog;
 import android.graphics.Bitmap;
 import android.util.Base64;
 import java.io.ByteArrayOutputStream;
@@ -46,6 +48,14 @@ public final class MediaAdapter {
     private boolean artworkDirty=true;
     private JSONArray activeSources=new JSONArray();
     private final List<MediaController> observed=new ArrayList<>();
+    /** The package of the session that is currently selected (logging only). */
+    private String loggedSource="";
+    /** Whether the mirrored steering session is active (logging only). */
+    private boolean steeringActive;
+    /** The lyric source last reported (logging only): the snapshot runs on
+     *  every tick, so the change is logged once and not per tick. */
+    private String lastLyricSource="";
+    private String lastLyricTrack="";
     /** Resolved once per source package: an OEM player can publish a session
      *  without a launcher entry, and then the UI has no app row to read a label
      *  from. Cached so a position tick never costs an IPC. */
@@ -104,12 +114,16 @@ public final class MediaAdapter {
             android.content.pm.PackageManager pm=context.getPackageManager();
             CharSequence label=pm.getApplicationLabel(pm.getApplicationInfo(pkg,0));
             if(label!=null)labelValue=label.toString();
-        }catch(Exception ignored){}
+        }catch(Exception ignored){
+            // The lookup happens once per package, so the raw failure is
+            // worth keeping: the app row would show no label at all.
+            UniLog.w(LogTags.MEDIA,"播放器名称取不到","package",pkg,"error",ignored.getClass().getSimpleName(),"reason",String.valueOf(ignored.getMessage()));
+        }
         return labelValue;
     }
     public void setPreferredPackage(String value){preferred=value==null||value.isEmpty()?"auto":value;start();}
     private final MediaController.Callback callback=new MediaController.Callback(){
-        public void onMetadataChanged(MediaMetadata m){artworkDirty=true;choose();changed.run();}
+        public void onMetadataChanged(MediaMetadata m){artworkDirty=true;noteMetadata(m);choose();changed.run();}
         // choose() already synchronizes the selected source, including switches.
         public void onPlaybackStateChanged(PlaybackState s){choose();changed.run();}
         public void onExtrasChanged(Bundle extras){syncSteeringSession();changed.run();}
@@ -150,8 +164,11 @@ public final class MediaAdapter {
     }
     public void start(){
         stop();
-        try{manager.addOnActiveSessionsChangedListener(sessions,listener,handler);select(manager.getActiveSessions(listener));authorized=true;}
-        catch(SecurityException e){authorized=false;select(null);}
+        UniLog.enter(LogTags.MEDIA,"media/session","action","bind");
+        try{manager.addOnActiveSessionsChangedListener(sessions,listener,handler);select(manager.getActiveSessions(listener));authorized=true;
+            UniLog.done(LogTags.MEDIA,"media/session","authorized",true,"sessions",observed.size());}
+        catch(SecurityException e){authorized=false;select(null);
+            UniLog.fail(LogTags.MEDIA,"media/session","reason","media-access-not-authorized","error",e.getClass().getSimpleName());}
         officialBridge.start();
     }
     private void select(List<MediaController> list){
@@ -159,6 +176,7 @@ public final class MediaAdapter {
         observed.clear();
         activeSources=new JSONArray();
         if(list!=null)for(MediaController c:list)if(!context.getPackageName().equals(c.getPackageName()))observed.add(c);
+        UniLog.i(LogTags.MEDIA,"媒体会话列表已刷新","sessions",observed.size());
         choose();
         // Observe every session: a player's state can change without the
         // active-session list changing, including paused -> playing.
@@ -201,16 +219,34 @@ public final class MediaAdapter {
                 }
             }
             if(next!=null)lastSource=next.getPackageName();
-            if(next!=null&&isOnlinePlayer(next.getPackageName())){
+if(next!=null&&isOnlinePlayer(next.getPackageName())){
                 String source=next.getPackageName();
                 if(!source.equals(lastTrackPrefs.getString("lastOnlineSource", "")))lastTrackPrefs.edit().putString("lastOnlineSource",source).apply();
                 officialBridge.setOnlineSource(source);
             }
+            noteSource(next==null?"":next.getPackageName(),observed.size());
             if(next==null||controller==null||!next.getSessionToken().equals(controller.getSessionToken())){lastCover=null;coverData="";artworkDirty=true;}
             controller=next;
             netease.setController(controller);
             syncSteeringSession();
     }
+    /** Logs the selected session only when it changes: choose() also runs on
+     *  every playback state change of the observed sessions. */
+    private void noteSource(String source,int sessions){
+        if(source.equals(loggedSource))return;
+        String previous=loggedSource;
+        loggedSource=source;
+        if(source.isEmpty())UniLog.i(LogTags.MEDIA,"媒体会话已断开","previous",previous);
+        else UniLog.i(LogTags.MEDIA,"媒体会话已连接","source",source,"previous",previous,"sessions",sessions);
+    }
+    /** Logs the metadata of the session that reported it. */
+    private void noteMetadata(MediaMetadata m){
+        String title=m==null?"":nullToEmpty(m.getString(MediaMetadata.METADATA_KEY_TITLE));
+        String artist=m==null?"":nullToEmpty(m.getString(MediaMetadata.METADATA_KEY_ARTIST));
+        boolean artwork=m!=null&&(m.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)!=null||m.getBitmap(MediaMetadata.METADATA_KEY_ART)!=null);
+        UniLog.done(LogTags.MEDIA,"media/metadata","title",title,"artist",artist,"hasArtwork",artwork);
+    }
+    private static String nullToEmpty(String value){return value==null?"":value;}
     private void setPlaying(boolean play){
         PlaybackState state=controller==null?null:controller.getPlaybackState();
         boolean playing=state!=null&&state.getState()==PlaybackState.STATE_PLAYING;
@@ -302,7 +338,7 @@ public final class MediaAdapter {
             return;
         }
         officialBridge.update(controller);
-        if(controller==null){steeringSession.setActive(false);return;}
+        if(controller==null){steeringSession.setActive(false);noteSteering(false);return;}
         try{
             MediaMetadata source=controller.getMetadata();
             MediaMetadata.Builder metadata=new MediaMetadata.Builder();
@@ -327,7 +363,14 @@ public final class MediaAdapter {
             Intent launch=context.getPackageManager().getLaunchIntentForPackage(controller.getPackageName());
             if(launch!=null)steeringSession.setSessionActivity(android.app.PendingIntent.getActivity(context,0,launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),android.app.PendingIntent.FLAG_UPDATE_CURRENT));
             steeringSession.setActive(true);
-        }catch(Exception|LinkageError e){android.util.Log.w("UniMedia","Unable to synchronize steering media session",e);steeringSession.setActive(false);}
+            noteSteering(true);
+        }catch(Exception|LinkageError e){UniLog.w(LogTags.MEDIA,"Unable to synchronize steering media session",e,"tag","UniMedia");steeringSession.setActive(false);noteSteering(false);}
+    }
+    /** Logs the mirrored steering session only when its state flips. */
+    private void noteSteering(boolean active){
+        if(steeringActive==active)return;
+        steeringActive=active;
+        UniLog.i(LogTags.MEDIA,active?"方向盘媒体会话已发布":"方向盘媒体会话已撤下","active",active);
     }
     private static void copyText(MediaMetadata source,MediaMetadata.Builder target,String key){
         CharSequence value=source.getText(key);if(value!=null&&value.length()>0)target.putText(key,value);
@@ -377,6 +420,7 @@ public final class MediaAdapter {
                     source=text.isEmpty()?"":"lyrics-resolver";
                     if(text.isEmpty())lyrics.request(title,artist,duration);
                 }
+                noteLyricSource(source,title,artist,duration);
                 j.put("lyrics",text).put("lyricsSource",source)
                     .put("durationMs",duration)
                     .put("positionMs",position(p)).put("positionKnown",p!=null&&p.getPosition()>=0)
@@ -408,10 +452,11 @@ public final class MediaAdapter {
         lastTrackPrefs.edit().putString("source",source).putString("title",track.title)
             .putString("artist",track.artist).putString("album",track.album)
             .putLong("duration",track.durationMs).putLong("position",Math.max(0,position)).apply();
+        UniLog.d(LogTags.MEDIA,"已缓存上次播放的曲目","source",source,"title",track.title,"artist",track.artist);
     }
     private String artwork(MediaMetadata m){
         if(!artworkDirty)return coverData;artworkDirty=false;
-        if(m==null){lastCover=null;coverData="";return "";}
+        if(m==null){lastCover=null;coverData="";UniLog.skip(LogTags.MEDIA,"media/artwork","reason","no-metadata");return "";}
         Bitmap bitmap=m.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART);
         if(bitmap==null)bitmap=m.getBitmap(MediaMetadata.METADATA_KEY_ART);
         if(bitmap==lastCover)return coverData;
@@ -422,8 +467,23 @@ public final class MediaAdapter {
             ByteArrayOutputStream bytes=new ByteArrayOutputStream();small.compress(Bitmap.CompressFormat.JPEG,80,bytes);
             coverData=Base64.encodeToString(bytes.toByteArray(),Base64.NO_WRAP);
             if(small!=bitmap)small.recycle();
-        }catch(RuntimeException ignored){}
+        }catch(RuntimeException ignored){
+            // The raw failure is worth keeping: the cover stays empty and
+            // nobody would know whether the player sent one at all.
+            UniLog.w(LogTags.MEDIA,"封面压缩失败","error",ignored.getClass().getSimpleName(),"reason",String.valueOf(ignored.getMessage()));
+        }
+        if(coverData.isEmpty())UniLog.skip(LogTags.MEDIA,"media/artwork","reason",bitmap==null?"no-artwork":"compress-failed");
+        else UniLog.done(LogTags.MEDIA,"media/artwork","bytes",coverData.length());
         return coverData;
+    }
+    /** Logs the lyric source only when it changes: the snapshot runs on every
+     *  tick, and the source itself does not change between ticks. */
+    private void noteLyricSource(String source,String title,String artist,long durationMs){
+        String track=title+"|"+artist;
+        if(source.equals(lastLyricSource)&&track.equals(lastLyricTrack))return;
+        lastLyricSource=source;lastLyricTrack=track;
+        if(source.isEmpty())UniLog.i(LogTags.LYRIC,"当前曲目没有歌词来源","title",title,"artist",artist,"durationMs",durationMs);
+        else UniLog.i(LogTags.LYRIC,"歌词来源已切换","source",source,"title",title,"artist",artist,"durationMs",durationMs);
     }
     private static String readLyrics(MediaMetadata metadata,Bundle extras){
         String[] keys={"android.media.metadata.LYRICS","android.media.metadata.LYRIC","lyrics","lyric","lrc"};
@@ -457,15 +517,26 @@ public final class MediaAdapter {
             // keeps the last track visible. Play is the one command that can
             // restore the application; transport controls cannot target a
             // disconnected session.
-            if("toggle-play".equals(action)||"play".equals(action))return launchSavedSource();
+            if("toggle-play".equals(action)||"play".equals(action)){
+                boolean launched=launchSavedSource();
+                if(launched)UniLog.done(LogTags.MEDIA,"media/transport","action",action,"route","launch-source");
+                else UniLog.fail(LogTags.MEDIA,"media/transport","action",action,"route","launch-source","reason","no-launchable-source");
+                return launched;
+            }
+            UniLog.fail(LogTags.MEDIA,"media/transport","action",action,"reason","no-active-session");
             return false;
         }
         if(NeteaseMediaAdapter.supports(controller)){
             boolean accepted=netease.command(action,positionMs);
             if(accepted&&wantsPlay)schedulePlayFallback(controller);
+            if(accepted)UniLog.done(LogTags.MEDIA,"media/transport","action",action,"route","netease","source",controller.getPackageName());
+            else UniLog.fail(LogTags.MEDIA,"media/transport","action",action,"route","netease","reason","rejected");
             return accepted;
         }
-        PlaybackState p=controller.getPlaybackState();if(p==null)return false;
+        PlaybackState p=controller.getPlaybackState();if(p==null){
+            UniLog.fail(LogTags.MEDIA,"media/transport","action",action,"reason","no-playback-state");
+            return false;
+        }
         long actions=p.getActions();MediaController.TransportControls t=controller.getTransportControls();
         if("next".equals(action)&&(actions&PlaybackState.ACTION_SKIP_TO_NEXT)!=0)t.skipToNext();
         else if("previous".equals(action)&&(actions&PlaybackState.ACTION_SKIP_TO_PREVIOUS)!=0)t.skipToPrevious();
@@ -476,11 +547,12 @@ public final class MediaAdapter {
         else if("toggle-play".equals(action)){
             if(p.getState()==PlaybackState.STATE_PLAYING&&(actions&(PlaybackState.ACTION_PAUSE|PlaybackState.ACTION_PLAY_PAUSE))!=0)t.pause();
             else if(p.getState()!=PlaybackState.STATE_PLAYING&&(actions&(PlaybackState.ACTION_PLAY|PlaybackState.ACTION_PLAY_PAUSE))!=0)t.play();
-            else return false;
+            else{UniLog.fail(LogTags.MEDIA,"media/transport","action",action,"reason","action-not-supported","actions",actions);return false;}
         }
         else if("play".equals(action)&&(actions&(PlaybackState.ACTION_PLAY|PlaybackState.ACTION_PLAY_PAUSE))!=0)t.play();
-        else return false;
+        else{UniLog.fail(LogTags.MEDIA,"media/transport","action",action,"reason","action-not-supported","actions",actions);return false;}
         if(wantsPlay)schedulePlayFallback(controller);
+        UniLog.done(LogTags.MEDIA,"media/transport","action",action,"route","standard","source",controller.getPackageName());
         return true;
     }
     private void schedulePlayFallback(MediaController target){
@@ -510,5 +582,5 @@ public final class MediaAdapter {
             return true;
         }catch(RuntimeException e){return false;}
     }
-    public void stop(){clearPlayFallback();try{manager.removeOnActiveSessionsChangedListener(sessions);}catch(Exception ignored){}officialBridge.stop();select(null);steeringSession.setActive(false);}
+    public void stop(){clearPlayFallback();try{manager.removeOnActiveSessionsChangedListener(sessions);}catch(Exception ignored){}officialBridge.stop();select(null);steeringSession.setActive(false);UniLog.done(LogTags.MEDIA,"media/session","action","unbind","authorized",authorized);}
 }
