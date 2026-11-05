@@ -49,7 +49,16 @@ public final class LauncherRuntime {
     private final NavigationAudioAdapter navigationAudio;
     private final LanTransfer transfer;
     private final QuarkPan quark;
+    private final StorageCleaner cleaner;
     private final DebugBridge debugBridge;
+    /**
+     * 需要 Activity 才能弹系统权限框的能力。面板窗口没有 Activity，统一借用主窗口。
+     * 没接上（例如只有底栏在跑）时清理器自己降级，不会卡住。
+     */
+    public interface PermissionHost { void requestStoragePermission(); }
+    private volatile PermissionHost permissionHost;
+
+    public void attachPermissionHost(PermissionHost host){permissionHost=host;}
     private final ClimateState simulator=new ClimateState();
     private final Map<Object,Runnable> listeners=new IdentityHashMap<>();
     private JSONArray installed;
@@ -107,6 +116,8 @@ public final class LauncherRuntime {
         systemSettings=new SystemSettingsRepository(context);navigationAudio=new NavigationAudioAdapter(context);
         transfer=new LanTransfer(context,this::publish);
         quark=new QuarkPan(context,this::publish);transfer.attach(quark);
+        // 清理器只持有 Application 上下文和自己的后台线程；主窗口与面板窗口共用一份。
+        cleaner=new StorageCleaner(context,this::publish);
         // 夸克会话落盘在 filesDir/quark/session.json，读盘与静默刷新都推后到首帧之后。
         main.postDelayed(()->new Thread(quark::restore,"uni-quark-restore").start(),2500);
         debugBridge=new DebugBridge(context,prefs,this::publish);
@@ -260,6 +271,7 @@ public final class LauncherRuntime {
             state.put("runtimeOwnerCount",listeners.size()).put("media",mediaState)
                 .put("transfer",transfer.snapshot())
                 .put("quark",quark.snapshot())
+                .put("cleaner",cleaner.snapshot())
                 .put("partial",!(wantApps&&wantDesign&&wantMedia));
 
             if(wantApps)cursor.apps=appsRevision;
@@ -387,6 +399,18 @@ public final class LauncherRuntime {
         if("request-uninstall".equals(action)){if(!apps.requestUninstall(value))toast("该应用不可卸载");return true;}
         if("launch-app".equals(action)){if(!apps.launch(value))toast("应用未安装或无法启动");return true;}
         if("media-access".equals(action)){try{context.startActivity(new Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));}catch(Exception e){toast("系统没有提供媒体授权入口");}return true;}
+        // 垃圾清理：扫描与清理都在 StorageCleaner 的后台线程，这里只做派发。
+        // value 是逗号分隔的类目 id，长度与白名单由 StorageCleaner 再校验一次。
+        if("cleaner-scan".equals(action)){cleaner.scan();return true;}
+        if("cleaner-clean".equals(action)){cleaner.clean(value);return true;}
+        if("cleaner-cancel".equals(action)){cleaner.cancel();return true;}
+        // 面板打开时自动要权限：能直接拿到就重扫，拿不到由 Activity 弹一次系统框。
+        if("cleaner-grant".equals(action)){
+            PermissionHost host=permissionHost;
+            if(host!=null)host.requestStoragePermission();else cleaner.refreshPermission();
+            return true;
+        }
+        if("cleaner-permission".equals(action)){cleaner.refreshPermission();return true;}
         if("transfer-start".equals(action)){transfer.start();publish();return true;}
         if("transfer-stop".equals(action)){transfer.stop();publish();return true;}
         if("transfer-install".equals(action)){if(!transfer.install(value))toast("未找到可安装的文件，或系统未允许安装");publish();return true;}

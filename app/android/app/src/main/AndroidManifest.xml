@@ -42,6 +42,13 @@
   <uses-permission android:name="android.permission.READ_PRIVILEGED_PHONE_STATE"/>
   <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES"/>
   <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
+  <!-- 垃圾清理。前三个是 signature|privileged，只有车机平台签名包才拿得到；拿不到时
+       面板把对应类目显示成「不可用」并写明原因，不会假装清掉了。 -->
+  <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"/>
+  <uses-permission android:name="android.permission.DELETE_CACHE_FILES"/>
+  <uses-permission android:name="android.permission.CLEAR_APP_CACHE"/>
+  <!-- 公开目录规则清理需要写外部存储；Android 9 上仍是运行时权限，缺失时引导授权。 -->
+  <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28"/>
   <!-- 明文只放行「传文件」里用户自己填的下载地址：局域网 NAS、内网发布页和旧站点
        基本都是 http://，系统默认会直接拒连。应用自身不发起任何其他明文请求。 -->
   <application android:label="UNI 桌面" android:name="${applicationName}" android:icon="@drawable/uni_icon" android:allowBackup="false" android:usesCleartextTraffic="true">

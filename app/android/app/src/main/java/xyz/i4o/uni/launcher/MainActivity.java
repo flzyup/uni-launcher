@@ -216,6 +216,8 @@ public final class MainActivity extends FlutterActivity {
         UniLog.init(this);
         UniLog.enter(LogTags.APP,"launcher/onCreate");
         rt=LauncherRuntime.get(this);
+        // 垃圾清理要读写公开存储：面板一打开就由这里申请权限，界面上没有「去授权」这一步。
+        rt.attachPermissionHost(this::requestStoragePermission);
         rt.scheduleBootAutoPlay();
         StartupTrace.mark("runtime");
         initialSettings=isSettingsIntent(getIntent());
@@ -422,6 +424,9 @@ public final class MainActivity extends FlutterActivity {
                 UniLog.i(LogTags.APP,"存储权限回调","writable",writable,"readable",readable);
                 done.accept(writable);
             }
+            // 垃圾清理面板等同一个回调：能写就重扫一次，写不了由面板如实显示不可用。
+            try{rt.handle(new JSONObject().put("action","cleaner-permission"));}catch(Exception ignored){}
+            publish();
         }
     }
 
@@ -504,6 +509,22 @@ public final class MainActivity extends FlutterActivity {
         if(owner!=null&&owner.hasWindowFocus()){
             owner.requestPermissions(new String[]{android.Manifest.permission.RECORD_AUDIO},4106);
         }else context.startActivity(new Intent(context,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK).putExtra("uniSpectrumPermission",true));
+    }
+
+    /**
+     * 垃圾清理的存储权限。UNI 桌面的 signature|privileged 权限随平台签名自动授予，
+     * 只剩 WRITE_EXTERNAL_STORAGE 这类 dangerous 权限要过一次系统弹窗；面板打开时
+     * 直接请求，用户不应该看到「去授权」再跳设置页。
+     */
+    public void requestStoragePermission(){
+        if(android.os.Build.VERSION.SDK_INT>=23
+            &&checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)!=PackageManager.PERMISSION_GRANTED){
+            requestPermissions(new String[]{android.Manifest.permission.WRITE_EXTERNAL_STORAGE},REQUEST_STORAGE);
+        }else if(rt!=null){
+            // 权限本来就有（例如平台签名已授予或用户授权过），直接让清理器重扫一次。
+            try{rt.handle(new JSONObject().put("action","cleaner-permission"));}catch(Exception ignored){}
+            publish();
+        }
     }
     private boolean isSettingsIntent(Intent intent){
         return intent!=null&&(intent.getBooleanExtra("uniSettings",false)||

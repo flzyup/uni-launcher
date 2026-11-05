@@ -9,6 +9,7 @@ import 'dock_music_visual.dart';
 import 'dock_music_progress_background.dart';
 import 'uni_app_icon.dart';
 import 'file_transfer_popup.dart';
+import 'storage_cleaner_panel.dart';
 import 'uni_icon.dart';
 import 'dock_climate_button.dart';
 import 'media_artwork.dart';
@@ -409,6 +410,8 @@ Future<void> showUniDockMenu(BuildContext context, LauncherController c) async {
     await showVehiclePanel(context, c);
   } else if (selection == 'transfer') {
     await showFileTransferPopup(context, c);
+  } else if (selection == 'cleaner') {
+    await showCleanerPanel(context, c);
   } else if (selection == 'settings') {
     if (c.isGlobalDock) {
       await c.command('show-desktop-settings');
@@ -470,6 +473,13 @@ class _UniDockPopupRoute extends PopupRoute<String> {
                       title: '传文件/通网盘',
                       scale: scale,
                       onTap: () => Navigator.pop(context, 'transfer')),
+                  SizedBox(height: Design.px(8)),
+                  _UniPopupItem(
+                      key: const ValueKey('uni-menu-cleaner'),
+                      icon: UniIcon('broom', size: Design.px(29 * scale)),
+                      title: '垃圾清理',
+                      scale: scale,
+                      onTap: () => Navigator.pop(context, 'cleaner')),
                   SizedBox(height: Design.px(8)),
                   _UniPopupItem(
                       key: const ValueKey('uni-menu-settings'),

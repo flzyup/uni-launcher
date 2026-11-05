@@ -34,6 +34,8 @@ abstract final class Nocturne {
     'weather': Color(0x526FD3FF),
     'air': Color(0x576FD3FF),
     'cleanup': Color(0x476FD3FF),
+    // 垃圾清理面板沿用清理类卡片的青色，不新开色系。
+    'broom': Color(0x473BE2C0),
     'battery': Color(0x573BE2C0),
     'fuel': Color(0x573BE2C0),
     'tpms': Color(0x574E8CF8),
