@@ -16,10 +16,12 @@ import '../widgets/system_settings.dart';
 import '../widgets/setting_block.dart';
 import '../widgets/dock_size_settings.dart';
 import '../widgets/integration_settings.dart';
+import '../widgets/vehicle_memory_settings.dart';
 import '../widgets/spectrum_painter.dart';
 import '../ota/update_controller.dart';
 import '../ota/update_ui.dart';
 import '../widgets/ambient_light_settings.dart';
+import '../widgets/cluster_lyrics_settings.dart';
 import '../widgets/color_picker.dart';
 import '../widgets/native_slice_builder.dart';
 import '../platform/ambient_light.dart';
@@ -73,36 +75,27 @@ class SettingsScreen extends StatelessWidget {
                             width: Design.px(326),
                             child: GlassSurface(
                                 padding: EdgeInsets.all(Design.px(14)),
-                                child: Column(
+                                child: SingleChildScrollView(
+                                    child: Column(
                                     crossAxisAlignment:
                                         CrossAxisAlignment.stretch,
                                     children: [
                                       for (final (index, tab) in [
+                                        ('appearance', Icons.palette_outlined,
+                                            '外观与壁纸'),
+                                        ('dock', Icons.dashboard_outlined,
+                                            '应用与底栏'),
+                                        ('connections', Icons.route_outlined,
+                                            '导航与媒体'),
+                                        ('motion', Icons.animation_outlined,
+                                            '动画与频谱'),
+                                        ('ambient', Icons.light_outlined, '氛围灯'),
                                         (
-                                          'appearance',
-                                          Icons.palette_outlined,
-                                          '外观与壁纸'
+                                          'cluster',
+                                          Icons.connected_tv_outlined,
+                                          '仪表投屏'
                                         ),
-                                        (
-                                          'dock',
-                                          Icons.dashboard_outlined,
-                                          '应用与底栏'
-                                        ),
-                                        (
-                                          'connections',
-                                          Icons.route_outlined,
-                                          '导航与媒体'
-                                        ),
-                                        (
-                                          'motion',
-                                          Icons.animation_outlined,
-                                          '动画与频谱'
-                                        ),
-                                        (
-                                          'ambient',
-                                          Icons.light_outlined,
-                                          '氛围灯'
-                                        ),
+                                        ('memory', Icons.tune_outlined, '记忆配置'),
                                         (
                                           'system',
                                           Icons.settings_suggest_outlined,
@@ -112,7 +105,7 @@ class SettingsScreen extends StatelessWidget {
                                       ].indexed)
                                         Padding(
                                             padding: EdgeInsets.only(
-                                                bottom: index == 6
+                                                bottom: index == 8
                                                     ? 0
                                                     : Design.px(10)),
                                             child: _SettingsTab(
@@ -120,7 +113,7 @@ class SettingsScreen extends StatelessWidget {
                                                 id: tab.$1,
                                                 icon: tab.$2,
                                                 label: tab.$3))
-                                    ]))),
+                                    ])))),
                         SizedBox(width: Design.px(22)),
                         Expanded(
                             child: switch (c.settingsTab) {
@@ -136,6 +129,8 @@ class SettingsScreen extends StatelessWidget {
                           'connections' => const ConnectionSettings(),
                           'motion' => PageMotionSettings(controller: c),
                           'ambient' => AmbientLightSettingsTab(controller: c),
+                          'cluster' => const ClusterLyricsSettingsTab(),
+                          'memory' => VehicleMemorySettings(controller: c),
                           'system' => SystemSettingsPanel(controller: c),
                           'about' => update == null
                               ? const Center(child: Text('更新服务暂不可用'))
@@ -174,7 +169,11 @@ class _SettingsTab extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                           fontSize: Design.px(22),
-                          color: selected ? s.accent : s.text)))
+                          fontWeight:
+                              selected ? FontWeight.w500 : FontWeight.w400,
+                          // 选中项是实心主题色底，字必须用主题里为实心底配好的字色
+                          // （selectedText），否则主题色压主题色，字直接看不见。
+                          color: selected ? s.selectedText : s.text)))
             ])));
   }
 }
@@ -994,3 +993,4 @@ class PageMotionSettings extends StatelessWidget {
     ]));
   }
 }
+

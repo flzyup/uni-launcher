@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import '../platform/adaptive_quality.dart';
 import '../platform/native_gateway.dart';
 import '../controller/launcher_controller.dart';
 import '../theme/launcher_theme.dart';
@@ -10,6 +11,7 @@ import '../widgets/dock_window_scope.dart';
 import '../widgets/navigation_app_picker.dart';
 import '../widgets/music_app_picker.dart';
 import '../widgets/recent_tasks_panel.dart';
+import '../widgets/storage_cleaner_panel.dart';
 
 /// Separate, reusable window above the dock; never resizes its surface.
 class GlobalPanelApp extends StatefulWidget {
@@ -87,6 +89,8 @@ class _GlobalPanelAppState extends State<GlobalPanelApp> {
           await showMusicPicker(context, widget.controller);
         case 'uni-menu':
           await showUniDockMenu(context, widget.controller);
+        case 'cleaner':
+          await showCleanerPanel(context, widget.controller);
         case 'transfer':
           await showFileTransferPopup(context, widget.controller);
         case 'apps':
@@ -113,7 +117,7 @@ class _GlobalPanelAppState extends State<GlobalPanelApp> {
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
-      animation: widget.controller,
+      animation: Listenable.merge([widget.controller, AdaptiveQuality.shared]),
       builder: (context, _) => DockWindowScope(
           expand: (_) async {},
           onPresented: () =>
@@ -124,7 +128,8 @@ class _GlobalPanelAppState extends State<GlobalPanelApp> {
               theme: launcherTheme(SurfaceStyle.from(
                   widget.controller.appearance,
                   widget.controller.native.value['dark'] == true,
-                  adaptToWallpaper: true)),
+                  adaptToWallpaper: true,
+                  lowPower: AdaptiveQuality.shared.degraded)),
               color: Colors.transparent,
               home: Scaffold(
                   backgroundColor: Colors.transparent,

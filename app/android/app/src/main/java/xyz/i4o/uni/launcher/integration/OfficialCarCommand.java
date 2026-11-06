@@ -12,7 +12,38 @@ final class OfficialCarCommand {
         this.intValue = value; this.temperature = temperature; this.expected = expected;
     }
 
+    /** Field keys of the two 记忆配置 settings, shared with the reader's readback. */
+    static final String DRIVE_MODE = "driveMode", START_STOP = "startStop";
+
+    /** Drive mode and start-stop bypass the climate field pipeline: they have
+     * their own readback (DID / PA) and their own support query. */
+    static boolean isSetting(String action) {
+        return "drive-mode".equals(action) || "start-stop".equals(action);
+    }
+
+    /** Drives the SDK setter for DM_FUNC_DRIVE_MODE_SELECT; expected value is the
+     * DID name so a confirmed readback compares equal. */
+    static OfficialCarCommand driveMode(String mode) {
+        int selection = OfficialCarContract.driveModeSelection(mode);
+        if (selection < 0) return null;
+        // The SDK collapses SPORT_PLUS into RACE and CUSTOM into INDIVIDUAL. Accept
+        // only inputs whose own selection maps back to the same DID name, so the
+        // confirmation compares the request with what the car will actually report.
+        String expected = OfficialCarContract.driveModeNameForSelection(selection);
+        if (expected == null) return null;
+        return new OfficialCarCommand(DRIVE_MODE, OfficialCarContract.DRIVE_MODE, 0, selection, null, expected);
+    }
+
+    /** "on"/"off" -> CbSsActivation 1/0. expected is the PA boolean. */
+    static OfficialCarCommand startStop(String value) {
+        if (!"on".equals(value) && !"off".equals(value)) return null;
+        boolean on = "on".equals(value);
+        return new OfficialCarCommand(START_STOP, OfficialCarContract.START_STOP, 0, on ? 1 : 0, null, on);
+    }
+
     static String key(String action, String zone, String mode) {
+        if ("drive-mode".equals(action)) return DRIVE_MODE;
+        if ("start-stop".equals(action)) return START_STOP;
         if ("temp-up".equals(action) || "temp-down".equals(action))
             return "left".equals(zone) || "right".equals(zone) ? zone : null;
         if ("fan-up".equals(action) || "fan-down".equals(action)) return "fan";

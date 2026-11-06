@@ -219,7 +219,7 @@ class VehicleStatusDiagram extends StatelessWidget {
                           painter: _VehicleAmbientPainter(
                               color: surface.accent, dark: surface.dark))),
                   Image.asset(
-                      'assets/art/vehicle-status-front-left-transparent.png',
+                      'assets/art/vehicle-status-front-left-transparent.webp',
                       key: const ValueKey('vehicle-status-artwork'),
                       fit: BoxFit.contain,
                       filterQuality: FilterQuality.low,
@@ -579,7 +579,7 @@ class _Lynk05TopView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final trace = Image.asset(
-      'assets/art/lynk-05-top-line.png',
+      'assets/art/lynk-05-top-line.webp',
       fit: BoxFit.contain,
       filterQuality: FilterQuality.high,
       isAntiAlias: true,

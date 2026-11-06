@@ -5,12 +5,17 @@ import org.json.JSONObject;
 import xyz.i4o.uni.launcher.log.LogTags;
 import xyz.i4o.uni.launcher.log.UniLog;
 
-/** Read-only IP753 PHEV properties, borrowed from the existing reader worker.
+/** IP753 PHEV properties, borrowed from the existing reader worker.
  * Uses original HAL values: SDK enum helpers silently replace unknown values.
- * No charging command, drive-mode setter, connection or subscription is created.
+ * The class itself never writes and never opens a connection; the two settings
+ * with a write channel (drive mode, engine start-stop) are written by
+ * {@link OfficialCarReader} only when the user or the startup profile asked for
+ * exactly that value.
  */
 final class OfficialHybridReader {
-    static final int DRIVE_MODE = 0x21403018, HYBRID_SELECTED = 0x21701042;
+    static final int DRIVE_MODE = OfficialCarContract.PA_DRIVE_MODE;
+    static final int START_STOP = OfficialCarContract.PA_START_STOP;
+    static final int HYBRID_SELECTED = 0x21701042;
     static final int ENERGY_FLOW = 0x21701052, ELECTRIC_RANGE = 0x21701069;
     private static final String[] KEYS = {"driveMode", "hybridSelected", "energyFlow", "electricRange"};
     private final Object properties;
@@ -18,6 +23,7 @@ final class OfficialHybridReader {
 
     void appendTo(JSONObject fields) throws Exception {
         fields.put("driveMode", read(DRIVE_MODE).json());
+        fields.put("startStop", read(START_STOP).json());
         fields.put("hybridSelected", read(HYBRID_SELECTED).json());
         fields.put("energyFlow", read(ENERGY_FLOW).json());
         fields.put("electricRange", read(ELECTRIC_RANGE).json());
@@ -40,6 +46,8 @@ final class OfficialHybridReader {
 
     Sample read(int property) {
         Sample s = new Sample(property);
+        s.writeChannel = property == DRIVE_MODE ? OfficialCarContract.CB_DRIVE_MODE
+                : property == START_STOP ? OfficialCarContract.CB_START_STOP : 0;
         try {
             Class<?> type = property == DRIVE_MODE ? Integer.class : byte[].class;
             Object hal = properties.getClass().getMethod("getProperty", Class.class, int.class, int.class)
@@ -58,6 +66,12 @@ final class OfficialHybridReader {
                 s.availability = pa.availability; s.format = pa.format; s.status = pa.status;
                 if (!pa.active()) throw new IllegalStateException("PA_NOT_ACTIVE");
                 s.raw = pa.integerData();
+                if (property == START_STOP) {
+                    // CbSsActivationValue / PaSsActivationData are OFF(0)/ON(1). The SDK
+                    // mappers ignore the value and always answer ON, so it is decoded
+                    // here from the PA payload instead.
+                    s.value = s.raw != null && (s.raw == 0 || s.raw == 1) ? Boolean.valueOf(s.raw == 1) : null;
+                }
                 if (property == HYBRID_SELECTED) s.value = hybridSelected(s.raw);
                 if (property == ENERGY_FLOW) s.value = energyFlow(s.raw);
                 if (property == ELECTRIC_RANGE) {
@@ -79,11 +93,7 @@ final class OfficialHybridReader {
         return s;
     }
 
-    static String driveMode(Integer raw) {
-        String[] values = {"ECO", "COMFORT", "DYNAMIC", "INDIVIDUAL", "XC", "HDC",
-                "PURE", "HYBRID", "POWER", "RACE", "ECO_HEV_PHEV", "COMFORT_HEV"};
-        return raw != null && raw >= 1 && raw <= values.length ? values[raw - 1] : null;
-    }
+    static String driveMode(Integer raw) { return OfficialCarContract.driveModeName(raw); }
     static Boolean hybridSelected(Integer raw) {
         return raw != null && (raw == 0 || raw == 1) ? raw == 1 : null;
     }
@@ -103,16 +113,23 @@ final class OfficialHybridReader {
         Integer raw, availability, format, status;
         Object value;
         String reason = "UNAVAILABLE", unit = "";
+        /** HAL command property paired with this state property; 0 when read-only. */
+        int writeChannel;
         Sample(int property) { this.property = property; }
         JSONObject json() throws Exception {
             JSONObject j = new JSONObject().put("propertyId", property).put("areaId", 0)
                     .put("source", "官方 CarPropertyManager / IP753 PHEV")
-                    .put("valid", valid).put("writable", false).put("verified", false)
+                    .put("valid", valid)
+                    // writable describes the HAL channel (access 0x2 on this car), not
+                    // whether the caller holds the permission or the SDK write contract.
+                    .put("writable", writeChannel != 0)
+                    .put("writeChannel", writeChannel).put("verified", false)
                     .put("apiVerified", true).put("halStatus", halStatus)
                     .put("sourceTimestampNanos", timestamp).put("raw", raw)
                     .put("availabilityRaw", availability).put("formatRaw", format)
                     .put("statusRaw", status).put("unit", unit).put("reason", reason);
-            if (valid) j.put("value", value).put("updatedAtMs", System.currentTimeMillis());
+            if (valid) j.put("value", value).put("updatedAtMs", System.currentTimeMillis())
+                    .put("updatedAtElapsedMs", android.os.SystemClock.elapsedRealtime());
             return j;
         }
     }

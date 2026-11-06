@@ -415,7 +415,7 @@ void main() {
     await t.pumpWidget(VehicleCardGallery(
         fontFamily: output.isEmpty ? null : 'VehicleGalleryReview'));
     await t.runAsync(() => precacheImage(
-        const AssetImage('assets/art/lynk-05-top-line.png'),
+        const AssetImage('assets/art/lynk-05-top-line.webp'),
         t.element(find.byType(VehicleCardGallery))));
     await t.pumpAndSettle();
     for (final (appearance, state, suffix) in cases) {

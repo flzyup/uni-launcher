@@ -1,0 +1,232 @@
+{
+  "version": 3,
+  "updated": "2026-11-05",
+  "note": "路径按逻辑根 /sdcard 书写，物理路径由 StorageCleaner 映射。条目的归属规则 = 按本文件顺序第一条命中且 check 通过的规则，所以顺序即优先级。verified=false 的类目只展示、不默认勾选；never 优先于一切 rules。",
+  "rules": [
+    {
+      "id": "external-cache",
+      "name": "应用外部缓存",
+      "group": "cache",
+      "risk": "safe",
+      "source": "aosp-app-specific-cache",
+      "verified": true,
+      "default": true,
+      "roots": ["/sdcard/Android/data"],
+      "globs": [
+        "/sdcard/Android/data/*/cache",
+        "/sdcard/Android/data/*/code_cache"
+      ],
+      "contents": true,
+      "maxDepth": 3,
+      "note": "应用存在公共存储里的缓存，会自动重建"
+    },
+    {
+      "id": "thumbnails",
+      "name": "缩略图缓存",
+      "group": "junk",
+      "risk": "safe",
+      "source": "aosp-mediaprovider",
+      "verified": true,
+      "default": true,
+      "roots": ["/sdcard"],
+      "globs": ["/sdcard/**/.thumbnails", "/sdcard/**/thumbnails"],
+      "contents": true,
+      "maxDepth": 8,
+      "note": "相册缩略图，系统会重新生成"
+    },
+    {
+      "id": "ad-cache",
+      "name": "广告与分析缓存",
+      "group": "junk",
+      "risk": "low",
+      "source": "systemcleaner:ad-filter",
+      "verified": true,
+      "default": false,
+      "roots": ["/sdcard"],
+      "globs": [
+        "/sdcard/**/.admob/**",
+        "/sdcard/**/adcache/**",
+        "/sdcard/**/*ADCache*/**",
+        "/sdcard/**/.ads/**",
+        "/sdcard/**/.bugly/**",
+        "/sdcard/**/.umeng/**",
+        "/sdcard/**/.tbslog/**",
+        "/sdcard/**/.csj/**",
+        "/sdcard/**/.pangle/**",
+        "/sdcard/**/.txad/**",
+        "/sdcard/**/.gdt/**",
+        "/sdcard/**/.ksad/**",
+        "/sdcard/**/.mob/**"
+      ],
+      "maxDepth": 8,
+      "note": "第三方 SDK 留下的缓存目录；csj/pangle 是穿山甲，txad 是优量汇，gdt 是广点通，ksad 是快手联盟"
+    },
+    {
+      "id": "log",
+      "name": "日志与临时文件",
+      "group": "junk",
+      "risk": "low",
+      "source": "systemcleaner:log-filter",
+      "verified": true,
+      "default": true,
+      "roots": ["/sdcard"],
+      "globs": [
+        "/sdcard/**/*.log",
+        "/sdcard/**/*.log.txt",
+        "/sdcard/**/*.log.?*",
+        "/sdcard/**/*.tmp",
+        "/sdcard/**/*.temp",
+        "/sdcard/**/*.dmp",
+        "/sdcard/**/*.stacktrace",
+        "/sdcard/**/*.crash"
+      ],
+      "paths": ["/sdcard/LOST.DIR", "/sdcard/.tmp"],
+      "minAgeDays": 3,
+      "maxDepth": 8,
+      "note": "只清 3 天前的日志与临时文件；*.log.1 这类滚动日志一并算进来"
+    },
+    {
+      "id": "orphan-data",
+      "name": "卸载残留",
+      "group": "leftover",
+      "risk": "review",
+      "source": "systemcleaner:uninstalled",
+      "check": "orphan-package",
+      "verified": true,
+      "default": false,
+      "roots": ["/sdcard/Android/data", "/sdcard/Android/obb"],
+      "globs": ["/sdcard/Android/data/*", "/sdcard/Android/obb/*"],
+      "maxDepth": 3,
+      "note": "应用已卸载但数据目录还在"
+    },
+    {
+      "id": "apk-leftover",
+      "name": "安装包",
+      "group": "leftover",
+      "risk": "review",
+      "source": "systemcleaner:outdated-apks",
+      "check": "apk-outdated",
+      "verified": true,
+      "default": false,
+      "roots": ["/sdcard"],
+      "globs": [
+        "/sdcard/**/*.apk",
+        "/sdcard/**/*.apks",
+        "/sdcard/**/*.xapk",
+        "/sdcard/**/*.apkm"
+      ],
+      "extensions": ["apk", "apks", "xapk", "apkm"],
+      "minSize": 524288,
+      "minAgeDays": 1,
+      "maxDepth": 8,
+      "note": "全盘安装包；只算已安装且版本不高于已装版本的"
+    },
+    {
+      "id": "empty-dir",
+      "name": "空文件夹",
+      "group": "junk",
+      "risk": "low",
+      "source": "systemcleaner:empty-folders",
+      "check": "empty-dir",
+      "verified": true,
+      "default": false,
+      "roots": ["/sdcard"],
+      "globs": ["/sdcard/**"],
+      "maxDepth": 6,
+      "note": "只删完全空的目录"
+    },
+    {
+      "id": "large-unused",
+      "name": "长期未动的大文件",
+      "group": "large",
+      "risk": "review",
+      "source": "haobo-cleaner:large-files",
+      "verified": true,
+      "default": false,
+      "roots": ["/sdcard"],
+      "minSize": 209715200,
+      "minAgeDays": 90,
+      "maxDepth": 8,
+      "note": "不一定是垃圾，勾选前请核对"
+    }
+  ],
+  "never": [
+    {
+      "globs": ["/sdcard/DCIM/**"],
+      "except": ["/sdcard/DCIM/.thumbnails"],
+      "reason": "照片与行车记录"
+    },
+    {
+      "paths": [
+        "/sdcard/Pictures",
+        "/sdcard/Music",
+        "/sdcard/Movies",
+        "/sdcard/Podcasts",
+        "/sdcard/Ringtones",
+        "/sdcard/Alarms",
+        "/sdcard/Notifications"
+      ],
+      "reason": "用户媒体"
+    },
+    {
+      "paths": [
+        "/sdcard/amapauto8",
+        "/sdcard/amapauto9",
+        "/sdcard/AMapAuto",
+        "/sdcard/AutoNavi",
+        "/sdcard/baidumap",
+        "/sdcard/BaiduNavi",
+        "/sdcard/tencent"
+      ],
+      "reason": "导航离线地图与应用数据"
+    },
+    {
+      "globs": [
+        "/sdcard/Android/data/*/files",
+        "/sdcard/Android/data/*/databases",
+        "/sdcard/Android/data/*/shared_prefs",
+        "/sdcard/Android/data/*/lib",
+        "/sdcard/Android/data/*/no_backup",
+        "/sdcard/Android/data/*/app_*"
+      ],
+      "reason": "应用数据"
+    },
+    {
+      "globs": ["/sdcard/Android/media/**"],
+      "reason": "应用媒体"
+    },
+    {
+      "globs": ["/sdcard/*dvr*/**", "/sdcard/*DVR*/**", "/sdcard/video*/**", "/sdcard/Video*/**"],
+      "reason": "行车记录仪视频"
+    },
+    {
+      "globs": ["/sdcard/ota*/**", "/sdcard/update*.zip", "/sdcard/*.bin", "/sdcard/firmware*/**"],
+      "reason": "OTA 包与固件"
+    },
+    {
+      "globs": [
+        "/sdcard/*.tgz",
+        "/sdcard/*.tar.gz",
+        "/sdcard/*.tar",
+        "/sdcard/*.img",
+        "/sdcard/sys-apks*",
+        "/sdcard/*speech*.tgz"
+      ],
+      "reason": "系统备份与镜像"
+    },
+    {
+      "globs": [
+        "/sdcard/**/*.db",
+        "/sdcard/**/*.db-wal",
+        "/sdcard/**/*.db-shm",
+        "/sdcard/**/*.db-journal",
+        "/sdcard/**/shared_prefs/**"
+      ],
+      "reason": "数据库与配置"
+    },
+    {
+      "globs": ["/sdcard/uninstall*/**", "/sdcard/backup*/**"],
+      "reason": "备份"
+    }
+  ]
+}

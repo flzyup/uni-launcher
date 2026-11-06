@@ -82,6 +82,17 @@ public final class OfficialCarReader implements VehicleAdapter {
     private final Deque<RestoreStep> restoreQueue=new ArrayDeque<>();
     private JSONObject lastPowerField, nextRestoreProfile, restoreProfile;
     private boolean restoringClimate;
+    // 记忆配置: drive mode and engine start-stop, retried with a cooldown until the
+    // car answers. The queue is worker-only; the published object only carries outcomes.
+    private final Deque<MemoryWrite> memoryQueue = new ArrayDeque<>();
+    private final JSONObject memoryState = new JSONObject();
+    /** 两次尝试之间的最小间隔；开机早期原车常还没上报 PA 值。 */
+    private static final long MEMORY_RETRY_MS = 20000;
+    /** 每项最多尝试次数，以及整段重试窗口。 */
+    private static final int MEMORY_MAX_ATTEMPTS = 6;
+    private static final long MEMORY_WINDOW_MS = 5 * 60 * 1000L;
+    private long lastMemoryAtMs; // worker only
+    private long startedAtElapsed;
 
     public OfficialCarReader(Context context) { this(context, null); }
 
@@ -95,6 +106,7 @@ public final class OfficialCarReader implements VehicleAdapter {
         if (started || closed) return;
         started = true;
         UniLog.i(LogTags.VEHICLE, "车辆读取器启动", "source", "official");
+        startedAtElapsed = SystemClock.elapsedRealtime();
         main.post(new Runnable() { public void run() { initializeOnMain(); } });
         // A fixed 1s period walks the OEM bus even while another app is on screen.
         // Reschedule instead so the cadence can follow our visibility.
@@ -133,6 +145,7 @@ public final class OfficialCarReader implements VehicleAdapter {
      * No intent/receiver/background task calls this method. One command at a time.
      */
     @Override public synchronized boolean command(final String action, final String zone, final String mode) {
+        if (OfficialCarCommand.isSetting(action)) return settingCommand(action, mode);
         boolean acquired = false;
         final String key = OfficialCarCommand.key(action, zone, mode);
         if (key == null || closed || !started || !sdkReady || propertyManager == null || !permitted()) {
@@ -180,6 +193,204 @@ public final class OfficialCarReader implements VehicleAdapter {
             UniLog.w(LogTags.VEHICLE, "命令入队失败", e, "key", key, "action", action);
             return false;
         }
+    }
+
+    /** User-initiated drive-mode / start-stop write. Same single-slot pipeline as
+     * the climate commands: one write at a time, 5s readback, never replayed. */
+    private synchronized boolean settingCommand(String action, String value) {
+        if (closed || !started || !sdkReady || propertyManager == null || !permitted()
+                || !writeSignaturesAvailable) return false;
+        OfficialCarCommand plan = plan(action, value);
+        if (plan == null || !settingSupported(plan)) {
+            if (plan != null) {
+                int[] values = supportedValues(plan);
+                commandStatus(++commandSequence, plan.key, "rejected",
+                        values == null || values.length == 0
+                                ? "原车尚未报告支持列表，稍后再试" : "车辆不支持该设置值");
+            }
+            return false;
+        }
+        if (!commandBusy.compareAndSet(false, true)) return false;
+        final long id = ++commandSequence, requestedAt = SystemClock.elapsedRealtime();
+        final int epoch = connectionEpoch.get();
+        commandStatus(id, plan.key, "queued", "等待发送");
+        try {
+            worker.execute(new Runnable() { public void run() { executeSetting(id, plan, requestedAt, epoch, false); } });
+            return true;
+        } catch (RejectedExecutionException e) { commandBusy.set(false); return false; }
+    }
+
+    private static OfficialCarCommand plan(String action, String value) {
+        return "drive-mode".equals(action) ? OfficialCarCommand.driveMode(value)
+                : "start-stop".equals(action) ? OfficialCarCommand.startStop(value) : null;
+    }
+
+    /** The support table is the only gate for these two functions: a failed query
+     * must never turn into a blind write. An empty table means "not answered yet",
+     * not "unsupported" — the two are told apart by the caller. */
+    private int[] supportedValues(OfficialCarCommand command) {
+        try {
+            return (int[]) call(functions, "getSupportedFunctionValue", new Class<?>[]{int.class}, command.function);
+        } catch (Exception | LinkageError e) { return null; }
+    }
+
+    private boolean settingSupported(OfficialCarCommand command) {
+        int[] values = supportedValues(command);
+        return values != null && values.length > 0
+                && OfficialCarContract.containsValue(values, command.intValue);
+    }
+
+    /** The second SDK setter call site, for the two settings outside the climate
+     * profile. Only command() or the startup queue can schedule this method. */
+    private void executeSetting(long id, OfficialCarCommand plan, long requestedAt, int epoch, boolean startup) {
+        try {
+            requireCommandConnection(requestedAt, epoch);
+            if (!settingSupported(plan)) throw new IllegalStateException("UNSUPPORTED_VALUE");
+            JSONObject field = freshSettingField(plan.key);
+            if (field == null || !field.optBoolean("valid")) throw new IllegalStateException("TARGET_READ_INVALID");
+            if (OfficialCarCommand.matches(field.opt("value"), plan.expected)) {
+                commandStatus(id, plan.key, "unchanged", "目标已达到，无需发送");
+                if (startup) memoryResult(plan.key, "unchanged", "当前已是记忆值");
+                commandBusy.set(false); pumpMemory(); return;
+            }
+            requireCommandConnection(requestedAt, epoch);
+            Object accepted = call(functions, "setFunctionValue", new Class<?>[]{int.class, int.class},
+                    plan.function, plan.intValue);
+            if (!Boolean.TRUE.equals(accepted)) throw new IllegalStateException("SDK_REJECTED");
+            pending = new PendingCommand(id, plan.key, plan.expected,
+                    field.optLong("sourceTimestampNanos", 0), epoch, startup);
+            commandStatus(id, plan.key, "sent", startup ? "启动记忆配置：已发送，等待状态读回" : "已发送，等待状态读回");
+            refreshSoon();
+        } catch (Exception | LinkageError e) {
+            pending = null;
+            String reason = failure(e);
+            commandStatus(id, plan.key, "failed", reason);
+            if (startup) {
+                // 开机早期原车还没答复支持表/PA 值属于「稍后再试」，不是失败结论。
+                if (reason.contains("UNSUPPORTED_VALUE")) {
+                    memoryResult(plan.key, "skipped", "车辆不支持该设置值", MEMORY_MAX_ATTEMPTS);
+                } else if (reason.contains("TARGET_READ_INVALID")) {
+                    memoryResult(plan.key, "skipped", "未读到当前值，等待原车上报");
+                } else if (reason.contains("CONNECTION_CHANGED")) {
+                    memoryResult(plan.key, "skipped", "车辆连接已变化，稍后重试");
+                } else {
+                    memoryResult(plan.key, "failed", reason);
+                }
+            }
+            commandBusy.set(false); pumpMemory();
+        }
+    }
+
+    /** A fresh HAL read of exactly one setting, used before a write and as the
+     * confirmation baseline. Never trusts the SDK getter (see OfficialCarContract). */
+    private JSONObject freshSettingField(String key) {
+        try {
+            int property = OfficialCarCommand.DRIVE_MODE.equals(key)
+                    ? OfficialHybridReader.DRIVE_MODE : OfficialHybridReader.START_STOP;
+            return new OfficialHybridReader(propertyManager).read(property).json();
+        } catch (Exception | LinkageError e) { return null; }
+    }
+
+    /**
+     * 决定「记忆配置」这一进程要不要落到车上：按节流多次尝试，直到两项都有结论。
+     * 开机前几十秒原车往往还没上报 PA 值、SDK 支持表也是空的，所以第一次失败
+     * 不等于不支持；只要原因还是「没读到 / 还没上报」就隔 20 秒再试，最多 6 次。
+     * 真正不支持、已确认、已是记忆值这三种情况立刻收手。
+     */
+    private void queueMemory() {
+        if (closed) return;
+        if (!writeSignaturesAvailable || !permitted()) return;
+        long now = SystemClock.elapsedRealtime();
+        if (now - startedAtElapsed < 3000) return;
+        if (now - startedAtElapsed > MEMORY_WINDOW_MS) return;
+        if (now - lastMemoryAtMs < MEMORY_RETRY_MS) return;
+        android.content.SharedPreferences preferences =
+                context.getSharedPreferences("launcher", Context.MODE_PRIVATE);
+        if (preferences.getBoolean("demo", false)) return;
+        boolean queued = false;
+        if (preferences.getBoolean("memoryDriveModeEnabled", false)) {
+            OfficialCarCommand plan = OfficialCarCommand.driveMode(preferences.getString("memoryDriveMode", ""));
+            queued |= enqueueMemory(OfficialCarCommand.DRIVE_MODE, plan, "记忆的驾驶模式值无效", now);
+        }
+        if (preferences.getBoolean("memoryStartStopEnabled", false)) {
+            OfficialCarCommand plan = OfficialCarCommand.startStop(
+                    preferences.getBoolean("memoryStartStop", true) ? "on" : "off");
+            queued |= enqueueMemory(OfficialCarCommand.START_STOP, plan, "记忆的启停值无效", now);
+        }
+        if (queued) {
+            lastMemoryAtMs = now;
+            pumpMemory();
+        }
+    }
+
+    /** true 表示这一轮还要继续（已入队或需要稍后重试）。 */
+    private boolean enqueueMemory(String key, OfficialCarCommand plan, String invalidReason, long now) {
+        if (plan == null) { memoryResult(key, "skipped", invalidReason); return false; }
+        JSONObject item = memoryState.optJSONObject(key);
+        String state = item == null ? "" : item.optString("state", "");
+        int attempts = item == null ? 0 : item.optInt("attempts", 0);
+        // 有结论的状态：确认、已是记忆值、值无效；以及仍在管线里的排队/已发送。
+        if ("confirmed".equals(state) || "unchanged".equals(state)) return false;
+        if ("queued".equals(state) || "sent".equals(state)) return false;
+        if (attempts >= MEMORY_MAX_ATTEMPTS) return false;
+        JSONObject field = settingField(key);
+        if (field == null || !field.optBoolean("valid")) {
+            memoryResult(key, "skipped", "未读到当前值，等待原车上报", attempts + 1);
+            return true;
+        }
+        memoryResult(key, "queued", "等待发送", attempts + 1);
+        memoryQueue.add(new MemoryWrite(key, plan));
+        return true;
+    }
+
+    private void pumpMemory() {
+        if (closed || pending != null) return;
+        MemoryWrite write = null;
+        while (!memoryQueue.isEmpty()) {
+            write = memoryQueue.poll();
+            int[] values = supportedValues(write.plan);
+            if (values == null || values.length == 0) {
+                // 支持表还没答复：留到下一轮，别当成「不支持」。
+                memoryResult(write.key, "skipped", "原车尚未报告支持列表，稍后重试");
+                write = null;
+                continue;
+            }
+            if (OfficialCarContract.containsValue(values, write.plan.intValue)) break;
+            memoryResult(write.key, "skipped", "车辆不支持该设置值", MEMORY_MAX_ATTEMPTS);
+            write = null;
+        }
+        if (write == null) return;
+        if (!commandBusy.compareAndSet(false, true)) { memoryQueue.addFirst(write); return; }
+        final MemoryWrite step = write;
+        final long id = ++commandSequence, requestedAt = SystemClock.elapsedRealtime();
+        final int epoch = connectionEpoch.get();
+        commandStatus(id, step.key, "queued", "启动记忆配置：等待发送");
+        try {
+            worker.execute(new Runnable() { public void run() { executeSetting(id, step.plan, requestedAt, epoch, true); } });
+        } catch (RejectedExecutionException e) {
+            commandBusy.set(false); memoryResult(step.key, "failed", "命令线程不可用");
+        }
+    }
+
+    private void memoryResult(String key, String state, String reason) {
+        memoryResult(key, state, reason, -1);
+    }
+
+    private void memoryResult(String key, String state, String reason, int attempts) {
+        if (key == null) return;
+        try {
+            JSONObject item = memoryState.optJSONObject(key);
+            if (item == null) { item = new JSONObject(); memoryState.put(key, item); }
+            item.put("state", state).put("reason", reason).put("updatedAtMs", System.currentTimeMillis());
+            if (attempts >= 0) item.put("attempts", attempts);
+        } catch (Exception ignored) {}
+    }
+
+    private JSONObject settingField(String key) {
+        try {
+            JSONObject fields = snapshot().optJSONObject("fields");
+            return fields == null ? null : fields.optJSONObject(key);
+        } catch (Exception e) { return null; }
     }
 
     /** Latest official PAC camera gate: -1 disconnected/unknown, otherwise
@@ -414,6 +625,7 @@ public final class OfficialCarReader implements VehicleAdapter {
             if (pt.isEmpty() || "UNKNOWN".equals(pt)) pt = OfficialVehicleSensors.queryVehicleType(sdkCar);
             if (!pt.isEmpty() && !"UNKNOWN".equals(pt)) state.put("powertrainType", pt);
             new OfficialHybridReader(propertyManager).appendTo(fields);
+            state.put("settings", settingsSnapshot(fields, errors));
             if (SystemClock.elapsedRealtime() - bodyProbeAt >= 5000 || bodyProbeAt == 0) {
                 bodyProbeAt = SystemClock.elapsedRealtime();
                 bodyProbeJson = readBodyProbe().toString();
@@ -504,11 +716,14 @@ public final class OfficialCarReader implements VehicleAdapter {
             }
             checkPending(fields);
             state.put("writable", anyWritable).put("readOnly", false).put("climateCapabilities", capabilities);
+            state.put("memory", new JSONObject(memoryState.toString()));
             state.put("connected", true).put("validFieldCount", validCount)
                     .put("reason", validCount > 0 ? "已读取官方车辆状态；按各项能力接受用户操作" : "服务已连接，字段尚无有效读数");
             publish(state);
             // 读到了就把「读不到」的原因清掉，下次再坏会重新记一条。
             lastUnavailableReason = "";
+            queueMemory();
+            pumpMemory();
             UniLog.done(LogTags.VEHICLE, "vehicle/read", "validFields", validCount,
                     "invalidFields", invalidCount, "writable", anyWritable, "errors", errors.length());
         } catch (Exception | LinkageError e) {
@@ -589,6 +804,49 @@ public final class OfficialCarReader implements VehicleAdapter {
     private static void appendProbeDetail(StringBuilder details, String name, String reason) {
         if (details.length() > 0) details.append(';');
         details.append(name).append("(reason=").append(reason).append(')');
+    }
+
+    /** Read and support surface of the two 记忆配置 settings. Support comes from
+     * the SDK value table, never from PA availability alone. */
+    private JSONObject settingsSnapshot(JSONObject fields, JSONArray errors) throws Exception {
+        JSONObject settings = new JSONObject();
+        JSONArray modes = new JSONArray();
+        try {
+            int[] values = (int[]) call(functions, "getSupportedFunctionValue", new Class<?>[]{int.class},
+                    OfficialCarContract.DRIVE_MODE);
+            if (values != null)
+                for (int value : values) {
+                    String name = OfficialCarContract.driveModeNameForSelection(value);
+                    if (name != null) modes.put(name);
+                }
+        } catch (Exception | LinkageError e) { errors.put("driveModes:" + failure(e)); }
+        boolean startStopTable = false;
+        try {
+            int[] values = (int[]) call(functions, "getSupportedFunctionValue", new Class<?>[]{int.class},
+                    OfficialCarContract.START_STOP);
+            startStopTable = values != null && OfficialCarContract.containsValue(values, 0)
+                    && OfficialCarContract.containsValue(values, 1);
+        } catch (Exception | LinkageError e) { errors.put("startStopSupport:" + failure(e)); }
+        boolean commandable = writeSignaturesAvailable && permitted();
+        JSONObject driveMode = fields.optJSONObject("driveMode"), startStop = fields.optJSONObject("startStop");
+        boolean driveModeReadable = driveMode != null && driveMode.optBoolean("valid");
+        boolean startStopReadable = startStop != null && startStop.optBoolean("valid");
+        settings.put("driveMode", new JSONObject()
+                .put("propertyId", OfficialCarContract.PA_DRIVE_MODE)
+                .put("writeFunction", OfficialCarContract.DRIVE_MODE)
+                .put("writeChannel", OfficialCarContract.CB_DRIVE_MODE)
+                .put("supported", modes).put("readable", driveModeReadable)
+                .put("current", driveModeReadable ? driveMode.opt("value") : JSONObject.NULL)
+                .put("commandable", commandable && modes.length() > 0));
+        settings.put("startStop", new JSONObject()
+                .put("propertyId", OfficialCarContract.PA_START_STOP)
+                .put("writeFunction", OfficialCarContract.START_STOP)
+                .put("writeChannel", OfficialCarContract.CB_START_STOP)
+                .put("supported", new JSONArray().put(Boolean.FALSE).put(Boolean.TRUE))
+                .put("readable", startStopReadable)
+                .put("current", startStopReadable ? startStop.opt("value") : JSONObject.NULL)
+                .put("commandable", commandable && startStopTable));
+        return settings;
     }
 
     private JSONObject readField(String key, int property, int function, int zone, String kind) throws Exception {
@@ -837,12 +1095,15 @@ public final class OfficialCarReader implements VehicleAdapter {
         boolean powerOnConfirmed = "power".equals(pending.key) && Boolean.TRUE.equals(pending.expected) && "confirmed".equals(status);
         if (powerOffConfirmed) { restoreProfile = nextRestoreProfile; nextRestoreProfile = null; }
         if (!"confirmed".equals(status)) { restoreQueue.clear(); restoringClimate = false; }
+        boolean startupSetting = pending.startup;
+        if (startupSetting) memoryResult(pending.key, status, reason);
         pending = null;
         if (powerOnConfirmed && restoreProfile != null && restoreProfile.length() > 0) {
             beginClimateRestore(); return;
         }
         if (restoringClimate && !restoreQueue.isEmpty()) { scheduleNextRestore(); return; }
         restoringClimate = false; commandBusy.set(false);
+        if (startupSetting) pumpMemory();
     }
 
     private void commandStatus(long id, String key, String status, String reason) {
@@ -868,9 +1129,21 @@ public final class OfficialCarReader implements VehicleAdapter {
         final String key;
         final Object expected;
         final int epoch;
+        /** true when the startup 记忆配置 profile issued this write. */
+        final boolean startup;
         PendingCommand(long id, String key, Object expected, long sourceTimestamp, int epoch) {
-            this.id = id; this.key = key; this.expected = expected; this.sourceTimestamp = sourceTimestamp; this.epoch = epoch;
+            this(id, key, expected, sourceTimestamp, epoch, false);
         }
+        PendingCommand(long id, String key, Object expected, long sourceTimestamp, int epoch, boolean startup) {
+            this.id = id; this.key = key; this.expected = expected; this.sourceTimestamp = sourceTimestamp;
+            this.epoch = epoch; this.startup = startup;
+        }
+    }
+
+    private static final class MemoryWrite {
+        final String key;
+        final OfficialCarCommand plan;
+        MemoryWrite(String key, OfficialCarCommand plan) { this.key = key; this.plan = plan; }
     }
 
     private static Object decode(OfficialCarPayload pa, String kind, JSONObject field) throws Exception {

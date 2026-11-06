@@ -17,8 +17,16 @@ import xyz.i4o.uni.launcher.core.MediaSourcePolicy;
 import xyz.i4o.uni.launcher.core.MediaTextRetention;
 import xyz.i4o.uni.launcher.log.LogTags;
 import xyz.i4o.uni.launcher.log.UniLog;
+import xyz.i4o.uni.launcher.core.SteeringKeyPolicy;
+import xyz.i4o.uni.launcher.integration.lyrics.LyricCast;
+import java.util.HashMap;
+import java.util.Map;
+import xyz.i4o.uni.launcher.integration.lyrics.LyricOffset;
+import xyz.i4o.uni.launcher.integration.lyrics.LyricTimelineProvider;
+import xyz.i4o.uni.launcher.integration.lyrics.EmbeddedLyricReader;
 import android.graphics.Bitmap;
 import android.util.Base64;
+import java.util.LinkedHashMap;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.util.List;
@@ -29,14 +37,29 @@ public final class MediaAdapter {
     private final Context context;
     private final MediaSessionManager manager;
     private final MediaSession steeringSession;
+    private final SteeringKeyBridge steeringKeys;
+    private final SteeringKeyPolicy.Debounce steeringDedupe=new SteeringKeyPolicy.Debounce();
+    /** 设置页「方向盘控制音乐」的开关，默认开。关掉后不接原车输入、也不处理任何方控键。 */
+    private volatile boolean steeringEnabled=true;
+    /** 设置页「仪表同步」的开关，默认开。关掉后不再向原车媒体中心注册/上报。 */
+    private volatile boolean instrumentEnabled=true;
+    private final SteeringKeyInjector injector;
+    private final KugouKeyRelay kugou;
+    /** 注入下去的键会从原车输入回调或标准会话再回来一次：这个窗口内同一动作只认第一次。 */
+    private static final long INJECT_ECHO_MS=250;
+    private long lastInjectAt=Long.MIN_VALUE/2;
+    private String lastInjectKind="";
     private final OfficialMediaBridge officialBridge;
     private final ComponentName listener;
     private final Runnable changed;
     private final NeteaseMediaAdapter netease;
     private final LyricsResolver lyrics;
+ private final LyricTimelineProvider timeline;
     private final Handler handler=new Handler();
     private MediaController controller;
     private boolean authorized;
+    /** Whether the session listener is currently registered; see {@link #started()}. */
+    private boolean started;
     private String preferred="auto";
     private String lastSource="";
     private final android.content.SharedPreferences lastTrackPrefs;
@@ -140,13 +163,17 @@ public final class MediaAdapter {
         lastTrackPrefs=context.getSharedPreferences("uni_last_track",Context.MODE_PRIVATE);
         lastSource=lastTrackPrefs.getString("source", "");
         lyrics=new LyricsResolver(new File(context.getFilesDir(),"media-lyrics"),changed);
+        timeline=new LyricTimelineProvider(new File(context.getFilesDir(),"lyric-timeline"));
         listener=new ComponentName(context,MediaAccessService.class);
         officialBridge=new OfficialMediaBridge(context,(action,source)->{
             if("select-online".equals(action))return selectOnline(source);
             if("select-bluetooth".equals(action))return selectBluetooth();
             if(controller==null||!source.equals(controller.getPackageName()))return false;
-            if("play".equals(action)){setPlaying(true);return true;}
-            if("pause".equals(action)){setPlaying(false);return true;}
+            // 原车媒体中心的传输回调也算一条外部通道：和方控输入回调折叠，
+            // 同一次按键不会既被输入通道切一次、又被媒体中心切回去。
+            if("play".equals(action)||"pause".equals(action)||"next".equals(action)||"previous".equals(action)){
+                onSteeringAction("oem",action);return true;
+            }
             return command(action);
         },changed);
         String savedOnline=lastTrackPrefs.getString("lastOnlineSource", "");
@@ -155,21 +182,55 @@ public final class MediaAdapter {
         steeringSession=new MediaSession(context,"UNI steering media bridge");
         steeringSession.setFlags(MediaSession.FLAG_HANDLES_MEDIA_BUTTONS|MediaSession.FLAG_HANDLES_TRANSPORT_CONTROLS);
         steeringSession.setCallback(new MediaSession.Callback(){
-            @Override public void onPlay(){setPlaying(true);}
-            @Override public void onPause(){setPlaying(false);}
-            @Override public void onSkipToNext(){command("next");}
-            @Override public void onSkipToPrevious(){command("previous");}
+            // 标准会话回调同样走外部通道：系统媒体键路由和原车派发的是同一次按键。
+            @Override public void onPlay(){onSteeringAction("session","play");}
+            @Override public void onPause(){onSteeringAction("session","pause");}
+            @Override public void onSkipToNext(){onSteeringAction("session","next");}
+            @Override public void onSkipToPrevious(){onSteeringAction("session","previous");}
             @Override public void onSeekTo(long position){command("seek",position);}
         },handler);
+        steeringKeys=new SteeringKeyBridge(context,(action,keyCode)->onSteeringAction("input",action));
+        injector=new SteeringKeyInjector(context);
+        kugou=new KugouKeyRelay(context);
     }
     public void start(){
         stop();
         UniLog.enter(LogTags.MEDIA,"media/session","action","bind");
+        started=true;
         try{manager.addOnActiveSessionsChangedListener(sessions,listener,handler);select(manager.getActiveSessions(listener));authorized=true;
             UniLog.done(LogTags.MEDIA,"media/session","authorized",true,"sessions",observed.size());}
         catch(SecurityException e){authorized=false;select(null);
             UniLog.fail(LogTags.MEDIA,"media/session","reason","media-access-not-authorized","error",e.getClass().getSimpleName());}
         officialBridge.start();
+        steeringDedupe.reset();
+        // 方控开关关着时不接原车输入通道：方向盘键原样留给原车，桌面完全不参与。
+        if(steeringEnabled)steeringKeys.start();
+    }
+    /** 设置页「方向盘控制」：默认开。关掉即反注册原车输入，之后到达的键一律不处理。 */
+    public void setSteeringEnabled(boolean enabled){
+        steeringEnabled=enabled;
+        if(!enabled)steeringKeys.stop();
+        else if(started)steeringKeys.start();
+    }
+    /**
+     * 设置页「仪表同步」：默认开。关掉即反注册并解绑原车媒体中心，仪表跟回原车播放器，
+     * 桌面不再往上写曲目、封面和进度；重新打开按当前音源重新注册。
+     */
+    public void setInstrumentEnabled(boolean enabled){
+        instrumentEnabled=enabled;
+        officialBridge.setEnabled(enabled);
+    }
+
+    /**
+     * True while the adapter is observing sessions.
+     *
+     * <p>Publishing a snapshot is not the same thing as being subscribed: a surface that paints
+     * outside the launcher window (the lyric cast on the cluster display) has to know whether
+     * it needs to start the adapter itself, because the launcher only starts it while a Flutter
+     * listener exists.
+     */
+    public boolean started(){
+        return started;
     }
     private void select(List<MediaController> list){
         for(MediaController c:observed)c.unregisterCallback(callback);
@@ -247,10 +308,34 @@ if(next!=null&&isOnlinePlayer(next.getPackageName())){
         UniLog.done(LogTags.MEDIA,"media/metadata","title",title,"artist",artist,"hasArtwork",artwork);
     }
     private static String nullToEmpty(String value){return value==null?"":value;}
-    private void setPlaying(boolean play){
+    /** 外部按键/回调要求的播放方向：状态已经对了就不发命令，免得把「播放」执行成「暂停」。 */
+    private boolean setPlaying(boolean play){
         PlaybackState state=controller==null?null:controller.getPlaybackState();
         boolean playing=state!=null&&state.getState()==PlaybackState.STATE_PLAYING;
-        if(play!=playing)command("toggle-play");
+        if(play==playing)return false;
+        return command("toggle-play");
+    }
+    /**
+     * 方控、中控按键、原车媒体中心回调、系统媒体键路由的唯一入口。
+     * 一次按键可能从两条通道先后到达（输入回调 + 媒体中心 onPlay），这里按动作分组
+     * 折叠成一步，然后立刻刷新桌面媒体控制的状态。
+     */
+    public boolean onSteeringAction(String channel,String action){
+        if(!steeringEnabled)return false;
+        if(injectedEcho(action))return true;
+        if(!steeringDedupe.accept(channel,action,SystemClock.elapsedRealtime()))return false;
+        boolean accepted="play".equals(action)||"pause".equals(action)?setPlaying("play".equals(action)):command(action);
+        changed.run();
+        return accepted;
+    }
+    /** 我们自己刚注入的键正在从别的通道回来：这一步已经做过了。 */
+    private boolean injectedEcho(String action){
+        String kind=SteeringKeyPolicy.kind(action);
+        return !kind.isEmpty()&&kind.equals(lastInjectKind)&&SystemClock.elapsedRealtime()-lastInjectAt<INJECT_ECHO_MS;
+    }
+    private void markInjected(String action){
+        lastInjectKind=SteeringKeyPolicy.kind(action);
+        lastInjectAt=SystemClock.elapsedRealtime();
     }
     private static boolean isOnlinePlayer(String source){
         return NeteaseMediaAdapter.PACKAGE.equals(source)||"com.tencent.qqmusiccar".equals(source)||"com.tencent.qqmusic".equals(source);
@@ -379,6 +464,10 @@ if(next!=null&&isOnlinePlayer(next.getPackageName())){
         JSONObject j=new JSONObject();try{
             j.put("authorized",authorized).put("available",controller!=null).put("playing",false).put("preferredPackage",preferred).put("sessions",activeSources)
                 .put("steeringControlReady",officialBridge.snapshot().optBoolean("registered"))
+                .put("steeringEnabled",steeringEnabled)
+                .put("instrumentEnabled",instrumentEnabled)
+                .put("steeringKeys",steeringKeys.snapshot())
+                .put("steeringInject",injector.snapshot().put("kugou",kugou.snapshot()))
                 .put("instrumentMetadataReady",officialBridge.snapshot().optBoolean("playbackAccepted"))
                 .put("officialMedia",officialBridge.snapshot())
                 .put("reason",!authorized?"请授权媒体访问":controller==null?"所选播放器尚未建立媒体会话":"");
@@ -416,16 +505,35 @@ if(next!=null&&isOnlinePlayer(next.getPackageName())){
                 String text=readLyrics(m,controller.getExtras());
                 String source=text.isEmpty()?"":"media-session";
                 if(text.isEmpty()){
+                    // A local audio file carries its own lyrics; that beats every catalogue.
+                    text=localLyrics(m,controller.getExtras());
+                    if(!text.isEmpty())source="embedded";
+                }
+                if(text.isEmpty()){
                     text=lyrics.cached(title,artist,duration);
                     source=text.isEmpty()?"":"lyrics-resolver";
                     if(text.isEmpty())lyrics.request(title,artist,duration);
                 }
                 noteLyricSource(source,title,artist,duration);
+                LyricTimelineProvider.Result timed=timeline.resolve(title,artist,duration,
+                        controller.getPackageName(),text,mediaId(m));
+                boolean casting=p!=null&&p.getState()==PlaybackState.STATE_PLAYING;
+                // Same sample for the card and for the cast window on another display, so
+                // both fill edges come from one clock reading instead of two.
+                long castAt=System.currentTimeMillis();
+                // The user-tuned offset shifts the clock, not the document: the card and the
+                // cast panel both read this position, so a correction applies to both.
+                long castPosition=Math.max(0,position(p)+LyricOffset.forTrack(title,artist));
+                LyricCast.publish(title,artist,timed.label,timed.timeline,casting,
+                        castPosition,castAt,p==null?1f:p.getPlaybackSpeed());
                 j.put("lyrics",text).put("lyricsSource",source)
                     .put("durationMs",duration)
-                    .put("positionMs",position(p)).put("positionKnown",p!=null&&p.getPosition()>=0)
-                    .put("sampledAtMs",System.currentTimeMillis())
+                    .put("positionMs",castPosition).put("positionKnown",p!=null&&p.getPosition()>=0)
+                    .put("sampledAtMs",castAt)
                     .put("speed",p==null?0:p.getPlaybackSpeed());
+                if(!timed.isEmpty())j.put("lyricTimeline",timed.json)
+                    .put("lyricTimelineLabel",timed.label)
+                    .put("lyricTimelineWords",timed.wordTimed);
                 netease.augmentSnapshot(j);
                 if(!text.isEmpty())j.put("lyricsReason","");
             } else {
@@ -485,6 +593,46 @@ if(next!=null&&isOnlinePlayer(next.getPackageName())){
         if(source.isEmpty())UniLog.i(LogTags.LYRIC,"当前曲目没有歌词来源","title",title,"artist",artist,"durationMs",durationMs);
         else UniLog.i(LogTags.LYRIC,"歌词来源已切换","source",source,"title",title,"artist",artist,"durationMs",durationMs);
     }
+    /** The id the playing app uses for this recording; only meaningful to that catalogue. */
+    /** Embedded lyric text per file path; a small map because tracks change rarely. */
+    private static final Map<String,String> localTexts=new LinkedHashMap<String,String>();
+    private static String mediaId(MediaMetadata metadata){
+        try{
+            String value=metadata==null?null:metadata.getString(MediaMetadata.METADATA_KEY_MEDIA_ID);
+            if(value!=null&&!value.isEmpty()&&value.length()<=64)return value;
+        }catch(RuntimeException ignored){}
+        return "";
+    }
+    /**
+     * Lyrics stored inside the audio file itself. A local track beats any catalogue: it is the
+     * exact edit being played, it works offline, and it costs one bounded file read.
+     */
+    private static String localLyrics(MediaMetadata metadata,Bundle extras){
+        String path=audioPath(metadata,extras);
+        if(path.isEmpty())return "";
+        String cached=localTexts.get(path);
+        if(cached!=null)return cached;
+        String text="";
+        try{text=EmbeddedLyricReader.read(new java.io.File(path));}catch(RuntimeException ignored){}
+        if(localTexts.size()>8)localTexts.clear();
+        localTexts.put(path,text);
+        return text;
+    }
+    private static String audioPath(MediaMetadata metadata,Bundle extras){
+        try{
+            String raw=metadata==null?null:metadata.getString(MediaMetadata.METADATA_KEY_MEDIA_URI);
+            if(raw!=null&&raw.startsWith("file://"))return raw.substring(7);
+            String[] keys={"_data","path","file","android.media.metadata.PATH"};
+            for(String key:keys){
+                Object value=extras==null?null:extras.get(key);
+                if(value instanceof CharSequence){
+                    String value2=value.toString();
+                    if(value2.startsWith("/"))return value2;
+                    if(value2.startsWith("file://"))return value2.substring(7);
+                }
+            }
+        }catch(RuntimeException ignored){}
+    }
     private static String readLyrics(MediaMetadata metadata,Bundle extras){
         String[] keys={"android.media.metadata.LYRICS","android.media.metadata.LYRIC","lyrics","lyric","lrc"};
         for(String key:keys){
@@ -533,27 +681,71 @@ if(next!=null&&isOnlinePlayer(next.getPackageName())){
             else UniLog.fail(LogTags.MEDIA,"media/transport","action",action,"route","netease","reason","rejected");
             return accepted;
         }
-        PlaybackState p=controller.getPlaybackState();if(p==null){
+        if(transport(action,positionMs)){if(wantsPlay)schedulePlayFallback(controller);return true;}
+        // 播放器没有可用的传输控制，或者根本不暴露 SKIP_TO_NEXT（酷狗车机版）：
+        // 先走它自己的广播，再退回按键注入。
+        return relayKey(action);
+    }
+    /** 标准传输控制。拿不到对应能力时返回 false，由 {@link #relayKey} 接手。 */
+    private boolean transport(String action,long positionMs){
+        PlaybackState p=controller.getPlaybackState();
+        if(p==null){
             UniLog.fail(LogTags.MEDIA,"media/transport","action",action,"reason","no-playback-state");
             return false;
         }
         long actions=p.getActions();MediaController.TransportControls t=controller.getTransportControls();
-        if("next".equals(action)&&(actions&PlaybackState.ACTION_SKIP_TO_NEXT)!=0)t.skipToNext();
-        else if("previous".equals(action)&&(actions&PlaybackState.ACTION_SKIP_TO_PREVIOUS)!=0)t.skipToPrevious();
-        else if("seek".equals(action)&&positionMs>=0&&(actions&PlaybackState.ACTION_SEEK_TO)!=0){
+        if("next".equals(action)){
+            if((actions&PlaybackState.ACTION_SKIP_TO_NEXT)==0)return false;
+            t.skipToNext();return true;
+        }
+        if("previous".equals(action)){
+            if((actions&PlaybackState.ACTION_SKIP_TO_PREVIOUS)==0)return false;
+            t.skipToPrevious();return true;
+        }
+        if("seek".equals(action)){
+            if(positionMs<0||(actions&PlaybackState.ACTION_SEEK_TO)==0)return false;
             MediaMetadata m=controller.getMetadata();long duration=m==null?0:m.getLong(MediaMetadata.METADATA_KEY_DURATION);
-            t.seekTo(duration>0?Math.min(positionMs,duration):positionMs);
+            t.seekTo(duration>0?Math.min(positionMs,duration):positionMs);return true;
         }
-        else if("toggle-play".equals(action)){
-            if(p.getState()==PlaybackState.STATE_PLAYING&&(actions&(PlaybackState.ACTION_PAUSE|PlaybackState.ACTION_PLAY_PAUSE))!=0)t.pause();
-            else if(p.getState()!=PlaybackState.STATE_PLAYING&&(actions&(PlaybackState.ACTION_PLAY|PlaybackState.ACTION_PLAY_PAUSE))!=0)t.play();
-            else{UniLog.fail(LogTags.MEDIA,"media/transport","action",action,"reason","action-not-supported","actions",actions);return false;}
+        if("toggle-play".equals(action)){
+            if(p.getState()==PlaybackState.STATE_PLAYING){
+                if((actions&(PlaybackState.ACTION_PAUSE|PlaybackState.ACTION_PLAY_PAUSE))==0){
+                    UniLog.fail(LogTags.MEDIA,"media/transport","action",action,"reason","action-not-supported","actions",actions);
+                    return false;
+                }
+                t.pause();UniLog.done(LogTags.MEDIA,"media/transport","action",action,"route","standard","source",controller.getPackageName());return true;
+            }
+            if((actions&(PlaybackState.ACTION_PLAY|PlaybackState.ACTION_PLAY_PAUSE))==0){
+                UniLog.fail(LogTags.MEDIA,"media/transport","action",action,"reason","action-not-supported","actions",actions);
+                return false;
+            }
+            t.play();UniLog.done(LogTags.MEDIA,"media/transport","action",action,"route","standard","source",controller.getPackageName());return true;
         }
-        else if("play".equals(action)&&(actions&(PlaybackState.ACTION_PLAY|PlaybackState.ACTION_PLAY_PAUSE))!=0)t.play();
-        else{UniLog.fail(LogTags.MEDIA,"media/transport","action",action,"reason","action-not-supported","actions",actions);return false;}
-        if(wantsPlay)schedulePlayFallback(controller);
-        UniLog.done(LogTags.MEDIA,"media/transport","action",action,"route","standard","source",controller.getPackageName());
-        return true;
+        if("play".equals(action)){
+            if((actions&(PlaybackState.ACTION_PLAY|PlaybackState.ACTION_PLAY_PAUSE))==0){
+                UniLog.fail(LogTags.MEDIA,"media/transport","action",action,"reason","action-not-supported","actions",actions);
+                return false;
+            }
+            t.play();UniLog.done(LogTags.MEDIA,"media/transport","action",action,"route","standard","source",controller.getPackageName());return true;
+        }
+        return false;
+    }
+    /**
+     * 传输控制不可用时的兜底。酷狗车机版只认它自己的广播；其余播放器由系统注入
+     * AOSP 媒体键，落点是当前焦点窗口。注入前先记一笔，回环会被
+     * {@link #injectedEcho} 挡掉，同一次按键不会走两步。
+     */
+    private boolean relayKey(String action){
+        int key=SteeringKeyPolicy.keyCode(action);
+        if(key<0)return false;
+        String source=controller==null?"":controller.getPackageName();
+        if(kugou.send(source,key)){markInjected(action);return true;}
+        if(injector.inject(key)){
+            markInjected(action);
+            UniLog.i(LogTags.MEDIA,"方控按键注入","key",key,"action",action,"source",source);
+            return true;
+        }
+        return false;
     }
     private void schedulePlayFallback(MediaController target){
         pendingPlayToken=target.getSessionToken();pendingPlaySource=target.getPackageName();pendingPlayStage=0;
@@ -582,5 +774,6 @@ if(next!=null&&isOnlinePlayer(next.getPackageName())){
             return true;
         }catch(RuntimeException e){return false;}
     }
-    public void stop(){clearPlayFallback();try{manager.removeOnActiveSessionsChangedListener(sessions);}catch(Exception ignored){}officialBridge.stop();select(null);steeringSession.setActive(false);UniLog.done(LogTags.MEDIA,"media/session","action","unbind","authorized",authorized);}
+    public void stop(){started=false;clearPlayFallback();try{manager.removeOnActiveSessionsChangedListener(sessions);}catch(Exception ignored){}steeringKeys.stop();officialBridge.stop();select(null);steeringSession.setActive(false);UniLog.done(LogTags.MEDIA,"media/session","action","unbind","authorized",authorized);}
 }
+

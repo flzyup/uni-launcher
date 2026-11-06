@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../model/lyric_timeline.dart';
 import '../model/lyrics.dart';
 import '../theme/design_tokens.dart';
 import '../theme/launcher_theme.dart';
@@ -61,13 +62,20 @@ class _LyricsViewState extends State<LyricsView> {
   }
 
   void refresh({bool reset = false}) {
-    final next = widget.media['lyrics'] is String
+    // One document for the card and for the cluster cast panel: the resolved timeline when the
+    // snapshot carries one, the player's raw text only as a fallback. Both used to pick their
+    // own source, so a credit line could be highlighted here while the panel showed a gap.
+    final timeline = LyricTimeline.parse(widget.media['lyricTimeline']);
+    final raw = widget.media['lyrics'] is String
         ? widget.media['lyrics'] as String
         : '';
+    final next = timeline.lines.isEmpty ? raw : 'T${timeline.lines.length}@${timeline.lines.first.timeMs}';
     final changed = payload != next;
     if (changed) {
       payload = next;
-      lyrics = Lyrics.parse(next);
+      lyrics = timeline.lines.isEmpty
+          ? Lyrics.parse(raw)
+          : Lyrics.fromTimeline(timeline);
       active = -1;
     }
     timer?.cancel();

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../controller/launcher_controller.dart';
+import '../platform/adaptive_quality.dart';
 import '../theme/design_tokens.dart';
 import '../theme/launcher_theme.dart';
 import '../widgets/scene_background.dart';
@@ -12,11 +13,12 @@ class GlobalDockApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-        animation: controller,
+        animation: Listenable.merge([controller, AdaptiveQuality.shared]),
         builder: (context, _) {
           final dark = controller.native.value['dark'] == true;
           final style = SurfaceStyle.from(controller.appearance, dark,
-              adaptToWallpaper: true);
+              adaptToWallpaper: true,
+              lowPower: AdaptiveQuality.shared.degraded);
           return MaterialApp(
               debugShowCheckedModeBanner: false,
               theme: launcherTheme(style),

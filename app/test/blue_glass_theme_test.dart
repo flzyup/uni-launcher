@@ -351,6 +351,46 @@ void main() {
         selected.side?.resolve({})?.color, style.accent.withValues(alpha: .55));
   });
 
+  test('a solid selected pill keeps its label readable', () {
+    final classic = SurfaceStyle.from(
+        const Appearance(themeStyle: 'classic'), false);
+    // 经典主题选中态是实心主题色底：字色一旦也用 accent，就是主题色压主题色，
+    // 侧边栏选中的那一项只剩图标、字整个消失。
+    expect(classic.technicalFrame, false);
+    expect(classic.selectedText, classic.accentText);
+    expect(classic.selectedText, isNot(classic.accent));
+    expect(classic.selectionStyle(true).foregroundColor?.resolve({}),
+        classic.selectedText);
+    expect(classic.selectionStyle(true).backgroundColor?.resolve({}),
+        classic.accent);
+    // 暗夜与科技框不铺实底，accent 才是对的那个字色。
+    final nocturne = SurfaceStyle.from(
+        const Appearance(themeStyle: 'nocturne', palette: 'mint'), true);
+    expect(nocturne.selectedText, nocturne.accent);
+    final glass = SurfaceStyle.from(
+        const Appearance(themeStyle: 'blueGlass'), false);
+    expect(glass.technicalFrame, true);
+    expect(glass.selectedText, glass.accent);
+  });
+
+  testWidgets('the selected settings tab label is not painted in the fill',
+      (t) async {
+    final (c, _) = await launch(t);
+    c.setAppearance(c.appearance.copyWith(themeStyle: 'classic'));
+    c.openSettings();
+    await t.pumpAndSettle();
+    Finder tab(String id) => find.byKey(ValueKey('tab-$id'));
+    final style = SurfaceStyle.of(t.element(tab('appearance')));
+    Text labelIn(String id) => t.widget<Text>(find.descendant(
+        of: tab(id),
+        matching: find.byType(Text)));
+    // 选中页签和未选中页签各查一个：前者必须是实心底上的字色，后者是正文色。
+    expect(style.technicalFrame, false);
+    expect(labelIn('appearance').style?.color, style.selectedText);
+    expect(labelIn('appearance').style?.color, isNot(style.accent));
+    expect(labelIn('dock').style?.color, style.text);
+  });
+
   testWidgets(
       'selected dock and neutral play share frame; press never moves dock',
       (t) async {

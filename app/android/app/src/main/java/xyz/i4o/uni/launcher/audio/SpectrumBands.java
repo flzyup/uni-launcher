@@ -58,26 +58,68 @@ public final class SpectrumBands {
      */
     public static double[] decode(byte[] fft,int sampleRate){
         double[] result=new double[COUNT];
-        if(fft==null||fft.length<8)return result;
-        double hz=normalizeSampleRate(sampleRate);
-        if(hz<=0)return result;
-        double top=Math.min(TOP_HZ,hz/2),bottom=Math.min(BOTTOM_HZ,top/2);
-        int bins=fft.length/2;
+        decodeInto(fft,sampleRate,result);
+        return result;
+    }
+
+    /**
+     * Decodes one FFT frame into {@code out} without allocating.
+     *
+     * <p>Same numbers as {@link #decode(byte[],int)}; the caller may hand in a
+     * reused buffer, which is what the 20 Hz capture loop does. {@code out} is
+     * zeroed first, so a failed frame reads as silence.
+     */
+    public static void decodeInto(byte[] fft,int sampleRate,double[] out){
+        for(int i=0;i<COUNT&&i<out.length;i++)out[i]=0;
+        if(fft==null||fft.length<8||out.length<COUNT)return;
+        int hz=normalizeSampleRate(sampleRate);
+        if(hz<=0)return;
+        Plan plan=planFor(fft.length,hz);
         for(int band=0;band<COUNT;band++){
-            double lo=bottom*Math.pow(top/bottom,band/(double)COUNT);
-            double hi=bottom*Math.pow(top/bottom,(band+1d)/COUNT);
-            int first=Math.max(1,Math.min(bins-1,(int)Math.floor(lo*fft.length/hz)));
-            int last=Math.max(first+1,Math.min(bins,(int)Math.ceil(hi*fft.length/hz)));
             double power=0;
-            for(int k=first;k<last;k++){
+            int last=plan.last[band];
+            for(int k=plan.first[band];k<last;k++){
                 double re=fft[k*2],im=fft[k*2+1];
                 power=Math.max(power,re*re+im*im);
             }
             if(power>0){
                 double db=10*Math.log10(power/(128d*128d*2));
-                result[band]=Math.max(0,Math.min(1,(db+54)/54));
+                out[band]=Math.max(0,Math.min(1,(db+54)/54));
             }
         }
-        return result;
+    }
+
+    /**
+     * Band edges for one (fft length, sample rate) pair.
+     *
+     * <p>Only those two inputs decide the bin ranges, and both are constant for
+     * the life of a Visualizer handle — yet the per-frame path used to run two
+     * {@code Math.pow} plus a floor and a ceil per band, 24 times, 20 times a
+     * second, on the main thread. Caching the table removes that entirely.
+     */
+    private static final class Plan {
+        final int fftLength,hz;
+        final int[] first,last;
+        Plan(int fftLength,int hz){
+            this.fftLength=fftLength;this.hz=hz;
+            int bins=fftLength/2;
+            double top=Math.min(TOP_HZ,hz/2d),bottom=Math.min(BOTTOM_HZ,top/2);
+            first=new int[COUNT];last=new int[COUNT];
+            for(int band=0;band<COUNT;band++){
+                double lo=bottom*Math.pow(top/bottom,band/(double)COUNT);
+                double hi=bottom*Math.pow(top/bottom,(band+1d)/COUNT);
+                first[band]=Math.max(1,Math.min(bins-1,(int)Math.floor(lo*fftLength/hz)));
+                last[band]=Math.max(first[band]+1,Math.min(bins,(int)Math.ceil(hi*fftLength/hz)));
+            }
+        }
+    }
+    /** 只留最后一张表：切换播放会话时采样率会变，但只变一次。 */
+    private static volatile Plan plan;
+    private static Plan planFor(int fftLength,int hz){
+        Plan current=plan;
+        if(current!=null&&current.fftLength==fftLength&&current.hz==hz)return current;
+        Plan next=new Plan(fftLength,hz);
+        plan=next;
+        return next;
     }
 }

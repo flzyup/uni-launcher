@@ -39,6 +39,12 @@ class FakeGateway implements NativeGateway {
   @override
   Future<Map<String, dynamic>> bootstrap() async => Map.of(state);
   @override
+  Future<Map<String, dynamic>?> prelude() async => {
+        'savedDesign': state['savedDesign'],
+        'appNames': state['appNames'],
+        'dark': state['dark']
+      };
+  @override
   Stream<Map<String, dynamic>> get events => stream.stream;
   @override
   Future<void> action(String action,

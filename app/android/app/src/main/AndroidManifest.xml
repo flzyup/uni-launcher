@@ -1,5 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
   <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS"/>
+  <!-- 无线 adb 桥（xyz.i4o.uni.adbbridge，uid 1000）的 signature 权限，只有同签名能发 SET -->
+  <uses-permission android:name="xyz.i4o.uni.adb.BRIDGE"/>
   <uses-permission android:name="android.permission.CHANGE_COMPONENT_ENABLED_STATE"/>
   <uses-permission android:name="android.permission.MANAGE_USB"/>
   <uses-permission android:name="android.permission.BIND_APPWIDGET"/>
@@ -42,6 +44,13 @@
   <uses-permission android:name="android.permission.READ_PRIVILEGED_PHONE_STATE"/>
   <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES"/>
   <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
+  <!-- 垃圾清理。前三个是 signature|privileged，只有车机平台签名包才拿得到；拿不到时
+       面板把对应类目显示成「不可用」并写明原因，不会假装清掉了。 -->
+  <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"/>
+  <uses-permission android:name="android.permission.DELETE_CACHE_FILES"/>
+  <uses-permission android:name="android.permission.CLEAR_APP_CACHE"/>
+  <!-- 公开目录规则清理需要写外部存储；Android 9 上仍是运行时权限，缺失时引导授权。 -->
+  <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28"/>
   <!-- 明文只放行「传文件」里用户自己填的下载地址：局域网 NAS、内网发布页和旧站点
        基本都是 http://，系统默认会直接拒连。应用自身不发起任何其他明文请求。 -->
   <application android:label="UNI 桌面" android:name="${applicationName}" android:icon="@drawable/uni_icon" android:allowBackup="false" android:usesCleartextTraffic="true">
@@ -60,6 +69,7 @@
     <activity android:name=".WallpaperPickerActivity" android:exported="false" android:screenOrientation="landscape"/>
     <service android:name=".integration.MediaAccessService" android:label="UNI 媒体访问" android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" android:exported="true"><intent-filter><action android:name="android.service.notification.NotificationListenerService"/></intent-filter></service>
     <service android:name=".GlobalDockService" android:exported="false"/>
+    <service android:name=".integration.display.ClusterLyricsService" android:exported="false"/>
     <service android:name=".OtaBootService" android:exported="false"/>
     <receiver android:name=".OtaBootReceiver" android:exported="true">
       <intent-filter><action android:name="com.ecarx.intent.action.EAS_LAUNCH_BAT_3RD"/></intent-filter>

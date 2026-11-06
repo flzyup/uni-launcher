@@ -197,7 +197,7 @@ public final class GlobalDockService extends Service {
     }
     private static void toast(Context c,String text){android.widget.Toast.makeText(c,text,android.widget.Toast.LENGTH_SHORT).show();}
     @Override public void onCreate(){
-        super.onCreate();active=this;runtime=LauncherRuntime.get(this);runtime.scheduleBootAutoPlay();recentTasks=new RecentTasksRepository(this);
+        super.onCreate();active=this;runtime=LauncherRuntime.get(this);runtime.scheduleBootAutoPlay();runtime.scheduleBootLaunch();runtime.scheduleWirelessAdb();recentTasks=new RecentTasksRepository(this);
         if(!Settings.canDrawOverlays(this)||!runtime.prefs().getBoolean("globalDockEnabled",false)){stopSelf();return;}
         startForeground(753,notification());
         windows=(WindowManager)getSystemService(WINDOW_SERVICE);
@@ -354,8 +354,12 @@ public final class GlobalDockService extends Service {
             engine.destroy();
         }
     }
+    /** 只有真的会列出应用的页面才需要整份图标；底栏本身只查显示名。 */
+    private boolean panelNeedsApps(){
+        return "apps".equals(panel)||"navigation".equals(panel)||"music-picker".equals(panel);
+    }
     private JSONObject state(LauncherRuntime.StaticCursor cursor,boolean isPanel,boolean includeRecent){
-        JSONObject j=runtime.snapshot(cursor);try{
+        JSONObject j=runtime.snapshot(cursor,isPanel&&panelNeedsApps());try{
             j.put("hostMode",isPanel?"global-panel":"global-dock").put("globalDock",snapshot(this))
              .put("systemNavigationHidden",runtime.prefs().getBoolean("systemNavigationHidden",false))
              .put("systemNavigationGranted",SystemNavigationPolicy.granted(this));
@@ -363,7 +367,7 @@ public final class GlobalDockService extends Service {
         }catch(Exception ignored){}return j;
     }
     private void showPanel(String kind){
-        if(!java.util.Arrays.asList("apps","climate","media","vehicle","navigation","music-picker","uni-menu","transfer").contains(kind))return;
+        if(!java.util.Arrays.asList("apps","climate","media","vehicle","navigation","music-picker","uni-menu","transfer","cleaner").contains(kind))return;
         // Tapping the same button again closes it; different buttons replace it.
         if(kind.equals(panel)){dismissPanel();return;}
         main.removeCallbacks(releaseIdlePanel);

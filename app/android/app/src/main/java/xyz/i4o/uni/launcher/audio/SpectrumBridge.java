@@ -56,6 +56,22 @@ public final class SpectrumBridge {
     /** 采集失败后隔多久重试（车机上的通道被占、权限迟到都属于暂时性的）。 */
     static final long RETRY_MS=3000;
 
+    /** 有声时的采集节拍：20 Hz，跟着常见灯的刷新感。 */
+    static final int POLL_MS=50;
+
+    /** 连续静音这么多帧之后降到 10 Hz：静音时 smoothing 已经落到接近 0，
+     *  眼睛看不出区别，主线程却少一半唤醒。 */
+    static final int QUIET_FRAMES=40;
+
+    /** 静音时用的采集间隔。 */
+    static final int QUIET_POLL_MS=100;
+
+    /** 电平变化小于这个量就不值得再推一包（约 0.8% 满量程）。 */
+    static final double PUBLISH_EPSILON=0.008;
+
+    /** 静音保活包间隔：界面靠它区分「还在采」和「没在采」。 */
+    static final long PUBLISH_KEEPALIVE_MS=500;
+
     private static Broker broker;
     private final Context context;
     private final MethodChannel methods;
@@ -100,6 +116,12 @@ public final class SpectrumBridge {
         Visualizer visualizer;
         byte[] fft;
         double[] previous=new double[SpectrumBands.COUNT];
+        /** 采集复用缓冲区；每帧不再新建 double[]（见 capture）。 */
+        final double[] values=new double[SpectrumBands.COUNT];
+        /** 上一包推出去的电平，用来判断这一帧有没有值得推的变化。 */
+        final double[] lastPublished=new double[SpectrumBands.COUNT];
+        long lastPublishAt;
+        int quietFrames;
         volatile boolean running;
         volatile int generation;
         boolean failed;
@@ -137,7 +159,7 @@ public final class SpectrumBridge {
             data.put("hiddenApi",xyz.i4o.uni.launcher.platform.HiddenApiCompat.status());
             data.put("activeConsumers",demand());data.put("clients",clients.size());
             data.put("captureSize",captureSize);data.put("sampleRateHz",sampleRate);
-            data.put("sequence",sequence);data.put("captureHz",10);
+            data.put("sequence",sequence);data.put("captureHz",1000/POLL_MS);
             data.put("peakLevel",running?peakLevel:0d);data.put("signalFrames",signalFrames);data.put("frames",frames);
             if(levels!=null){ArrayList<Double> values=new ArrayList<>(levels.length);for(double v:levels)values.add(v);data.put("levels",values);}
             return data;
@@ -178,6 +200,7 @@ public final class SpectrumBridge {
             long capturedSignalFrames=signalFrames;
             double capturedPeak=peakLevel;
             running=false;reason="idle";source="none";signalSeen=false;peakLevel=0;generation++;
+            quietFrames=0;
             main.post(this::releaseVisualizer);
             publishState();
             if(!hadSignal)UniLog.w(LogTags.SPECTRUM,"频谱采集已停止但没有采到信号","frames",capturedFrames,"signalFrames",capturedSignalFrames,"tag",TAG);
@@ -186,6 +209,9 @@ public final class SpectrumBridge {
 
         void startCapture(){
             running=true;reason="starting";detail="";signalSeen=false;startedAt=System.currentTimeMillis();
+            quietFrames=0;
+            // 新的一轮采集：上一包的电平不再有参考意义，第一帧必须推出去。
+            java.util.Arrays.fill(lastPublished,0d);
             int epoch=++generation;
             UniLog.enter(LogTags.SPECTRUM,"spectrum/capture","action","start","consumers",demand(),"tag",TAG);
             watchPlayback();
@@ -317,31 +343,51 @@ public final class SpectrumBridge {
          * thread"} when it is called from a worker. Stock AOSP expects the
          * opposite, but the head unit is what counts here.
          *
-         * <p>The work per frame is tiny (one native read of a kilobyte plus
-         * 24 band sums), so the main thread can afford it at ten frames a
-         * second. Doing it on one thread also removes the race between the
-         * poll and the release of the handle.
+         * <p>The work per frame is one native read of a kilobyte plus 24 band
+         * sums over a cached table, so the main thread can afford it at twenty
+         * frames a second. Doing it on one thread also removes the race between
+         * the poll and the release of the handle.
          */
         void schedulePoll(int epoch){
-            poll=()->capture(epoch);main.postDelayed(poll,50);
+            poll=()->capture(epoch);main.postDelayed(poll,POLL_MS);
         }
 
         void capture(int epoch){
             if(!running||epoch!=generation||visualizer==null)return;
             try{
                 if(visualizer.getFft(fft)!=Visualizer.SUCCESS)throw new IllegalStateException("fft-unavailable");
-                double[] values=SpectrumBands.decode(fft,sampleRate);
+                // 复用同一块缓冲区：20 Hz 的采集不该每秒堆出 20 个 double[]。
+                SpectrumBands.decodeInto(fft,sampleRate,values);
                 for(int i=0;i<values.length;i++){values[i]=Math.max(values[i],previous[i]*.70);previous[i]=values[i];}
                 peakLevel=0;for(double value:values)peakLevel=Math.max(peakLevel,value);
                 frames++;
-                if(peakLevel>.02){signalFrames++;if(!signalSeen)onSignalSeen();signalSeen=true;}
+                if(peakLevel>.02){signalFrames++;if(!signalSeen)onSignalSeen();signalSeen=true;quietFrames=0;}
+                else if(quietFrames<QUIET_FRAMES)quietFrames++;
                 sequence++;
                 // 静音的帧也要推：不然界面分不清「在采但没声音」和「没在采」，
-                // 而且灯也不会按快起慢落慢慢暗下去。
-                publish(values);
+                // 而且灯也不会按快起慢落慢慢暗下去。电平没有可察觉变化时只保留
+                // 每半秒一次的保活包，剩下的帧不再跨通道、不再通知界面重画。
+                if(levelsChanged())
+                    publish(levelsSnapshot());
+                else if(System.currentTimeMillis()-lastPublishAt>=PUBLISH_KEEPALIVE_MS)
+                    publish(levelsSnapshot());
                 maybeSwitchToSession(epoch);
-                main.postDelayed(poll,50);
+                main.postDelayed(poll,quietFrames>=QUIET_FRAMES?QUIET_POLL_MS:POLL_MS);
             }catch(RuntimeException error){fail(epoch,error);}
+        }
+
+        /** 这一帧和上一包之间有没有能被眼睛看出来的变化。 */
+        boolean levelsChanged(){
+            for(int i=0;i<values.length;i++)
+                if(Math.abs(values[i]-lastPublished[i])>PUBLISH_EPSILON)return true;
+            return false;
+        }
+
+        /** 记下这一包的电平；返回给 publish() 的快照（publish 会同步拷进包）。 */
+        double[] levelsSnapshot(){
+            System.arraycopy(values,0,lastPublished,0,values.length);
+            lastPublishAt=System.currentTimeMillis();
+            return values;
         }
 
         /**

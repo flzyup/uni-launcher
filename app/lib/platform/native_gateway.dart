@@ -9,6 +9,12 @@ class PickedWallpaper {
 
 abstract class NativeGateway {
   Future<Map<String, dynamic>> bootstrap();
+
+  /// 首帧快速通道：只要外观与布局（偏好级，不构造任何适配器快照）。
+  ///
+  /// 拿不到就返回 null，调用方按原来的单段引导继续；这条通道的存在只是让
+  /// 「第一帧」不必等整份 bootstrap。
+  Future<Map<String, dynamic>?> prelude() async => null;
   Stream<Map<String, dynamic>> get events;
   Future<void> action(String action,
       {String? value, String? zone, bool? enabled});
@@ -21,14 +27,32 @@ abstract class NativeGateway {
 class AndroidGateway implements NativeGateway {
   static const methods = MethodChannel('xyz.i4o.uni.launcher/platform');
   static const eventChannel = EventChannel('xyz.i4o.uni.launcher/events');
-  void Function()? _home, _settings;
+  void Function()? _home, _settings, _rebound;
   void onOpenSettings(void Function() callback) {
     _settings = callback;
+  }
+
+  /// 引擎被新窗口接管（Activity 重建）时回调：本进程的 Dart 树还活着，但
+  /// 平台视图归旧窗口所有、已经被关掉，必须整体重建。
+  void onHostRebound(void Function() callback) {
+    _rebound = callback;
   }
 
   @override
   Future<Map<String, dynamic>> bootstrap() async => Map<String, dynamic>.from(
       jsonDecode(await methods.invokeMethod<String>('snapshot') ?? '{}'));
+  @override
+  Future<Map<String, dynamic>?> prelude() async {
+    try {
+      final raw = await methods.invokeMethod<Object?>('prelude');
+      final decoded = raw is String ? jsonDecode(raw) : raw;
+      if (decoded is! Map) return null;
+      return Map<String, dynamic>.from(decoded);
+    } catch (_) {
+      // 快通道是「更好」而不是「必须」：任何异常都退回单段引导。
+      return null;
+    }
+  }
   @override
   Stream<Map<String, dynamic>> get events => eventChannel
       .receiveBroadcastStream()
@@ -71,6 +95,7 @@ class AndroidGateway implements NativeGateway {
     methods.setMethodCallHandler((call) async {
       if (call.method == 'home') _home?.call();
       if (call.method == 'open-settings') _settings?.call();
+      if (call.method == 'rehost') _rebound?.call();
     });
   }
 }

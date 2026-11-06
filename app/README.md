@@ -142,6 +142,29 @@ python3 tools/flutter_task.py drive --driver=test_driver/driver.dart --target=in
 
 最终静态分析、状态/组件测试、Android 9 集成与 release 验证结果见[构建报告](verification/build-report.json)。实际 release [首页](verification/flutter-release-home.png)与[设置](verification/flutter-release-settings.png)截图单独保存；实时车控和性能仍待实车。
 
+### 分 ABI 打包
+
+```sh
+flutter build apk --release --split-per-abi --build-number=2060
+```
+
+产出三个包（`build/app/outputs/flutter-apk/`），每台设备只装自己那一个：
+
+| 包 | 大小 | 覆盖设备 |
+| --- | --- | --- |
+| `app-armeabi-v7a-release.apk` | 9.4 MB | 老 32 位车机 |
+| `app-arm64-v8a-release.apk` | 9.8 MB | 主流 64 位车机 |
+| `app-x86_64-release.apk` | 10.0 MB | 模拟器 / x86 车机 |
+
+通用包是 25.8 MB，分 ABI 后单设备流量降到约 **38%**。原生库占包体 93%，所以这是目前唯一有效的大头优化。
+
+两个必须注意的点：
+
+1. `android/gradle.properties` 里的 `force-version-code-ignoring-abi=true` 让三个包共用同一个 `versionCode`。不加的话 Flutter 会给每个 ABI 加 `1000 * ABI 序号`（1054 / 2054 / 4054），而 OTA 检查比的是服务端返回的**单个** `version_code`（`lib/ota/update_controller.dart:228`、`:243`），量纲不一致会让高序号 ABI 永远收不到更新。服务端若改成按 ABI 分别发布 `version_code`，删掉这一行即可恢复 Android 官方语义。
+2. `--build-number` 必须大于车机上已装的 `versionCode`（`dist/UNI-Launcher-0.7.6-IP753.apk` 是 **2055**），否则 `adb install` 会以 `INSTALL_FAILED_VERSION_DOWNGRADE` 拒绝。`versionName` 仍是 `0.7.6`。
+
+实车包仍需 `tools/sign_car_apk.py` 用平台证书单独签名（`--input app-<abi>-release.apk --out dist/UNI-Launcher-<version>-IP753-<abi>.apk`），否则拿不到 `android.car.permission.CAR_VENDOR_EXTENSION`。签名私钥不在仓库里。
+
 ### 更新服务配置（开发中）
 
 OTA 客户端通过构建参数配置服务，不将 COS 密钥写入 APK：
