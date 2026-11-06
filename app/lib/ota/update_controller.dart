@@ -400,10 +400,13 @@ class UpdateController extends ChangeNotifier with WidgetsBindingObserver {
           progress = 1;
           state = 'install';
           notifyListeners();
-          await install();
-          return;
+          if (await install()) return;
+          if (state != 'invalid-package') return;
+          state = 'downloading';
+          error = '';
+          notifyListeners();
         }
-        await target.delete();
+        if (await target.exists()) await target.delete();
         state = 'downloading';
         notifyListeners();
       }
@@ -532,22 +535,37 @@ class UpdateController extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  Future<void> install() async {
+  Future<bool> install() async {
     UniLog.enter(UniLogTags.ota, 'ota/install');
     try {
       final result = await _bridge.invokeMethod<String>('otaInstall');
-      if (result == 'permission') {
+      if (result == 'invalid-package') {
+        final dir = info['directory'];
+        if (dir is String && dir.isNotEmpty) {
+          for (final name in ['update.apk', 'update.part', 'update.identity']) {
+            final file = File('$dir/$name');
+            if (await file.exists()) await file.delete();
+          }
+        }
+        state = 'invalid-package';
+        error = '安装包不兼容或签名不一致，缓存已清理；请重新检查更新。若再次出现，请联系发布方核对签名。';
+        UniLog.fail(UniLogTags.ota, 'ota/install', fields: {'reason': 'package-identity'});
+        notifyListeners();
+        return false;
+      } else if (result == 'permission') {
         state = 'permission';
       } else {
         state = 'install';
       }
       UniLog.done(UniLogTags.ota, 'ota/install', fields: {'result': result});
       notifyListeners();
+      return true;
     } catch (e) {
       state = 'error';
-      error = '安装包不兼容或签名不一致';
+      error = '无法打开安装界面，请重试';
       UniLog.fail(UniLogTags.ota, 'ota/install', fields: {'error': '$e'});
       notifyListeners();
+      return false;
     }
   }
 

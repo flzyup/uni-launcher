@@ -179,7 +179,7 @@ Future<void> showUpdateDialog(BuildContext context, UpdateController u,
                     if (u.state == 'permission')
                       const Text('请允许此应用安装软件，返回后点击重新打开安装'),
                     if (u.state == 'install') const Text('已打开系统安装界面，请确认安装'),
-                    if (u.state == 'error')
+                    if (u.state == 'error' || u.state == 'invalid-package')
                       Text(u.error, style: TextStyle(color: s.muted)),
                     SizedBox(height: Design.px(22)),
                     Row(mainAxisAlignment: MainAxisAlignment.end, children: [
@@ -199,7 +199,7 @@ Future<void> showUpdateDialog(BuildContext context, UpdateController u,
                             child: Text(
                                 '下载更新${a is Map && a['size_bytes'] is num ? '  ${(a['size_bytes'] / 1024 / 1024).toStringAsFixed(1)} MB' : ''}'))
                       ],
-                      if (u.state == 'error' ||
+                      if (u.state == 'error' || u.state == 'invalid-package' ||
                           u.state == 'idle' ||
                           u.state == 'incompatible' ||
                           u.state == 'latest')

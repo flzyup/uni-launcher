@@ -230,8 +230,9 @@ public final class MainActivity extends FlutterActivity {
                     File f=new File(new File(getFilesDir(),"ota"),"update.apk");
                     android.content.pm.PackageInfo installed=getPackageManager().getPackageInfo(getPackageName(),PackageManager.GET_SIGNATURES);
                     android.content.pm.PackageInfo candidate=getPackageManager().getPackageArchiveInfo(f.getAbsolutePath(),PackageManager.GET_SIGNATURES);
-                    if(candidate==null||!getPackageName().equals(candidate.packageName)||candidate.versionCode<=installed.versionCode||installed.signatures==null||candidate.signatures==null||!java.util.Arrays.equals(installed.signatures,candidate.signatures))throw new SecurityException("package identity");
-                    if(android.os.Build.VERSION.SDK_INT>=26&&!getPackageManager().canRequestPackageInstalls()){
+                    if(candidate==null||!getPackageName().equals(candidate.packageName)||candidate.versionCode<=installed.versionCode||installed.signatures==null||candidate.signatures==null||!java.util.Arrays.equals(installed.signatures,candidate.signatures)){
+                        result.success("invalid-package");
+                    }else if(android.os.Build.VERSION.SDK_INT>=26&&!getPackageManager().canRequestPackageInstalls()){
                         Intent settings=new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,Uri.parse("package:"+getPackageName()));startActivity(settings);result.success("permission");
                     }else{
                         Intent install=new Intent(Intent.ACTION_INSTALL_PACKAGE).setData(Uri.parse("content://xyz.i4o.uni.launcher.ota/update.apk"));install.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);startActivity(install);result.success("started");

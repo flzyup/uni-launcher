@@ -239,6 +239,61 @@ void main() {
     binding.defaultBinaryMessenger.setMockMethodCallHandler(bridge, null);
   });
 
+  testWidgets('incompatible cache is removed and downloaded once; incompatible downloads are not retried in a loop',
+      (tester) async {
+    final binding = TestDefaultBinaryMessengerBinding.instance;
+    const bridge = MethodChannel('xyz.i4o.uni.launcher/platform');
+    var installs = 0;
+    var rejectAll = false;
+    binding.defaultBinaryMessenger.setMockMethodCallHandler(bridge, (call) async {
+      if (call.method == 'otaInstall') {
+        installs++;
+        return rejectAll || installs == 1 ? 'invalid-package' : 'started';
+      }
+      return null;
+    });
+    await tester.runAsync(() async {
+      final previous = HttpOverrides.current;
+      HttpOverrides.global = null;
+      final dir = await Directory.systemTemp.createTemp('uni-ota-signature-');
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final bytes = utf8.encode('signed apk');
+      var requests = 0;
+      final sub = server.listen((request) async {
+        requests++;
+        request.response.add(bytes);
+        await request.response.close();
+      });
+      final u = UpdateController(allowHttpForTesting: true, hostsForTesting: {'127.0.0.1'});
+      try {
+        u.info = {'directory': dir.path};
+        u.release = {'artifact': {'url': 'http://127.0.0.1:${server.port}/apk',
+          'sha256': sha256.convert(bytes).toString(), 'size_bytes': bytes.length}};
+        final apk = File('${dir.path}/update.apk');
+        await apk.writeAsBytes(bytes);
+        await u.download();
+        expect(requests, 1);
+        expect(installs, 2);
+        expect(u.state, 'install');
+        rejectAll = true;
+        await apk.delete();
+        await u.download();
+        expect(requests, 2);
+        expect(installs, 3);
+        expect(u.state, 'invalid-package');
+        expect(await apk.exists(), isFalse);
+        expect(u.error, contains('核对签名'));
+      } finally {
+        u.dispose();
+        await sub.cancel();
+        await server.close(force: true);
+        await dir.delete(recursive: true);
+        HttpOverrides.global = previous;
+      }
+    });
+    binding.defaultBinaryMessenger.setMockMethodCallHandler(bridge, null);
+  });
+
   testWidgets('startup prunes stale and duplicate OTA cache files',
       (tester) async {
     final binding = TestDefaultBinaryMessengerBinding.instance;

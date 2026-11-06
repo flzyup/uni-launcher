@@ -632,6 +632,7 @@ if(next!=null&&isOnlinePlayer(next.getPackageName())){
                 }
             }
         }catch(RuntimeException ignored){}
+        return "";
     }
     private static String readLyrics(MediaMetadata metadata,Bundle extras){
         String[] keys={"android.media.metadata.LYRICS","android.media.metadata.LYRIC","lyrics","lyric","lrc"};
