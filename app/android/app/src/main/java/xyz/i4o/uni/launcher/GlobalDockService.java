@@ -309,13 +309,13 @@ public final class GlobalDockService extends Service {
             requestedVisible=show;
             view.animate().cancel();
             if(show){
+                view.setAlpha(1f);
                 view.setVisibility(View.VISIBLE);
                 engine.getLifecycleChannel().appIsResumed();
-                if(isPanel){view.requestFocus();view.setAlpha(0f);view.animate().alpha(1f).setDuration(180).start();}
-                else view.setAlpha(1f);
+                if(isPanel)view.requestFocus();
             }else if(isPanel&&visible){
-                view.animate().alpha(0f).setDuration(180).withEndAction(()->{
-                    if(!requestedVisible&&attached){view.setVisibility(View.INVISIBLE);engine.getLifecycleChannel().appIsPaused();}
+                view.animate().alpha(0f).setDuration(140).withEndAction(()->{
+                    if(!requestedVisible&&attached){view.setVisibility(View.INVISIBLE);view.setAlpha(1f);engine.getLifecycleChannel().appIsPaused();}
                 }).start();
             }else{
                 view.setVisibility(View.INVISIBLE);view.setAlpha(1f);
@@ -344,8 +344,6 @@ public final class GlobalDockService extends Service {
         void suspend(){
             if(!attached)return;
             show(false);view.detachFromFlutterEngine();windows.removeViewImmediate(view);attached=false;
-            engine.getSystemChannel().sendMemoryPressureWarning();
-            engine.getRenderer().onTrimMemory(android.content.ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN);
         }
         void close(){
             spectrumBridge.close();
@@ -387,7 +385,9 @@ public final class GlobalDockService extends Service {
     private byte[] captureBackdrop(){
         android.graphics.Bitmap bitmap=null,crop=null;
         try{
-            JSONObject design=new JSONObject(runtime.prefs().getString("savedDesign","{}"));
+            String rawDesign=runtime.prefs().getString("savedDesign","");
+            if(!rawDesign.contains("\"glass\":true")||rawDesign.contains("\"blueGlass\""))return null;
+            JSONObject design=new JSONObject(rawDesign);
             JSONObject appearance=design.optJSONObject("preferences");
             if(appearance==null||!appearance.optBoolean("glass",false)||"blueGlass".equals(appearance.optString("themeStyle")))return null;
             DisplayMetrics real=new DisplayMetrics();windows.getDefaultDisplay().getRealMetrics(real);
@@ -491,7 +491,7 @@ public final class GlobalDockService extends Service {
         if(panelWindow!=null){panelWindow.updateBounds();panelWindow.show(visible&&!panel.isEmpty());}
         publish();
     }
-    private void publish(){if(dockWindow!=null)dockWindow.publish();if(panelWindow!=null&&!panel.isEmpty())panelWindow.publish();}
+    private void publish(){if(panelWindow!=null&&!panel.isEmpty())panelWindow.publish();if(dockWindow!=null)dockWindow.publish();}
     @Override public void onTrimMemory(int level){
         super.onTrimMemory(level);
         if(dockWindow!=null){dockWindow.engine.getSystemChannel().sendMemoryPressureWarning();dockWindow.engine.getRenderer().onTrimMemory(level);}

@@ -23,34 +23,37 @@ class _DockMusicVisualState extends State<DockMusicVisual> {
   }
 
   @override
-  Widget build(BuildContext context) => SizedBox(
-      height: Design.px(64),
-      child: PageView(
-          key: const ValueKey('dock-music-visual-pages'),
-          controller: pages,
-          onPageChanged: (value) => setState(() => index = value),
-          children: [
-            Semantics(
-                label: '歌词，向左滑动显示频谱',
-                child: Center(
-                    key: const ValueKey('dock-lyrics'),
-                    child: TickerMode(
-                        enabled: index == 0,
-                        child: LyricsView(
-                            media: widget.media,
-                            visibleLines: 1,
-                            currentLineMaxLines: 2,
-                            lineHeight: 32,
-                            fontSize: 26,
-                            textAlign: TextAlign.center)))),
-            Semantics(
-                label: '音频频谱，向右滑动显示歌词',
-                child: Center(
-                    child: TickerMode(
-                        enabled: index == 1,
-                        child: AudioSpectrum(
-                            playing:
-                                !widget.demo && widget.media['playing'] == true,
-                            height: 48)))),
-          ]));
+  Widget build(BuildContext context) {
+    final parentTicker = TickerMode.valuesOf(context).enabled;
+    return SizedBox(
+        height: Design.px(64),
+        child: PageView(
+            key: const ValueKey('dock-music-visual-pages'),
+            controller: pages,
+            onPageChanged: (value) => setState(() => index = value),
+            children: [
+              Semantics(
+                  label: '歌词，向左滑动显示频谱',
+                  child: Center(
+                      key: const ValueKey('dock-lyrics'),
+                      child: TickerMode(
+                          enabled: parentTicker && index == 0,
+                          child: LyricsView(
+                              media: widget.media,
+                              visibleLines: 1,
+                              currentLineMaxLines: 2,
+                              lineHeight: 32,
+                              fontSize: 26,
+                              textAlign: TextAlign.center)))),
+              Semantics(
+                  label: '音频频谱，向右滑动显示歌词',
+                  child: Center(
+                      child: TickerMode(
+                          enabled: parentTicker && index == 1,
+                          child: AudioSpectrum(
+                              playing: !widget.demo &&
+                                  widget.media['playing'] == true,
+                              height: 48)))),
+            ]));
+  }
 }

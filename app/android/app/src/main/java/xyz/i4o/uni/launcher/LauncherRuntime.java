@@ -76,7 +76,8 @@ public final class LauncherRuntime {
         public int apps=-1, design=-1, media=-1, settings=-1;
         /** 已经拿到的 apps 组是否带图标；只拿过 package/label 投影时为 false。 */
         public boolean icons;
-        void reset(){apps=design=media=settings=-1;icons=false;}
+        public String projectedSource="";
+        void reset(){apps=design=media=settings=-1;icons=false;projectedSource="";}
     }
     private int appsRevision=0, designRevision=0, mediaRevision=0, settingsRevision=0;
     private String designFingerprint="", mediaFingerprint="";
@@ -338,8 +339,9 @@ public final class LauncherRuntime {
             // 不需要图标，几百个图标的 base64 没必要过一遍 JSON。真会列出应用的
             // 页面（全部应用/导航选择/播放器选择）传 includeApps=true，游标会
             // 靠 icons 位把整组补上。
-            boolean wantApps=includeApps&&(cursor.apps!=appsRevision||!cursor.icons);
-            boolean wantLabels=!includeApps&&(cursor.apps!=appsRevision||!cursor.icons);
+            String projectedKey=mediaState.optString("source")+"|"+prefs.getString("mediaPackage","auto");
+            boolean wantApps=(includeApps&&(cursor.apps!=appsRevision||!cursor.icons))||(cursor.icons&&cursor.apps!=appsRevision);
+            boolean wantLabels=!includeApps&&!cursor.icons&&(cursor.apps!=appsRevision||!projectedKey.equals(cursor.projectedSource));
             boolean wantDesign=cursor.design!=designRevision;
             boolean wantMedia=cursor.media!=mediaRevision;
             boolean wantSettings=includeSettings&&systemSettings.isWarmed()&&cursor.settings!=settingsRevision;
@@ -359,8 +361,8 @@ public final class LauncherRuntime {
                 .put("cleaner",cleaner.snapshot())
                 .put("partial",!(wantApps&&wantDesign&&wantMedia));
 
-            if(wantApps){cursor.apps=appsRevision;cursor.icons=true;}
-            else if(wantLabels){cursor.apps=appsRevision;cursor.icons=false;}
+            if(wantApps){cursor.apps=appsRevision;cursor.icons=true;cursor.projectedSource=projectedKey;}
+            else if(wantLabels){cursor.apps=appsRevision;cursor.icons=false;cursor.projectedSource=projectedKey;}
             if(wantDesign)cursor.design=designRevision;
             if(wantMedia)cursor.media=mediaRevision;
             if(wantSettings)cursor.settings=settingsRevision;

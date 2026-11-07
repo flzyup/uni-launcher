@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import '../platform/native_gateway.dart';
 import '../controller/launcher_controller.dart';
 import '../widgets/desktop.dart';
+import '../widgets/card_content.dart' show mapOf;
+import '../widgets/native_slice_builder.dart';
 import '../widgets/scene_background.dart';
 import '../theme/design_tokens.dart';
 import '../widgets/bottom_dock.dart';
@@ -131,14 +133,27 @@ class _LauncherShellState extends State<LauncherShell> {
                                                         : 1,
                                                     duration: const Duration(
                                                         milliseconds: 180),
-                                                    child: TickerMode(
-                                                        enabled: !controller
-                                                            .settings,
-                                                        child: Desktop(
-                                                            controller:
-                                                                controller,
-                                                            position:
-                                                                pagePosition)))),
+                                                    child: NativeSliceBuilder(
+                                                        valueListenable:
+                                                            controller.native,
+                                                        select: (state) =>
+                                                            mapOf(state[
+                                                                    'globalDock'])[
+                                                                'expanded'] ==
+                                                            true,
+                                                        builder:
+                                                            (context, state) =>
+                                                                TickerMode(
+                                                                    enabled: !controller
+                                                                            .settings &&
+                                                                        mapOf(state['globalDock'])[
+                                                                                'expanded'] !=
+                                                                            true,
+                                                                    child: Desktop(
+                                                                        controller:
+                                                                            controller,
+                                                                        position:
+                                                                            pagePosition))))),
                                             IgnorePointer(
                                                 ignoring: !controller.settings,
                                                 child: AnimatedSwitcher(

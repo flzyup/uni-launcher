@@ -337,10 +337,15 @@ class MediaPanel extends StatelessWidget {
   final LauncherController controller;
   const MediaPanel({super.key, required this.controller});
   @override
-  Widget build(BuildContext context) => ValueListenableBuilder<
-          Map<String, dynamic>>(
+  Widget build(BuildContext context) => NativeSliceBuilder(
       valueListenable: controller.native,
-      builder: (context, state, _) {
+      select: (state) => [
+            state['demo'],
+            state['media'],
+            state['apps'],
+            state['appNames'],
+          ],
+      builder: (context, state) {
         final s = SurfaceStyle.of(context), m = mapOf(state['media']);
         final demo = state['demo'] == true,
             available = demo || m['available'] == true;

@@ -204,6 +204,7 @@ class DesktopPageStackState extends State<DesktopPageStack>
   @override
   Widget build(BuildContext context) {
     if (widget.children.isEmpty) return const SizedBox.shrink();
+    final parentTicker = TickerMode.valuesOf(context).enabled;
     return LayoutBuilder(builder: (context, constraints) {
       _width = constraints.maxWidth;
       final order = [for (var i = 0; i < widget.children.length; i++) i];
@@ -224,7 +225,9 @@ class DesktopPageStackState extends State<DesktopPageStack>
                       child: ExcludeSemantics(
                           excluding: _moving || i != _bounded(widget.page),
                           child: TickerMode(
-                              enabled: !_moving && i == _bounded(widget.page),
+                              enabled: parentTicker &&
+                                  !_moving &&
+                                  i == _bounded(widget.page),
                               child: DesktopMotionScope(
                                   moving: _moving && _painted.contains(i),
                                   child: _PageTransform(

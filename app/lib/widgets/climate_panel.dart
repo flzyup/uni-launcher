@@ -9,6 +9,7 @@ import '../model/vehicle_data.dart';
 import 'launcher_dialog.dart';
 import 'seat_controls.dart';
 import 'card_content.dart' show mapOf;
+import 'native_slice_builder.dart';
 
 Future<void> showClimatePanel(
     BuildContext context, LauncherController c) async {
@@ -18,9 +19,17 @@ Future<void> showClimatePanel(
       subtitle: c.native.value['demo'] == true ? '操作预览 · 不控制车辆' : null,
       closeLabel: '关闭空调',
       width: Design.px(1440),
-      builder: (context) => ValueListenableBuilder<Map<String, dynamic>>(
+      builder: (context) => NativeSliceBuilder(
           valueListenable: c.native,
-          builder: (context, n, _) {
+          select: (n) => [
+                n['demo'],
+                n['climate'],
+                mapOf(n['vehicle'])['climate'],
+                mapOf(n['vehicle'])['fields'],
+                mapOf(n['vehicle'])['writable'],
+                mapOf(n['vehicle'])['lastCommand'],
+              ],
+          builder: (context, n) {
             final s = SurfaceStyle.of(context),
                 demo = n['demo'] == true,
                 climate = mapOf(n['climate']);
