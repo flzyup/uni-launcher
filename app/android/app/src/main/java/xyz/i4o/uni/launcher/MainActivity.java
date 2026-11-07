@@ -570,6 +570,15 @@ public final class MainActivity extends FlutterActivity {
 
     @Override public void onWindowFocusChanged(boolean focus){super.onWindowFocusChanged(focus);if(focus&&chrome!=null)chrome.apply();}
 
+    @Override public boolean dispatchTouchEvent(android.view.MotionEvent ev){
+        if(ev!=null){
+            int action=ev.getActionMasked();
+            xyz.i4o.uni.launcher.audio.SpectrumBridge.notifyMapTouch(
+                action!=android.view.MotionEvent.ACTION_UP&&action!=android.view.MotionEvent.ACTION_CANCEL);
+        }
+        return super.dispatchTouchEvent(ev);
+    }
+
     /**
      * 车机有时把媒体键当普通按键派发给当前窗口，而不是走 MediaSession 路由。
      * 这类按键交给媒体适配层（按动作分组与方控输入通道折叠，不会切两次）。

@@ -151,21 +151,32 @@ public final class SpectrumBridge {
         static final long RELEASE_GRACE_MS=3000;
         AudioManager audioManager;
         boolean sessionWarned;
+        boolean cachedGranted;
+        int cachedDemand;
+        String cachedHiddenApi="";
 
-        Broker(Context context){this.context=context;}
+        Broker(Context context){
+            this.context=context;
+            this.cachedGranted=granted();
+            this.cachedHiddenApi=xyz.i4o.uni.launcher.platform.HiddenApiCompat.status();
+        }
 
         boolean granted(){return context.checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED
             &&context.checkSelfPermission(Manifest.permission.MODIFY_AUDIO_SETTINGS)==PackageManager.PERMISSION_GRANTED;}
         int demand(){int n=0;for(SpectrumBridge c:clients.keySet())if(c.active&&c.sink!=null&&!c.closed)n++;return n;}
 
         Map<String,Object> packet(double[] levels){
-            Map<String,Object> data=new HashMap<>();
-            data.put("granted",granted());data.put("available",running&&!failed&&"listening".equals(reason));
+            final boolean isStatePacket=(levels==null);
+            final boolean permitted=isStatePacket?(cachedGranted=granted()):cachedGranted;
+            final int consumers=isStatePacket?(cachedDemand=demand()):cachedDemand;
+            final String hiddenApi=isStatePacket?(cachedHiddenApi=xyz.i4o.uni.launcher.platform.HiddenApiCompat.status()):cachedHiddenApi;
+            Map<String,Object> data=new HashMap<>(20);
+            data.put("granted",permitted);data.put("available",running&&!failed&&"listening".equals(reason));
             data.put("running",running);data.put("source",source);
-            data.put("status",!granted()?"permission-required":reason);
+            data.put("status",!permitted?"permission-required":reason);
             data.put("detail",detail);
-            data.put("hiddenApi",xyz.i4o.uni.launcher.platform.HiddenApiCompat.status());
-            data.put("activeConsumers",demand());data.put("clients",clients.size());
+            data.put("hiddenApi",hiddenApi);
+            data.put("activeConsumers",consumers);data.put("clients",clients.size());
             data.put("captureSize",captureSize);data.put("sampleRateHz",sampleRate);
             data.put("sequence",sequence);data.put("captureHz",1000/POLL_MS);
             data.put("peakLevel",running?peakLevel:0d);data.put("signalFrames",signalFrames);data.put("frames",frames);
@@ -175,7 +186,11 @@ public final class SpectrumBridge {
 
         void publish(double[] levels){
             Map<String,Object> data=packet(levels);
-            for(SpectrumBridge c:new ArrayList<>(clients.keySet()))if(c.sink!=null&&!c.closed&&(levels==null||c.active))c.sink.success(data);
+            if(levels!=null){
+                for(SpectrumBridge c:clients.keySet())if(c.active&&c.sink!=null&&!c.closed)c.sink.success(data);
+                return;
+            }
+            for(SpectrumBridge c:new ArrayList<>(clients.keySet()))if(c.sink!=null&&!c.closed)c.sink.success(data);
         }
 
         /**
@@ -190,6 +205,9 @@ public final class SpectrumBridge {
         void sync(){
             int consumers=demand();
             boolean permitted=granted();
+            cachedDemand=consumers;
+            cachedGranted=permitted;
+            cachedHiddenApi=xyz.i4o.uni.launcher.platform.HiddenApiCompat.status();
             if(consumers>0&&!permitted)UniLog.w(LogTags.SPECTRUM,"频谱权限未授予，采集不会启动","consumers",consumers,"tag",TAG);
             boolean needed=consumers>0&&permitted;
             if(needed&&!running&&!failed){

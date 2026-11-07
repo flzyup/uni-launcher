@@ -249,6 +249,8 @@ class _LyricsViewState extends State<LyricsView> {
               child: ListView.builder(
                 key: const ValueKey('lyrics-scroll'),
                 controller: scroll,
+                addRepaintBoundaries: false,
+                addAutomaticKeepAlives: false,
                 padding:
                     EdgeInsets.symmetric(vertical: rowHeight * (count - 1) / 2),
                 itemCount: lyrics.lines.length,

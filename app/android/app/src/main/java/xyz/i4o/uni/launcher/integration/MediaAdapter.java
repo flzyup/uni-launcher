@@ -69,6 +69,7 @@ public final class MediaAdapter {
     private Bitmap lastCover;
     private String coverData="";
     private boolean artworkDirty=true;
+    private boolean steeringMetaDirty=true;
     private JSONArray activeSources=new JSONArray();
     private final List<MediaController> observed=new ArrayList<>();
     /** The package of the session that is currently selected (logging only). */
@@ -146,7 +147,7 @@ public final class MediaAdapter {
     }
     public void setPreferredPackage(String value){preferred=value==null||value.isEmpty()?"auto":value;start();}
     private final MediaController.Callback callback=new MediaController.Callback(){
-        public void onMetadataChanged(MediaMetadata m){artworkDirty=true;noteMetadata(m);choose();changed.run();}
+        public void onMetadataChanged(MediaMetadata m){artworkDirty=true;steeringMetaDirty=true;noteMetadata(m);choose();changed.run();}
         // choose() already synchronizes the selected source, including switches.
         public void onPlaybackStateChanged(PlaybackState s){choose();changed.run();}
         public void onExtrasChanged(Bundle extras){syncSteeringSession();changed.run();}
@@ -286,7 +287,7 @@ if(next!=null&&isOnlinePlayer(next.getPackageName())){
                 officialBridge.setOnlineSource(source);
             }
             noteSource(next==null?"":next.getPackageName(),observed.size());
-            if(next==null||controller==null||!next.getSessionToken().equals(controller.getSessionToken())){lastCover=null;coverData="";artworkDirty=true;}
+            if(next==null||controller==null||!next.getSessionToken().equals(controller.getSessionToken())){lastCover=null;coverData="";artworkDirty=true;steeringMetaDirty=true;}
             controller=next;
             netease.setController(controller);
             syncSteeringSession();
@@ -425,28 +426,31 @@ if(next!=null&&isOnlinePlayer(next.getPackageName())){
         officialBridge.update(controller);
         if(controller==null){steeringSession.setActive(false);noteSteering(false);return;}
         try{
-            MediaMetadata source=controller.getMetadata();
-            MediaMetadata.Builder metadata=new MediaMetadata.Builder();
-            if(source!=null){
-                copyText(source,metadata,MediaMetadata.METADATA_KEY_TITLE);
-                copyText(source,metadata,MediaMetadata.METADATA_KEY_ARTIST);
-                copyText(source,metadata,MediaMetadata.METADATA_KEY_ALBUM);
-                copyText(source,metadata,MediaMetadata.METADATA_KEY_DISPLAY_TITLE);
-                copyText(source,metadata,MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE);
-                copyText(source,metadata,MediaMetadata.METADATA_KEY_MEDIA_ID);
-                long duration=source.getLong(MediaMetadata.METADATA_KEY_DURATION);if(duration>0)metadata.putLong(MediaMetadata.METADATA_KEY_DURATION,duration);
-                Bitmap art=source.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART);if(art==null)art=source.getBitmap(MediaMetadata.METADATA_KEY_ART);
-                if(art!=null&&!art.isRecycled())metadata.putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART,art);
+            if(steeringMetaDirty){
+                steeringMetaDirty=false;
+                MediaMetadata source=controller.getMetadata();
+                MediaMetadata.Builder metadata=new MediaMetadata.Builder();
+                if(source!=null){
+                    copyText(source,metadata,MediaMetadata.METADATA_KEY_TITLE);
+                    copyText(source,metadata,MediaMetadata.METADATA_KEY_ARTIST);
+                    copyText(source,metadata,MediaMetadata.METADATA_KEY_ALBUM);
+                    copyText(source,metadata,MediaMetadata.METADATA_KEY_DISPLAY_TITLE);
+                    copyText(source,metadata,MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE);
+                    copyText(source,metadata,MediaMetadata.METADATA_KEY_MEDIA_ID);
+                    long duration=source.getLong(MediaMetadata.METADATA_KEY_DURATION);if(duration>0)metadata.putLong(MediaMetadata.METADATA_KEY_DURATION,duration);
+                    Bitmap art=source.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART);if(art==null)art=source.getBitmap(MediaMetadata.METADATA_KEY_ART);
+                    if(art!=null&&!art.isRecycled())metadata.putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART,art);
+                }
+                steeringSession.setMetadata(metadata.build());
+                Intent launch=context.getPackageManager().getLaunchIntentForPackage(controller.getPackageName());
+                if(launch!=null)steeringSession.setSessionActivity(android.app.PendingIntent.getActivity(context,0,launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),android.app.PendingIntent.FLAG_UPDATE_CURRENT));
             }
-            steeringSession.setMetadata(metadata.build());
             PlaybackState p=controller.getPlaybackState();
             long actions=PlaybackState.ACTION_PLAY|PlaybackState.ACTION_PAUSE|PlaybackState.ACTION_PLAY_PAUSE;
             if(p!=null)actions|=p.getActions()&(PlaybackState.ACTION_SKIP_TO_NEXT|PlaybackState.ACTION_SKIP_TO_PREVIOUS|PlaybackState.ACTION_SEEK_TO);
             if(NeteaseMediaAdapter.supports(controller))actions|=PlaybackState.ACTION_SKIP_TO_NEXT|PlaybackState.ACTION_SKIP_TO_PREVIOUS|PlaybackState.ACTION_SEEK_TO;
             steeringSession.setPlaybackState(new PlaybackState.Builder().setActions(actions)
                 .setState(p==null?PlaybackState.STATE_NONE:p.getState(),p==null?0:Math.max(0,p.getPosition()),p==null?0:p.getPlaybackSpeed(),SystemClock.elapsedRealtime()).build());
-            Intent launch=context.getPackageManager().getLaunchIntentForPackage(controller.getPackageName());
-            if(launch!=null)steeringSession.setSessionActivity(android.app.PendingIntent.getActivity(context,0,launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),android.app.PendingIntent.FLAG_UPDATE_CURRENT));
             steeringSession.setActive(true);
             noteSteering(true);
         }catch(Exception|LinkageError e){UniLog.w(LogTags.MEDIA,"Unable to synchronize steering media session",e,"tag","UniMedia");steeringSession.setActive(false);noteSteering(false);}

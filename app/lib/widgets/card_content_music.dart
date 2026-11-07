@@ -34,20 +34,21 @@ class _MediaCover extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = SurfaceStyle.of(context);
-    return Container(
-        width: size,
-        height: size,
-        decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(s.radius * .93),
-            boxShadow: [
-              BoxShadow(
-                  color: s.shadow,
-                  offset: Offset(0, Design.px(18)),
-                  blurRadius: Design.px(40))
-            ]),
-        child: ClipRRect(
-            borderRadius: BorderRadius.circular(s.radius * .93),
-            child: MediaArtwork(media: media, demo: demo)));
+    return RepaintBoundary(
+        child: Container(
+            width: size,
+            height: size,
+            decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(s.radius * .93),
+                boxShadow: [
+                  BoxShadow(
+                      color: s.shadow,
+                      offset: Offset(0, Design.px(8)),
+                      blurRadius: Design.px(16))
+                ]),
+            child: ClipRRect(
+                borderRadius: BorderRadius.circular(s.radius * .93),
+                child: MediaArtwork(media: media, demo: demo))));
   }
 }
 
@@ -165,31 +166,32 @@ class _MusicCard extends StatelessWidget {
 
     Widget lyricsView(int lines, double fontSize) => Center(
         key: const ValueKey('music-card-lyrics'),
-        child: ShaderMask(
-            key: const ValueKey('music-card-lyrics-fade'),
-            blendMode: BlendMode.dstIn,
-            shaderCallback: (bounds) {
-              final edge = bounds.height > 0
-                  ? (Design.px(24) / bounds.height).clamp(0.0, .2)
-                  : 0.0;
-              return LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: const [
-                  Colors.transparent,
-                  Colors.white,
-                  Colors.white,
-                  Colors.transparent
-                ],
-                stops: [0, edge, 1 - edge, 1],
-              ).createShader(bounds);
-            },
-            child: LyricsView(
-                media: media,
-                visibleLines: lines,
-                lineHeight: lyricRowHeight,
-                fontSize: fontSize,
-                textAlign: TextAlign.center)));
+        child: RepaintBoundary(
+            child: ShaderMask(
+                key: const ValueKey('music-card-lyrics-fade'),
+                blendMode: BlendMode.dstIn,
+                shaderCallback: (bounds) {
+                  final edge = bounds.height > 0
+                      ? (Design.px(24) / bounds.height).clamp(0.0, .2)
+                      : 0.0;
+                  return LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: const [
+                      Colors.transparent,
+                      Colors.white,
+                      Colors.white,
+                      Colors.transparent
+                    ],
+                    stops: [0, edge, 1 - edge, 1],
+                  ).createShader(bounds);
+                },
+                child: LyricsView(
+                    media: media,
+                    visibleLines: lines,
+                    lineHeight: lyricRowHeight,
+                    fontSize: fontSize,
+                    textAlign: TextAlign.center))));
 
     Widget body(BoxConstraints box) {
       final compactCover = Design.px(compact
@@ -324,10 +326,11 @@ class _MusicCard extends StatelessWidget {
                           LayoutBuilder(builder: (context, box) => body(box))),
                   if (!compact) ...[
                     SizedBox(height: Design.px(10)),
-                    MediaProgress(
-                        media: media,
-                        onSeek: (v) =>
-                            controller.command('seek', value: '${'$v'}')),
+                    RepaintBoundary(
+                        child: MediaProgress(
+                            media: media,
+                            onSeek: (v) =>
+                                controller.command('seek', value: '${'$v'}'))),
                   ],
                 ])));
   }

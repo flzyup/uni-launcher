@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../controller/launcher_controller.dart';
 import '../theme/design_tokens.dart';
 import '../theme/launcher_theme.dart';
+import 'native_slice_builder.dart';
 
 /// A compact source identity that doubles as the player's launch target.
 class MediaSourceBadge extends StatelessWidget {
@@ -17,10 +18,21 @@ class MediaSourceBadge extends StatelessWidget {
       this.compact = false,
       this.enabled = true});
   @override
-  Widget build(BuildContext context) => ValueListenableBuilder<
-          Map<String, dynamic>>(
+  Widget build(BuildContext context) => NativeSliceBuilder(
       valueListenable: controller.native,
-      builder: (context, state, _) {
+      select: (state) {
+        final media = state['media'] as Map?;
+        final prefs = state['integrationPreferences'] as Map?;
+        return [
+          prefs?['mediaPackage'],
+          media?['source'],
+          media?['sourceLabel'],
+          media?['cached'],
+          state['apps'],
+          state['appNames'],
+        ];
+      },
+      builder: (context, state) {
         final s = SurfaceStyle.of(context);
         final preferences = state['integrationPreferences'] as Map? ?? {};
         final media = state['media'] as Map? ?? {};
@@ -84,6 +96,8 @@ class MediaSourceBadge extends StatelessWidget {
                                   : 28),
                           child: icon != null
                               ? Image.memory(icon,
+                                  gaplessPlayback: true,
+                                  filterQuality: FilterQuality.low,
                                   errorBuilder: (_, __, ___) =>
                                       const Icon(Icons.music_note_outlined))
                               : const Icon(Icons.music_note_outlined))),
