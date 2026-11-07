@@ -9,6 +9,7 @@ import '../model/card_layout.dart';
 import '../model/card_reorder.dart';
 import '../platform/native_gateway.dart';
 import '../platform/ambient_light.dart';
+import '../platform/ui_routes.dart';
 import '../platform/uni_log.dart';
 
 class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
@@ -130,6 +131,16 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
   void didHaveMemoryPressure() => trimMemory();
   LauncherController(this.gateway);
   Future<void> initialize() async {
+    await initializePrelude();
+    await initializeRest();
+  }
+
+  /// 第一阶段：只把「第一帧需要的东西」准备好 —— 外观、布局、宿主回调。
+  ///
+  /// 拆出来是为了让 `main()` 能在 `runApp` 之前 await 它：首帧直接就是真桌面，
+  /// 而不是「先一块启动底色的空画布，等 prelude 回来再跳成桌面」。prelude 只读
+  /// 偏好、不碰适配器，往返一次几十毫秒；真的慢了由调用方超时兜底。
+  Future<void> initializePrelude() async {
     // Every engine (launcher, dock and panel) initializes its own controller.
     if (_disposed) return;
     UniLog.enter(UniLogTags.app, 'launcher/bootstrap');
@@ -141,15 +152,19 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
       _observingMemory = true;
     }
     gateway.onHome(home);
+    gateway.onHomeFirst(homeFirst);
     if (gateway is AndroidGateway) {
       (gateway as AndroidGateway).onOpenSettings(openSettings);
       (gateway as AndroidGateway).onHostRebound(_hostRebound);
     }
-    // 第一阶段：只要外观和布局。这一段只读偏好，不碰任何适配器，第一帧用的
-    // 就是正确的主题；完整快照（车辆/媒体/天气/图标）随后补齐。
+    // 只要外观和布局。这一段只读偏好，不碰任何适配器，第一帧用的就是正确
+    // 的主题；完整快照（车辆/媒体/天气/图标）随后补齐。
     await _applyPrelude();
+  }
+
+  /// 第二阶段：完整快照 + 事件流。首帧之后才需要，绝不能挡在第一帧前面。
+  Future<void> initializeRest() async {
     if (_disposed) return;
-    // 第二阶段：完整快照 + 事件流。
     try {
       final state = await gateway.bootstrap();
       if (_disposed) return;
@@ -575,18 +590,48 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
     unawaited(service.refreshStatus());
   }
 
-  void home() {
-    UniLog.event(UniLogTags.ui, '返回桌面', fields: {'from': settingsTab});
+  /// 外部回桌面（HOME intent、桌面入口、全局底栏）。
+  ///
+  /// [resetPage] 默认 false：Android 桌面的语义是「回到你离开时的那一页」。
+  /// 以前这里无条件 `_setPage(0)`，于是从第三方应用按 home 回来时，桌面会当着
+  /// 用户的面翻回第一页 —— 那一段翻页动画正是「返回不够流畅」里最直接的观感
+  /// 来源（画面在动，而不是稳稳地就在那儿）。
+  void home({bool resetPage = false}) {
+    // 诊断锚点：这条走 Dart → logcat（flutter tag）的直连路径，不经过原生主线程，
+    // 所以它和紧接着的平台通道日志之间的差值，就是「原生主线程还在忙」的时长。
+    // 排查返回桌面耗时只看这一对时间戳。
+    debugPrint('[UNI-RESUME] home ${DateTime.now().millisecondsSinceEpoch}');
+    UniLog.event(UniLogTags.ui, '返回桌面',
+        fields: {'from': settingsTab, 'resetPage': resetPage});
     if (isGlobalDock) {
       command('show-home');
       return;
     }
-    if (editing) return;
+    // 以前编辑态直接 return，于是按 HOME 在编辑模式里毫无反应。HOME 是明确的用户
+    // 指令：先把编辑收尾（已提交的布局保留），再回桌面。
+    if (editing) finishEdit();
     settings = false;
-    _setPage(0);
+    if (resetPage) {
+      // 全部应用页、最近任务、媒体/空调这类面板是压在桌面上的路由或全局底栏的
+      // 独立窗口。HOME 是「回桌面」的明确指令，两层都要收：路由栈退回根，
+      // 底栏面板窗口一并收起（底栏没在跑时这条是空操作）。
+      popToLauncherRoot();
+      unawaited(command('dismiss-dock-panel'));
+      _setPage(0);
+    } else {
+      // 保留用户离开时那一页，但**必须取消在途的切页请求**：延迟返回的平台
+      // 回复不允许在回桌面之后再改一次页码。只递增请求号，不额外下发
+      // setDesktopPage —— 与原行为一致，不引入新的平台往返。
+      _pageRequest++;
+    }
     notifyListeners();
   }
 
+  /// 车机 HOME 键 / 桌面入口 HOME intent：落回第一屏。
+  ///
+  /// 和 `home()` 默认行为的区别就是 [resetPage]：默认那条服务于「窗口被复用」
+  /// （从第三方应用切回来，停在原页更稳），这条服务于「用户明确按了 HOME」。
+  void homeFirst() => home(resetPage: true);
   void openSettings() {
     UniLog.event(UniLogTags.ui, '打开桌面设置');
     if (isGlobalDock) {

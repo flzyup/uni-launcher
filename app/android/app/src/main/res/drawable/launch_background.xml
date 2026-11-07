@@ -1,12 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Modify this file to customize your launch splash screen -->
+<!--
+  启动窗口背景。不要改回 white / ?android:colorBackground：
+  这份 drawable 同时是 system_server 的 Activity 预览窗口、Flutter 的
+  splash drawable（首帧后还会淡出一次），以及 NormalTheme 下 FlutterView
+  背后的窗口底色。白色在这里就等于「启动白屏」。
+-->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="@android:color/white" />
-
-    <!-- You can insert your own image assets here -->
-    <!-- <item>
-        <bitmap
-            android:gravity="center"
-            android:src="@mipmap/launch_image" />
-    </item> -->
+    <item android:drawable="@color/uni_boot_canvas" />
 </layer-list>

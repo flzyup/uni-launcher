@@ -35,6 +35,8 @@ public final class LauncherRuntime {
     /** Upper bound of telemetry packets per second; 80ms is faster than a frame
      * budget but slow enough that a burst of source callbacks costs one rebuild. */
     private static final long PUBLISH_INTERVAL_MS=80;
+    /** 快照节流诊断用：当前发布间隔（毫秒）。合并上游后 MainActivity 里还在读它。 */
+    long publishInterval(){return PUBLISH_INTERVAL_MS;}
     private final Context context;
     private final SharedPreferences prefs;
     private final AppRepository apps;
@@ -367,6 +369,32 @@ public final class LauncherRuntime {
         return t;
     }
 
+    /**
+     * 启动窗口底色：上次外观真实的画布色。
+     *
+     * <p>窗口在进程启动时就被系统画出来了，那一段只能靠资源兜底；这时读到的必须是
+     * 上次保存的画布色，而不是浅色主题的纯白 —— 否则深色外观的用户每次冷启动都要
+     * 先看一帧白。缓存不存在（全新安装）才退回资源里的深色。
+     */
+    static int bootCanvasArgb(Context context){
+        SharedPreferences sp=context.getSharedPreferences("launcher",Context.MODE_PRIVATE);
+        int cached=sp.getInt("bootCanvasArgb",0);
+        if(cached!=0)return cached;
+        return context.getColor(R.color.uni_boot_canvas);
+    }
+
+    /** 从 savedDesign 里推出画布色：判断顺序照抄 Dart 的 Appearance.isDark。 */
+    private static int designCanvasArgb(JSONObject preferences,boolean systemDark){
+        String style=preferences.optString("themeStyle","classic");
+        if("nocturne".equals(style))return 0xFF050607;
+        String mode=preferences.optString("mode","system");
+        boolean dark;
+        if("dark".equals(mode))dark=true;
+        else if("light".equals(mode))dark=false;
+        else dark=systemDark;
+        if("blueGlass".equals(style))return dark?0xFF07111F:0xFFE8EEF5;
+        return dark?0xFF0E1920:0xFFE1ECE7;
+    }
     private static JSONObject stripMediaPayload(JSONObject full){
         JSONObject copy=new JSONObject();
         if(full==null)return copy;
@@ -512,7 +540,11 @@ public final class LauncherRuntime {
                         if(key.length()==0||key.length()>255||name.length()>96||name.indexOf('\n')>=0||name.indexOf('\r')>=0)return false;
                     }
                 }
-                SharedPreferences.Editor editor=prefs.edit().putString("savedDesign",raw);
+                SharedPreferences.Editor editor=prefs.edit().putString("savedDesign",raw)
+                // 启动底色跟随外观：下次冷启动时窗口就能直接用这个色，
+                // 不必等 Flutter 把界面画出来才知道背景该是什么。
+                .putInt("bootCanvasArgb",designCanvasArgb(p,
+                    (context.getResources().getConfiguration().uiMode&Configuration.UI_MODE_NIGHT_MASK)==Configuration.UI_MODE_NIGHT_YES));
                 // 异步写盘：内存立即生效，不阻塞主线程等待磁盘提交；布局变更由
                 // trackDesign 的内容指纹在下次快照时推进 designRevision。
                 editor.apply();

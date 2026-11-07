@@ -15,9 +15,19 @@ public final class SystemNavigationPolicy {
     public static boolean granted(Context c){return c.checkSelfPermission("android.permission.WRITE_SECURE_SETTINGS")==PackageManager.PERMISSION_GRANTED;}
     public static boolean setHidden(Context c,SharedPreferences p,boolean hidden){
         if(!granted(c)){UniLog.w(LogTags.SYS,"未授予 WRITE_SECURE_SETTINGS，无法管理原有导航栏","hidden",hidden);UniLog.skip(LogTags.SYS,"sys/nav-policy","hidden",hidden,"reason","permission");return false;}
-        UniLog.enter(LogTags.SYS,"sys/nav-policy","hidden",hidden);
         try{
             String current=Settings.Global.getString(c.getContentResolver(),"policy_control");
+            // 幂等短路：这条路径每次 onStart 都会走一遍，而绝大多数时候规则早就
+            // 落到位了。以前无条件重写同一个 policy_control —— 那是一次系统设置
+            // 写入（provider IPC + 通知所有观察者，WindowManager 会据此重算沉浸
+            // 策略，进而 relayout 整个窗口），外加一次同步 fsync 的 prefs.commit()。
+            // 值没变就什么都不做：读一次比写一次便宜一个量级。
+            if(hidden&&p.contains(APPLIED)&&p.getBoolean("systemNavigationHidden",false)
+                &&java.util.Objects.equals(current,p.getString(APPLIED,""))){
+                UniLog.d(LogTags.SYS,"sys/nav-policy 已是目标状态，跳过写入","hidden",hidden);
+                return true;
+            }
+            UniLog.enter(LogTags.SYS,"sys/nav-policy","hidden",hidden);
             if(hidden){
                 String cleaned=removeOwnedFull(current);
                 String previous=cleaned==null?"<unset>":cleaned;

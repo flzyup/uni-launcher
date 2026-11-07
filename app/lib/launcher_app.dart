@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'controller/launcher_controller.dart';
+import 'model/appearance.dart';
 import 'platform/adaptive_quality.dart';
+import 'platform/ui_routes.dart';
 import 'theme/launcher_theme.dart';
 import 'screens/launcher_shell.dart';
 
@@ -14,16 +16,25 @@ class LauncherApp extends StatelessWidget {
   final LauncherController controller;
   const LauncherApp({super.key, required this.controller});
 
-  /// 与 `launch_background.xml` 同色：引导还没读完外观时，窗口保持一种颜色，
-  /// 而不是「先白、再黑、再换主题」。
-  static const Color bootCanvas = Color(0xFFFFFFFF);
+  /// 引导还没读完外观时，窗口保持一种颜色，而不是「先白、再深、再换主题」。
+  ///
+  /// 这里给的不是某个固定色，而是 [SurfaceStyle.background] 本身：默认外观
+  /// （blueGlass）加系统明暗推出来的那块画布色，和原生
+  /// `res/values/colors.xml` 的 `uni_boot_canvas`、`LauncherRuntime.bootCanvasArgb()`
+  /// 是同一套值。于是启动过程是「深色启动窗 → 深色画布 → 主题背景」，中间没有
+  /// 白场；外观真的和默认不同时，prelude 到了会换成正确的那一种。
+  Color _bootCanvas() => SurfaceStyle.from(
+        const Appearance(),
+        WidgetsBinding.instance.platformDispatcher.platformBrightness ==
+            Brightness.dark,
+      ).background;
 
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
       animation: Listenable.merge([controller, AdaptiveQuality.shared]),
       child: LauncherShell(controller: controller),
       builder: (context, shell) {
-        if (!controller.designReady) return const ColoredBox(color: bootCanvas);
+        if (!controller.designReady) return ColoredBox(color: _bootCanvas());
         final style = SurfaceStyle.from(
             controller.appearance, controller.native.value['dark'] == true,
             adaptToWallpaper: true,
@@ -31,6 +42,7 @@ class LauncherApp extends StatelessWidget {
         return MaterialApp(
             title: 'UNI 桌面',
             debugShowCheckedModeBanner: false,
+            navigatorKey: launcherNavigatorKey,
             theme: launcherTheme(style),
             home: shell);
       });

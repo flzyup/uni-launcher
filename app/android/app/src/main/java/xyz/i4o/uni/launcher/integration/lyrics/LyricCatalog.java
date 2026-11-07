@@ -3,6 +3,9 @@ package xyz.i4o.uni.launcher.integration.lyrics;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import xyz.i4o.uni.launcher.log.LogTags;
+import xyz.i4o.uni.launcher.log.UniLog;
+
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -55,6 +58,14 @@ public final class LyricCatalog {
     private static final int READ_MS = 4000;
     private static final int MAX_RESPONSE = 262144;
     private static final long CACHE_VERSION = 2;
+    /** 汽水 krc 行头：`[起始毫秒,时长毫秒]剩余逐字标记`。 */
+    private static final java.util.regex.Pattern KRC_LINE =
+            java.util.regex.Pattern.compile("^\\[(\\d+),(\\d+)\\](.*)$");
+    /** 汽水逐字标记：`<行内偏移,字时长,标志>字`。 */
+    private static final java.util.regex.Pattern KRC_WORD =
+            java.util.regex.Pattern.compile("<(\\d+),(\\d+),(\\d+)>([^<]*)");
+    private static final java.util.regex.Pattern KRC_TAG =
+            java.util.regex.Pattern.compile("<[^>]*>");
     /** How long the caller waits for the first usable document before showing a miss. */
     private static final long FIRST_WAIT_MS = 2600;
     /** How much longer the workers may keep looking for a better (word-timed) document. */
@@ -308,7 +319,10 @@ public final class LyricCatalog {
                                     hit.qualityScore());
                         }
                     } catch (Exception offline) {
-                        // A dead catalogue is not a lyric failure the UI sees.
+                        // A dead catalogue is not a lyric failure the UI sees — but it used to be
+                        // invisible too, which is why "歌在放，歌词一直不出来" had no trace to
+                        // follow. Keep the last reason per provider for the diagnostics line.
+                        recordFailure(provider, offline);
                     }
                     queue.offer(result);
                 }
@@ -365,6 +379,34 @@ public final class LyricCatalog {
     }
 
     /** The playing app's own catalogue first, then everyone else. */
+    /**
+     * Last failure per provider, for the diagnostics line.
+     *
+     * <p>Catalogue errors stay invisible to the UI on purpose (a dead source must not turn into a
+     * lyric error banner), but a silent swallow makes "no lyrics at all" impossible to diagnose
+     * from a log — which is exactly how the 汽水/咪咕 outage of this pipeline stayed hidden.
+     */
+    private static final java.util.Map<String, String> FAILURES =
+            new java.util.concurrent.ConcurrentHashMap<String, String>();
+
+    static void recordFailure(String provider, Throwable error) {
+        String detail = error == null ? "unknown" : error.getClass().getSimpleName()
+                + (error.getMessage() == null ? "" : (": " + error.getMessage()));
+        if (detail.length() > 160) detail = detail.substring(0, 160);
+        FAILURES.put(String.valueOf(provider), detail);
+    }
+
+    /** Diagnostics: {@code "netease=SocketTimeoutException; kugou=..."}, or "" for no failures. */
+    public static String describeFailures() {
+        if (FAILURES.isEmpty()) return "";
+        StringBuilder out = new StringBuilder();
+        for (java.util.Map.Entry<String, String> entry : FAILURES.entrySet()) {
+            if (out.length() > 0) out.append("; ");
+            out.append(entry.getKey()).append('=').append(entry.getValue());
+        }
+        return out.toString();
+    }
+
     static String[] plan(String owner) {
         String preferred = providerForPackage(owner);
         if (owner != null) {
@@ -461,6 +503,12 @@ public final class LyricCatalog {
             if (numeric(rid) > 0) return kuwoById(rid);
         } else if (QQ.equals(provider)) {
             if (mediaId.matches("[0-9A-Za-z]{10,16}")) return qqByMid(mediaId);
+        } else if (SODA.equals(provider)) {
+            // 汽水的 PC 搜索接口匿名调用必空，会话里的 MEDIA_ID 就是 track_id，直接用 id 取词。
+            if (mediaId.matches("\\d{10,20}")) {
+                LyricTimeline byId = sodaById(mediaId.trim());
+                if (byId.usable()) return byId;
+            }
         }
         return LyricTimeline.EMPTY;
     }
@@ -782,6 +830,72 @@ public final class LyricCatalog {
         String page = get("https://www.qishui.com/share/track?track_id=" + encode(trackId),
                 "https://www.qishui.com/");
         return sodaPage(page);
+    }
+
+    /**
+     * 汽水：媒体会话只给 track_id，PC 搜索接口匿名调用必空 —— 冷门歌就是死在这一步。
+     *
+     * <p>分享页的 `_ROUTER_DATA` 里带 `audioWithLyricsOption.lyrics.sentences`（逐字时间），
+     * 拿不到时退回 H5 `seo_track` 的 krc 文本。两条都不需要登录态。
+     */
+    private LyricTimeline sodaById(String trackId) throws Exception {
+        String page = get("https://www.qishui.com/share/track?track_id=" + encode(trackId),
+                "https://www.qishui.com/");
+        LyricTimeline timeline = sodaPage(page);
+        UniLog.d(LogTags.LYRIC, "lyric/soda", "id", trackId, "shareLen", page.length(),
+                "shareSentences", timeline.lineCount());
+        if (timeline.usable()) return timeline;
+        String json = get("https://api.qishui.com/luna/h5/seo_track?track_id=" + encode(trackId),
+                "https://www.qishui.com/");
+        LyricTimeline krc = sodaKrc(json);
+        UniLog.d(LogTags.LYRIC, "lyric/soda-krc", "id", trackId, "seoLen", json.length(),
+                "lines", krc.lineCount());
+        return krc;
+    }
+
+    /** 汽水的 krc：每行 `[start,dur]<off,dur,flag>字…`，逐字时间直接换算成增强时间轴。 */
+    static LyricTimeline sodaKrc(String json) {
+        if (json == null || json.isEmpty()) return LyricTimeline.EMPTY;
+        try {
+            JSONObject lyric = new JSONObject(json).optJSONObject("lyric");
+            String content = lyric == null ? "" : lyric.optString("content", "");
+            if (content.isEmpty()) return LyricTimeline.EMPTY;
+            StringBuilder plain = new StringBuilder();
+            StringBuilder enhanced = new StringBuilder();
+            for (String row : content.split("\n")) {
+                java.util.regex.Matcher head = KRC_LINE.matcher(row.trim());
+                if (!head.find()) continue;
+                long at = Long.parseLong(head.group(1));
+                long until = at + Long.parseLong(head.group(2));
+                String body = head.group(3);
+                String text = KRC_TAG.matcher(body).replaceAll("").trim();
+                if (text.isEmpty()) continue;
+                plain.append(lrcLine(at, text));
+                String words = krcWords(body, at, until);
+                if (!words.isEmpty()) {
+                    enhanced.append('[').append(at).append(',').append(Math.max(1, until - at))
+                            .append(']').append(words).append('\n');
+                }
+            }
+            if (plain.length() == 0) return LyricTimeline.EMPTY;
+            return LyricTimeline.parse(plain.toString(), "", enhanced.toString(), "");
+        } catch (Exception malformed) {
+            return LyricTimeline.EMPTY;
+        }
+    }
+
+    private static String krcWords(String body, long lineStart, long lineEnd) {
+        java.util.regex.Matcher word = KRC_WORD.matcher(body);
+        StringBuilder out = new StringBuilder();
+        while (word.find()) {
+            String text = word.group(4);
+            if (text.trim().isEmpty()) continue;
+            long at = lineStart + Long.parseLong(word.group(1));
+            long duration = Math.max(60, Long.parseLong(word.group(2)));
+            if (at >= lineEnd) break;
+            out.append('(').append(at).append(',').append(duration).append(",0)").append(text);
+        }
+        return out.toString();
     }
 
     private static String sodaArtists(JSONArray artists) {

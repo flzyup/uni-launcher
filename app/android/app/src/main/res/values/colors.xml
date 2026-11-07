@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      启动窗口底色（starting window / LaunchTheme / NormalTheme 共用）。
+
+      它比 Flutter 第一帧早出现几百毫秒：system_server 在进程还没起来时就用
+      LaunchTheme 的 windowBackground 画「预览窗口」，之后 Flutter 的 splash
+      drawable 还要淡出一次（默认 500 ms）。以前这里取的是
+      `@android:color/white` / `?android:colorBackground`，于是深色桌面之前
+      一定有 1 秒以上的纯白，夜间尤其刺眼 —— 用户说的「启动白屏」就是它。
+
+      取 SurfaceStyle.background 深色档的中性值（见
+      app/lib/theme/launcher_theme.dart）：blueGlass 深色 #07111F、
+      classic 深色 #0E1920、nocturne #050607。这里取三者之间的 #0A121B，
+      三个皮肤下都不会跳色。运行时会用上次保存的外观精确覆盖它
+      （LauncherRuntime.bootCanvasArgb），本资源只负责「还没读到偏好」的那一段。
+    -->
+    <color name="uni_boot_canvas">#FF0A121B</color>
+</resources>

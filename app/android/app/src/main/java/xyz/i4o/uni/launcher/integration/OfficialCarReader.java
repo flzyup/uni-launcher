@@ -130,8 +130,10 @@ public final class OfficialCarReader implements VehicleAdapter {
                 "durationMs", SystemClock.elapsedRealtime() - began);
         if (closed) return;
         try {
-            long interval = !permitted() ? 5 : (xyz.i4o.uni.launcher.LauncherVisibility.visible() ? 1 : 3);
-            worker.schedule(this, interval, TimeUnit.SECONDS);
+            // 没有车厂读取权限时（模拟器、非 IP753 车机）每秒走一次官方通道
+            // 什么也读不到，只换来一次 binder 往返加四条 logcat：退到 15s，
+            // 权限授予后最迟 15 秒自动回到 1s。
+            worker.schedule(this, permitted() ? (visible ? 1 : 3) : (visible ? 15 : 30), TimeUnit.SECONDS);
         } catch (java.util.concurrent.RejectedExecutionException ignored) {}
     }};
 
@@ -563,8 +565,11 @@ public final class OfficialCarReader implements VehicleAdapter {
         UniLog.enterDebug(LogTags.VEHICLE, "vehicle/read", "source", "official");
         if (pending != null && SystemClock.elapsedRealtime() > pending.deadline) finishCommand("timeout", "未在5秒内获得目标状态读回");
         if (!permitted()) {
+            // 原因没变就只留一条：每秒一条 DEBUG 会把 logd 喂到 chatty，
+            // 一触发限流写入就阻塞，慢机器上这是实打实的卡顿源。
+            boolean fresh = !"车辆厂商读取权限未授权".equals(lastUnavailableReason);
             noteUnavailable("车辆厂商读取权限未授权", "permission", OfficialCarContract.PERMISSION);
-            UniLog.skipDebug(LogTags.VEHICLE, "vehicle/read", "reason", "PERMISSION_DENIED");
+            if (fresh) UniLog.skipDebug(LogTags.VEHICLE, "vehicle/read", "reason", "PERMISSION_DENIED");
             publishUnavailable("车辆厂商读取权限未授权");
             return;
         }
