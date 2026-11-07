@@ -44,6 +44,8 @@ public final class GlobalDockService extends Service {
     private boolean panelReady;
     private static final long PANEL_IDLE_MS=5000;
     private static final JSONArray NO_RECENTS=new JSONArray();
+    private static final java.util.regex.Pattern SIGNATURE_TIMESTAMPS=
+        java.util.regex.Pattern.compile("\"([A-Za-z]*AtMs|[A-Za-z]*AtElapsedMs|sourceTimestampNanos|ageMs)\":-?\\d+");
     private final Runnable releaseIdlePanel=()->{
         if(!panel.isEmpty()||panelWindow==null)return;
         panelWindow.suspend();
@@ -218,7 +220,16 @@ public final class GlobalDockService extends Service {
         }
         UniLog.done(LogTags.DOCK,"dock/attach","surface","dock");
         UniLog.i(LogTags.DOCK,"底栏窗口已创建","nativeInsets",nativeInsets,"workspace",workspace.available());
-        runtime.addListener(this,this::update);update();
+        runtime.addListener(this,this::onRuntimeChanged);update();
+        main.postDelayed(this::prewarmPanel,1800);
+    }
+    private void prewarmPanel(){
+        if(dockWindow==null||panelWindow!=null||!panel.isEmpty())return;
+        try{
+            panelWindow=new OverlayWindow(true);
+            main.removeCallbacks(releaseIdlePanel);
+            main.postDelayed(releaseIdlePanel,1500);
+        }catch(RuntimeException ignored){}
     }
     /** Each view retains its size for its entire lifetime. In particular a
      * dialog never reallocates the dock's Flutter texture or changes its focus. */
@@ -309,13 +320,13 @@ public final class GlobalDockService extends Service {
             requestedVisible=show;
             view.animate().cancel();
             if(show){
+                view.setAlpha(1f);
                 view.setVisibility(View.VISIBLE);
                 engine.getLifecycleChannel().appIsResumed();
-                if(isPanel){view.requestFocus();view.setAlpha(0f);view.animate().alpha(1f).setDuration(180).start();}
-                else view.setAlpha(1f);
+                if(isPanel)view.requestFocus();
             }else if(isPanel&&visible){
-                view.animate().alpha(0f).setDuration(180).withEndAction(()->{
-                    if(!requestedVisible&&attached){view.setVisibility(View.INVISIBLE);engine.getLifecycleChannel().appIsPaused();}
+                view.animate().alpha(0f).setDuration(140).withEndAction(()->{
+                    if(!requestedVisible&&attached){view.setVisibility(View.INVISIBLE);view.setAlpha(1f);engine.getLifecycleChannel().appIsPaused();}
                 }).start();
             }else{
                 view.setVisibility(View.INVISIBLE);view.setAlpha(1f);
@@ -327,7 +338,7 @@ public final class GlobalDockService extends Service {
             String text=packet().toString();
             // Same reasoning as MainActivity.emit(): timestamp-only differences must
             // not wake the dock/panel engine while nothing it renders has changed.
-            String sig=text.replaceAll("\"([A-Za-z]*AtMs|[A-Za-z]*AtElapsedMs)\":-?\\d+","\"t\":0");
+            String sig=SIGNATURE_TIMESTAMPS.matcher(text).replaceAll("\"t\":0");
             if(sig.equals(sentSignature))return;
             sentSignature=sig;
             sink.success(text);
@@ -344,8 +355,6 @@ public final class GlobalDockService extends Service {
         void suspend(){
             if(!attached)return;
             show(false);view.detachFromFlutterEngine();windows.removeViewImmediate(view);attached=false;
-            engine.getSystemChannel().sendMemoryPressureWarning();
-            engine.getRenderer().onTrimMemory(android.content.ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN);
         }
         void close(){
             spectrumBridge.close();
@@ -387,7 +396,9 @@ public final class GlobalDockService extends Service {
     private byte[] captureBackdrop(){
         android.graphics.Bitmap bitmap=null,crop=null;
         try{
-            JSONObject design=new JSONObject(runtime.prefs().getString("savedDesign","{}"));
+            String rawDesign=runtime.prefs().getString("savedDesign","");
+            if(!rawDesign.contains("\"glass\":true")||rawDesign.contains("\"blueGlass\""))return null;
+            JSONObject design=new JSONObject(rawDesign);
             JSONObject appearance=design.optJSONObject("preferences");
             if(appearance==null||!appearance.optBoolean("glass",false)||"blueGlass".equals(appearance.optString("themeStyle")))return null;
             DisplayMetrics real=new DisplayMetrics();windows.getDefaultDisplay().getRealMetrics(real);
@@ -482,6 +493,15 @@ public final class GlobalDockService extends Service {
     private String topTaskPackage(){
         return xyz.i4o.uni.launcher.overlay.DisplayTasks.topPackage(this);
     }
+    private void onRuntimeChanged(){
+        if(dockWindow==null)return;
+        if(cameraSuspended&&runtime.homeVisible()){
+            cameraSuspended=false;
+            update();
+            return;
+        }
+        publish();
+    }
     private void update(){
         if(dockWindow==null)return;
         if(!Settings.canDrawOverlays(this)){stopSelf();return;}
@@ -491,7 +511,7 @@ public final class GlobalDockService extends Service {
         if(panelWindow!=null){panelWindow.updateBounds();panelWindow.show(visible&&!panel.isEmpty());}
         publish();
     }
-    private void publish(){if(dockWindow!=null)dockWindow.publish();if(panelWindow!=null&&!panel.isEmpty())panelWindow.publish();}
+    private void publish(){if(panelWindow!=null&&!panel.isEmpty())panelWindow.publish();if(dockWindow!=null)dockWindow.publish();}
     @Override public void onTrimMemory(int level){
         super.onTrimMemory(level);
         if(dockWindow!=null){dockWindow.engine.getSystemChannel().sendMemoryPressureWarning();dockWindow.engine.getRenderer().onTrimMemory(level);}

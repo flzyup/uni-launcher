@@ -97,6 +97,17 @@ class GlassSurface extends StatelessWidget {
                     cornerColor: borderColor ?? s.corner)),
             child: content)
         : content;
+    final effectiveRadius = radius ?? s.radius;
+    final clipped = s.liveBlur
+        ? ClipRRect(
+            borderRadius: shape,
+            child: BackdropFilter.grouped(
+                key: const ValueKey('glass-filter'),
+                filter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                child: framed))
+        : (effectiveRadius > 0
+            ? ClipRRect(borderRadius: shape, child: framed)
+            : framed);
     return DecoratedBox(
         decoration: BoxDecoration(
             borderRadius: shape,
@@ -111,14 +122,7 @@ class GlassSurface extends StatelessWidget {
                         blurRadius: Design.px(s.technicalFrame ? 12 : 20))
                   ]
                 : null),
-        child: ClipRRect(
-            borderRadius: shape,
-            child: s.liveBlur
-                ? BackdropFilter.grouped(
-                    key: const ValueKey('glass-filter'),
-                    filter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                    child: framed)
-                : framed));
+        child: clipped);
   }
 
   /// Nocturne surface: a hairline white-alpha gradient over the near-black

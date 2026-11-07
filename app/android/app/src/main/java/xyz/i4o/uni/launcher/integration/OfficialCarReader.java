@@ -65,6 +65,9 @@ public final class OfficialCarReader implements VehicleAdapter {
     private volatile Object sdkCar, functions, signals, androidCar, propertyManager;
     private volatile String setupError = "";
     private volatile String stateJson = "{}";
+    private volatile String lastNotifiedSignature = "";
+    private static final java.util.regex.Pattern TIMESTAMP_PATTERN =
+            java.util.regex.Pattern.compile("\"([A-Za-z]*AtMs|[A-Za-z]*AtElapsedMs|sourceTimestampNanos)\":-?\\d+");
     private volatile long publishedAtElapsed;
     private boolean subscribed; // worker only
     private volatile boolean writeSignaturesAvailable;
@@ -127,7 +130,8 @@ public final class OfficialCarReader implements VehicleAdapter {
                 "durationMs", SystemClock.elapsedRealtime() - began);
         if (closed) return;
         try {
-            worker.schedule(this, xyz.i4o.uni.launcher.LauncherVisibility.visible() ? 1 : 3, TimeUnit.SECONDS);
+            long interval = !permitted() ? 5 : (xyz.i4o.uni.launcher.LauncherVisibility.visible() ? 1 : 3);
+            worker.schedule(this, interval, TimeUnit.SECONDS);
         } catch (java.util.concurrent.RejectedExecutionException ignored) {}
     }};
 
@@ -1246,9 +1250,14 @@ public final class OfficialCarReader implements VehicleAdapter {
     private void publishUnavailable(String reason) { cameraCapability = -1; publish(unavailable(reason)); }
     private void publish(JSONObject state) {
         if (closed) return;
-        stateJson = state.toString();
+        String raw = state.toString();
+        stateJson = raw;
         publishedAtElapsed = SystemClock.elapsedRealtime();
-        notifyChanged();
+        String sig = TIMESTAMP_PATTERN.matcher(raw).replaceAll("\"t\":0");
+        if (!sig.equals(lastNotifiedSignature)) {
+            lastNotifiedSignature = sig;
+            notifyChanged();
+        }
     }
 
     private void notifyChanged() {

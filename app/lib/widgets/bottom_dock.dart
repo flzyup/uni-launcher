@@ -12,6 +12,8 @@ import 'file_transfer_popup.dart';
 import 'storage_cleaner_panel.dart';
 import 'uni_icon.dart';
 import 'dock_climate_button.dart';
+import 'dock_window_scope.dart';
+import 'native_slice_builder.dart';
 import 'media_artwork.dart';
 import 'marquee_text.dart';
 import '../model/vehicle_data.dart';
@@ -31,15 +33,27 @@ class BottomDock extends StatelessWidget {
   final LauncherController controller;
   const BottomDock({super.key, required this.controller});
   @override
-  Widget build(BuildContext context) => AnimatedBuilder(
-      animation: Listenable.merge([controller.native, controller.pageChanged]),
-      builder: (context, _) {
-        final native = controller.native.value,
-            c = controller,
+  Widget build(BuildContext context) => ListenableBuilder(
+      listenable: controller.pageChanged,
+      builder: (context, _) => NativeSliceBuilder(
+          valueListenable: controller.native,
+          select: (n) => [
+                n['demo'],
+                n['climate'],
+                mapOf(n['vehicle'])['climate'],
+                mapOf(n['vehicle'])['fields'],
+                mapOf(n['vehicle'])['writable'],
+                n['media'],
+                n['desktopSelected'],
+                mapOf(n['globalDock'])['expanded'],
+              ],
+          builder: (context, native) {
+        final c = controller,
             s = SurfaceStyle.of(context),
             demo = native['demo'] == true,
             climate = mapOf(native['climate']),
             media = mapOf(native['media']),
+            panelExpanded = mapOf(native['globalDock'])['expanded'] == true,
             canPlay = demo || media['available'] == true,
             canToggle = demo || media['canToggle'] == true,
             playing = media['playing'] == true,
@@ -283,7 +297,9 @@ class BottomDock extends StatelessWidget {
                           expanded: showMusicVisual,
                           compactWidth: Design.px(
                               680 + (dockScale.clamp(1.0, 1.3) - 1) * 120),
-                          child: Center(
+                          child: TickerMode(
+                              enabled: !panelExpanded,
+                              child: Center(
                               child: SizedBox(
                                   height: Design.px(72),
                                   width: double.infinity,
@@ -373,7 +389,7 @@ class BottomDock extends StatelessWidget {
                                                     : Flexible(
                                                         fit: FlexFit.loose,
                                                         child: musicInfo)
-                                              ]))))))),
+                                              ])))))))),
                       gap(),
                       IconAction(
                           key: const ValueKey('uni-menu'),
@@ -384,7 +400,7 @@ class BottomDock extends StatelessWidget {
                           onTap: () => showUniDockMenu(context, c),
                           child: UniAppIcon(size: Design.px(42 * dockScale)))
                     ]))));
-      });
+      }));
 }
 
 class _DockMusicRegion extends StatelessWidget {
@@ -422,10 +438,17 @@ Future<void> showUniDockMenu(BuildContext context, LauncherController c) async {
 }
 
 /// Anchored popup that expands above the UNI dock button.
-Future<String?> _showUniDockPopup(BuildContext context, LauncherController c) {
-  return Navigator.of(context).push(_UniDockPopupRoute(
+Future<String?> _showUniDockPopup(
+    BuildContext context, LauncherController c) async {
+  final dock = DockWindowScope.of(context);
+  final route = Navigator.of(context).push(_UniDockPopupRoute(
       panelWindow: c.native.value['hostMode'] == 'global-panel',
       scale: _dockContentScale(c.appearance.dockSize)));
+  if (dock?.onPresented != null) {
+    await WidgetsBinding.instance.endOfFrame;
+    if (context.mounted) await dock!.onPresented!();
+  }
+  return await route;
 }
 
 class _UniDockPopupRoute extends PopupRoute<String> {
@@ -439,9 +462,9 @@ class _UniDockPopupRoute extends PopupRoute<String> {
   @override
   String? get barrierLabel => '关闭UNI菜单';
   @override
-  Duration get transitionDuration => const Duration(milliseconds: 180);
+  Duration get transitionDuration => const Duration(milliseconds: 140);
   @override
-  Duration get reverseTransitionDuration => const Duration(milliseconds: 140);
+  Duration get reverseTransitionDuration => const Duration(milliseconds: 120);
   @override
   Widget buildPage(BuildContext context, Animation<double> animation,
       Animation<double> secondaryAnimation) {
@@ -495,7 +518,12 @@ class _UniDockPopupRoute extends PopupRoute<String> {
   @override
   Widget buildTransitions(BuildContext context, Animation<double> animation,
       Animation<double> secondaryAnimation, Widget child) {
-    return FadeTransition(opacity: animation, child: child);
+    return FadeTransition(
+        opacity: CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+            reverseCurve: Curves.easeInCubic),
+        child: RepaintBoundary(child: child));
   }
 }
 
@@ -548,8 +576,8 @@ Future<void> showVehiclePanel(
       width: Design.px(900),
       height: Design.px(780),
       glowType: 'vehicle',
-      builder: (context) => ValueListenableBuilder<Map<String, dynamic>>(
+      builder: (context) => NativeSliceBuilder(
           valueListenable: c.native,
-          builder: (context, n, _) =>
-              VehicleReadout(controller: c, native: n)));
+          select: (n) => [n['demo'], n['vehicle'], n['climate']],
+          builder: (context, n) => VehicleReadout(controller: c, native: n)));
 }

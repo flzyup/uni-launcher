@@ -4,11 +4,16 @@ Future<void> showAppsPanel(BuildContext context, LauncherController c) async {
   if (await c.presentGlobalPanel('apps') || !context.mounted) return;
   final dock = DockWindowScope.of(context);
   final route = Navigator.of(context).push(PageRouteBuilder<void>(
-      pageBuilder: (_, __, ___) => _AppsPage(controller: c),
-      transitionDuration: const Duration(milliseconds: 220),
-      reverseTransitionDuration: const Duration(milliseconds: 180),
-      transitionsBuilder: (_, animation, __, child) =>
-          FadeTransition(opacity: animation, child: child)));
+      pageBuilder: (_, __, ___) =>
+          RepaintBoundary(child: _AppsPage(controller: c)),
+      transitionDuration: const Duration(milliseconds: 150),
+      reverseTransitionDuration: const Duration(milliseconds: 130),
+      transitionsBuilder: (_, animation, __, child) => FadeTransition(
+          opacity: CurvedAnimation(
+              parent: animation,
+              curve: Curves.easeOutCubic,
+              reverseCurve: Curves.easeInCubic),
+          child: child)));
   if (dock?.onPresented != null) {
     await WidgetsBinding.instance.endOfFrame;
     if (context.mounted) await dock!.onPresented!();
@@ -180,7 +185,8 @@ class _AppTile extends StatelessWidget {
                         controller.openSettings();
                       }
                     : () => controller.command('launch-app', value: id);
-    return Column(children: [
+    return RepaintBoundary(
+        child: Column(children: [
       Semantics(
           button: true,
           label: label,
@@ -205,6 +211,8 @@ class _AppTile extends StatelessWidget {
                                   ? Image.memory(bytes,
                                       width: Design.px(66),
                                       height: Design.px(66),
+                                      gaplessPlayback: true,
+                                      filterQuality: FilterQuality.low,
                                       errorBuilder: (context, error, stack) =>
                                           UniIcon('apps',
                                               size: Design.px(45),
@@ -221,7 +229,7 @@ class _AppTile extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(fontSize: Design.px(23), height: 1.2))),
-    ]);
+    ]));
   }
 }
 

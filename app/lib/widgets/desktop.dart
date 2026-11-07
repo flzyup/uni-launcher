@@ -76,13 +76,20 @@ class _HeaderState extends State<Header> {
                 const Spacer(),
                 NativeSliceBuilder(
                     valueListenable: widget.controller.native,
-                    select: (native) => [
-                          native['demo'],
-                          native['weather'],
-                          native['systemStatus'],
-                          native['transfer'] is Map &&
-                              (native['transfer'] as Map)['running'] == true
-                        ],
+                    select: (native) {
+                      final status = mapOf(native['systemStatus']);
+                      return [
+                        native['demo'],
+                        native['weather'],
+                        status['bluetooth'],
+                        status['network'],
+                        status['usb'],
+                        status['charging'],
+                        status['dvr'],
+                        native['transfer'] is Map &&
+                            (native['transfer'] as Map)['running'] == true
+                      ];
+                    },
                     builder: (context, native) =>
                         Row(mainAxisSize: MainAxisSize.min, children: [
                           if (native['demo'] == true) ...[

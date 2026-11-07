@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -29,16 +30,10 @@ class DockMusicProgressBackground extends StatefulWidget {
 }
 
 class _DockMusicProgressBackgroundState
-    extends State<DockMusicProgressBackground>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _glow = AnimationController(
-      vsync: this, duration: const Duration(milliseconds: 2100));
+    extends State<DockMusicProgressBackground> {
+  Timer? _timer;
+  int _tick = 0;
   bool _tickerEnabled = false;
-
-  @override
-  void initState() {
-    super.initState();
-  }
 
   @override
   void didChangeDependencies() {
@@ -59,16 +54,22 @@ class _DockMusicProgressBackgroundState
 
   void _syncAnimation() {
     if (widget.enabled && _tickerEnabled && _playing) {
-      if (!_glow.isAnimating) _glow.repeat();
+      // Sample at 4 Hz (matching LyricsView) instead of 60 Hz so the global
+      // dock TextureView does not contend with MainActivity on the shared
+      // 1.raster thread on every 16.67 ms VSync frame.
+      _timer ??= Timer.periodic(const Duration(milliseconds: 250), (_) {
+        if (mounted) setState(() => _tick = (_tick + 1) % 16);
+      });
     } else {
-      _glow.stop();
-      _glow.value = 0;
+      _timer?.cancel();
+      _timer = null;
+      _tick = 0;
     }
   }
 
   @override
   void dispose() {
-    _glow.dispose();
+    _timer?.cancel();
     super.dispose();
   }
 
@@ -76,17 +77,16 @@ class _DockMusicProgressBackgroundState
   Widget build(BuildContext context) {
     if (!widget.enabled) return widget.child;
     final style = SurfaceStyle.of(context);
+    final animating = _timer != null;
     return RepaintBoundary(
-        child: AnimatedBuilder(
-            animation: _glow,
-            builder: (context, _) => CustomPaint(
-                key: const ValueKey('dock-music-progress'),
-                painter: _DockMusicProgressPainter(
-                    style: style,
-                    media: widget.media,
-                    glow: _glow.value,
-                    animate: _glow.isAnimating),
-                child: widget.child)));
+        child: CustomPaint(
+            key: const ValueKey('dock-music-progress'),
+            painter: _DockMusicProgressPainter(
+                style: style,
+                media: widget.media,
+                glow: animating ? _tick / 16.0 : 0.0,
+                animate: animating),
+            child: widget.child));
   }
 }
 

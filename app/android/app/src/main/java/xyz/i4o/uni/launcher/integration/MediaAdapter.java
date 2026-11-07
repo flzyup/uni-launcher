@@ -69,6 +69,7 @@ public final class MediaAdapter {
     private Bitmap lastCover;
     private String coverData="";
     private boolean artworkDirty=true;
+    private boolean steeringMetaDirty=true;
     private JSONArray activeSources=new JSONArray();
     private final List<MediaController> observed=new ArrayList<>();
     /** The package of the session that is currently selected (logging only). */
@@ -146,7 +147,7 @@ public final class MediaAdapter {
     }
     public void setPreferredPackage(String value){preferred=value==null||value.isEmpty()?"auto":value;start();}
     private final MediaController.Callback callback=new MediaController.Callback(){
-        public void onMetadataChanged(MediaMetadata m){artworkDirty=true;noteMetadata(m);choose();changed.run();}
+        public void onMetadataChanged(MediaMetadata m){artworkDirty=true;steeringMetaDirty=true;noteMetadata(m);choose();changed.run();}
         // choose() already synchronizes the selected source, including switches.
         public void onPlaybackStateChanged(PlaybackState s){choose();changed.run();}
         public void onExtrasChanged(Bundle extras){syncSteeringSession();changed.run();}
@@ -286,7 +287,7 @@ if(next!=null&&isOnlinePlayer(next.getPackageName())){
                 officialBridge.setOnlineSource(source);
             }
             noteSource(next==null?"":next.getPackageName(),observed.size());
-            if(next==null||controller==null||!next.getSessionToken().equals(controller.getSessionToken())){lastCover=null;coverData="";artworkDirty=true;}
+            if(next==null||controller==null||!next.getSessionToken().equals(controller.getSessionToken())){lastCover=null;coverData="";artworkDirty=true;steeringMetaDirty=true;}
             controller=next;
             netease.setController(controller);
             syncSteeringSession();
@@ -425,28 +426,31 @@ if(next!=null&&isOnlinePlayer(next.getPackageName())){
         officialBridge.update(controller);
         if(controller==null){steeringSession.setActive(false);noteSteering(false);return;}
         try{
-            MediaMetadata source=controller.getMetadata();
-            MediaMetadata.Builder metadata=new MediaMetadata.Builder();
-            if(source!=null){
-                copyText(source,metadata,MediaMetadata.METADATA_KEY_TITLE);
-                copyText(source,metadata,MediaMetadata.METADATA_KEY_ARTIST);
-                copyText(source,metadata,MediaMetadata.METADATA_KEY_ALBUM);
-                copyText(source,metadata,MediaMetadata.METADATA_KEY_DISPLAY_TITLE);
-                copyText(source,metadata,MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE);
-                copyText(source,metadata,MediaMetadata.METADATA_KEY_MEDIA_ID);
-                long duration=source.getLong(MediaMetadata.METADATA_KEY_DURATION);if(duration>0)metadata.putLong(MediaMetadata.METADATA_KEY_DURATION,duration);
-                Bitmap art=source.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART);if(art==null)art=source.getBitmap(MediaMetadata.METADATA_KEY_ART);
-                if(art!=null&&!art.isRecycled())metadata.putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART,art);
+            if(steeringMetaDirty){
+                steeringMetaDirty=false;
+                MediaMetadata source=controller.getMetadata();
+                MediaMetadata.Builder metadata=new MediaMetadata.Builder();
+                if(source!=null){
+                    copyText(source,metadata,MediaMetadata.METADATA_KEY_TITLE);
+                    copyText(source,metadata,MediaMetadata.METADATA_KEY_ARTIST);
+                    copyText(source,metadata,MediaMetadata.METADATA_KEY_ALBUM);
+                    copyText(source,metadata,MediaMetadata.METADATA_KEY_DISPLAY_TITLE);
+                    copyText(source,metadata,MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE);
+                    copyText(source,metadata,MediaMetadata.METADATA_KEY_MEDIA_ID);
+                    long duration=source.getLong(MediaMetadata.METADATA_KEY_DURATION);if(duration>0)metadata.putLong(MediaMetadata.METADATA_KEY_DURATION,duration);
+                    Bitmap art=source.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART);if(art==null)art=source.getBitmap(MediaMetadata.METADATA_KEY_ART);
+                    if(art!=null&&!art.isRecycled())metadata.putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART,art);
+                }
+                steeringSession.setMetadata(metadata.build());
+                Intent launch=context.getPackageManager().getLaunchIntentForPackage(controller.getPackageName());
+                if(launch!=null)steeringSession.setSessionActivity(android.app.PendingIntent.getActivity(context,0,launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),android.app.PendingIntent.FLAG_UPDATE_CURRENT));
             }
-            steeringSession.setMetadata(metadata.build());
             PlaybackState p=controller.getPlaybackState();
             long actions=PlaybackState.ACTION_PLAY|PlaybackState.ACTION_PAUSE|PlaybackState.ACTION_PLAY_PAUSE;
             if(p!=null)actions|=p.getActions()&(PlaybackState.ACTION_SKIP_TO_NEXT|PlaybackState.ACTION_SKIP_TO_PREVIOUS|PlaybackState.ACTION_SEEK_TO);
             if(NeteaseMediaAdapter.supports(controller))actions|=PlaybackState.ACTION_SKIP_TO_NEXT|PlaybackState.ACTION_SKIP_TO_PREVIOUS|PlaybackState.ACTION_SEEK_TO;
             steeringSession.setPlaybackState(new PlaybackState.Builder().setActions(actions)
                 .setState(p==null?PlaybackState.STATE_NONE:p.getState(),p==null?0:Math.max(0,p.getPosition()),p==null?0:p.getPlaybackSpeed(),SystemClock.elapsedRealtime()).build());
-            Intent launch=context.getPackageManager().getLaunchIntentForPackage(controller.getPackageName());
-            if(launch!=null)steeringSession.setSessionActivity(android.app.PendingIntent.getActivity(context,0,launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),android.app.PendingIntent.FLAG_UPDATE_CURRENT));
             steeringSession.setActive(true);
             noteSteering(true);
         }catch(Exception|LinkageError e){UniLog.w(LogTags.MEDIA,"Unable to synchronize steering media session",e,"tag","UniMedia");steeringSession.setActive(false);noteSteering(false);}
@@ -460,16 +464,22 @@ if(next!=null&&isOnlinePlayer(next.getPackageName())){
     private static void copyText(MediaMetadata source,MediaMetadata.Builder target,String key){
         CharSequence value=source.getText(key);if(value!=null&&value.length()>0)target.putText(key,value);
     }
+    private String anchorTrackKey="";
+    private boolean anchorPlaying,anchorPositionKnown;
+    private float anchorSpeed;
+    private long anchorPositionMs=-1,anchorSampledAtMs=-1;
+
     public JSONObject snapshot(){
         JSONObject j=new JSONObject();try{
+            JSONObject official=officialBridge.snapshot();
             j.put("authorized",authorized).put("available",controller!=null).put("playing",false).put("preferredPackage",preferred).put("sessions",activeSources)
-                .put("steeringControlReady",officialBridge.snapshot().optBoolean("registered"))
+                .put("steeringControlReady",official.optBoolean("registered"))
                 .put("steeringEnabled",steeringEnabled)
                 .put("instrumentEnabled",instrumentEnabled)
                 .put("steeringKeys",steeringKeys.snapshot())
                 .put("steeringInject",injector.snapshot().put("kugou",kugou.snapshot()))
-                .put("instrumentMetadataReady",officialBridge.snapshot().optBoolean("playbackAccepted"))
-                .put("officialMedia",officialBridge.snapshot())
+                .put("instrumentMetadataReady",official.optBoolean("playbackAccepted"))
+                .put("officialMedia",official)
                 .put("reason",!authorized?"请授权媒体访问":controller==null?"所选播放器尚未建立媒体会话":"");
             if(controller!=null){
                 MediaMetadata m=controller.getMetadata();PlaybackState p=controller.getPlaybackState();
@@ -523,14 +533,31 @@ if(next!=null&&isOnlinePlayer(next.getPackageName())){
                 long castAt=System.currentTimeMillis();
                 // The user-tuned offset shifts the clock, not the document: the card and the
                 // cast panel both read this position, so a correction applies to both.
-                long castPosition=Math.max(0,position(p)+LyricOffset.forTrack(title,artist));
+                long offsetMs=LyricOffset.forTrack(title,artist);
+                long castPosition=Math.max(0,position(p)+offsetMs);
                 LyricCast.publish(title,artist,timed.label,timed.timeline,casting,
                         castPosition,castAt,p==null?1f:p.getPlaybackSpeed());
+                boolean positionKnown=p!=null&&p.getPosition()>=0;
+                float speed=p==null?0f:p.getPlaybackSpeed();
+                String trackKey=controller.getPackageName()+"\u0000"+title+"\u0000"+artist+"\u0000"+duration+"\u0000"+offsetMs;
+                long expectedPos=anchorPositionMs;
+                if(anchorPlaying&&anchorSampledAtMs>0&&castAt>=anchorSampledAtMs){
+                    expectedPos+=Math.round((castAt-anchorSampledAtMs)*anchorSpeed);
+                }
+                if(!trackKey.equals(anchorTrackKey)||casting!=anchorPlaying||positionKnown!=anchorPositionKnown
+                        ||Math.abs(speed-anchorSpeed)>0.001f||anchorSampledAtMs<=0||Math.abs(castPosition-expectedPos)>250){
+                    anchorTrackKey=trackKey;
+                    anchorPlaying=casting;
+                    anchorPositionKnown=positionKnown;
+                    anchorSpeed=speed;
+                    anchorPositionMs=castPosition;
+                    anchorSampledAtMs=castAt;
+                }
                 j.put("lyrics",text).put("lyricsSource",source)
                     .put("durationMs",duration)
-                    .put("positionMs",castPosition).put("positionKnown",p!=null&&p.getPosition()>=0)
-                    .put("sampledAtMs",castAt)
-                    .put("speed",p==null?0:p.getPlaybackSpeed());
+                    .put("positionMs",anchorPositionMs).put("positionKnown",positionKnown)
+                    .put("sampledAtMs",anchorSampledAtMs)
+                    .put("speed",speed);
                 if(!timed.isEmpty())j.put("lyricTimeline",timed.json)
                     .put("lyricTimelineLabel",timed.label)
                     .put("lyricTimelineWords",timed.wordTimed);

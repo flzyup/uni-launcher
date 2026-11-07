@@ -233,7 +233,13 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
     'savedDesign',
     'appNames'
   ];
-  static const _carriedMedia = ['artwork', 'lyrics'];
+  static const _carriedMedia = [
+    'artwork',
+    'lyrics',
+    'lyricTimeline',
+    'lyricTimelineLabel',
+    'lyricTimelineWords',
+  ];
 
   /// Last observed media identity, so only real transitions are logged.
   /// Telemetry packets arrive up to 12 times a second; logging each one would
@@ -246,6 +252,27 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
 
   /// Whether the settings catalogue has already been delivered.
   bool _settingsCatalogSeen = false;
+
+  static bool _shallowMediaSame(Object? a, Object? b) {
+    if (identical(a, b)) return true;
+    if (a is Map && b is Map) {
+      if (a.length != b.length) return false;
+      for (final key in a.keys) {
+        if (!b.containsKey(key) || !_shallowMediaSame(a[key], b[key])) {
+          return false;
+        }
+      }
+      return true;
+    }
+    if (a is List && b is List) {
+      if (a.length != b.length) return false;
+      for (var i = 0; i < a.length; i++) {
+        if (!_shallowMediaSame(a[i], b[i])) return false;
+      }
+      return true;
+    }
+    return a == b;
+  }
 
   void _receive(Map<String, dynamic> incoming) {
     final previous = native.value;
@@ -270,7 +297,12 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
             merged[key] = previousMedia[key];
           }
         }
-        if (merged != null) state['media'] = merged;
+        final candidate = merged ?? media;
+        if (_shallowMediaSame(candidate, previousMedia)) {
+          state['media'] = previousMedia;
+        } else if (merged != null) {
+          state['media'] = merged;
+        }
       }
     }
     // The settings catalog can contain hundreds of entries. Android sends it

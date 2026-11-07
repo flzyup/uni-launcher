@@ -34,20 +34,26 @@ Future<T?> showLauncherSheet<T>(
         barrierDismissible: true,
         barrierLabel: closeLabel,
         barrierColor: Colors.transparent,
-        transitionDuration: const Duration(milliseconds: 180),
-        pageBuilder: (context, _, __) => AnimatedPadding(
-            duration: const Duration(milliseconds: 180),
+        transitionDuration: const Duration(milliseconds: 140),
+        transitionBuilder: (context, animation, _, child) => FadeTransition(
+            opacity: CurvedAnimation(
+                parent: animation,
+                curve: Curves.easeOutCubic,
+                reverseCurve: Curves.easeInCubic),
+            child: child),
+        pageBuilder: (context, _, __) => Padding(
             padding: EdgeInsets.only(
                 bottom: MediaQuery.viewInsetsOf(context).bottom),
-            child: LauncherSheet(
-                title: title,
-                titleWidget: titleWidget,
-                subtitle: subtitle,
-                closeLabel: closeLabel,
-                width: width,
-                height: height,
-                glowType: glowType,
-                child: Builder(builder: builder))));
+            child: RepaintBoundary(
+                child: LauncherSheet(
+                    title: title,
+                    titleWidget: titleWidget,
+                    subtitle: subtitle,
+                    closeLabel: closeLabel,
+                    width: width,
+                    height: height,
+                    glowType: glowType,
+                    child: Builder(builder: builder)))));
     if (dock?.onPresented != null) {
       await WidgetsBinding.instance.endOfFrame;
       if (context.mounted) await dock!.onPresented!();

@@ -77,6 +77,11 @@ public final class MainActivity extends FlutterActivity {
         MainActivity a=active.get();
         if(a!=null)a.runOnUiThread(()->{if(a.otaEvents!=null)a.otaEvents.invokeMethod("boot-check",null);});
     }
+    /** 任何入口切往全屏导航前先关闭内嵌宿主可见态，阻止 verifyPlacement 把已迁回主屏的导航栈拉回虚拟屏。 */
+    public static void hideEmbeddedNavigation(){
+        MainActivity a=active.get();
+        if(a!=null)a.runOnUiThread(()->{if(a.mapHost!=null)a.mapHost.setVisible(false);});
+    }
     public static void refreshNavigationChrome(boolean systemNavHidden){
         MainActivity a=active.get();
         if(a!=null)a.runOnUiThread(()->{
@@ -490,12 +495,15 @@ public final class MainActivity extends FlutterActivity {
         updateSnapshot();emit();
     }
 
+    private static final java.util.regex.Pattern SIGNATURE_TIMESTAMPS=
+        java.util.regex.Pattern.compile("\"([A-Za-z]*AtMs|[A-Za-z]*AtElapsedMs|sourceTimestampNanos|ageMs)\":-?\\d+");
+
     /** Snapshot timestamps are restamped on every read, so a packet would look new
      *  even when nothing moved. Ignoring them keeps the launcher at 0fps while it
      *  is idle instead of rebuilding the whole tree at the publish rate. */
     private static String signature(String packet){
         if(packet==null)return null;
-        return packet.replaceAll("\"([A-Za-z]*AtMs|[A-Za-z]*AtElapsedMs)\":-?\\d+","\"t\":0");
+        return SIGNATURE_TIMESTAMPS.matcher(packet).replaceAll("\"t\":0");
     }
 
     private void emit(){
@@ -561,6 +569,15 @@ public final class MainActivity extends FlutterActivity {
     }
 
     @Override public void onWindowFocusChanged(boolean focus){super.onWindowFocusChanged(focus);if(focus&&chrome!=null)chrome.apply();}
+
+    @Override public boolean dispatchTouchEvent(android.view.MotionEvent ev){
+        if(ev!=null){
+            int action=ev.getActionMasked();
+            xyz.i4o.uni.launcher.audio.SpectrumBridge.notifyMapTouch(
+                action!=android.view.MotionEvent.ACTION_UP&&action!=android.view.MotionEvent.ACTION_CANCEL);
+        }
+        return super.dispatchTouchEvent(ev);
+    }
 
     /**
      * 车机有时把媒体键当普通按键派发给当前窗口，而不是走 MediaSession 路由。
@@ -729,16 +746,23 @@ public final class MainActivity extends FlutterActivity {
         // 共享引擎这一侧：通道、事件流和游标都属于引擎（Dart isolate 还在跑），
         // 在这里清掉就等于把下一个窗口的更新掐断。只有本窗口独占引擎时，这次
         // onDestroy 才是真正的一次销毁。
-        if(ownsEngine){
+        MainActivity current=active.get();
+        boolean releaseShared=!ownsEngine&&isFinishing()&&(current==null||current==this||current.ownsEngine);
+        if(ownsEngine||releaseShared){
             if(channel!=null)channel.setMethodCallHandler(null);
             otaEvents=null;
             if(events!=null)events.setStreamHandler(null);
             engineState.reset();
         }
-        if(active.get()==this)active.clear();
+        if(current==this)active.clear();
         // 真正退出（不是重建）才把进程级引擎一起放掉，避免一个不会再有人接管的
         // isolate 长期占着内存和定时器。
-        if(!ownsEngine&&isFinishing()&&active.get()==null)releaseSharedEngine();
+        if(releaseShared){
+            releaseSharedEngine();
+            if(current!=null&&current!=this&&current.ownsEngine&&!current.isFinishing()){
+                promoteToSharedEngine(current);
+            }
+        }
         super.onDestroy();
     }
 
@@ -749,5 +773,25 @@ public final class MainActivity extends FlutterActivity {
             engine=sharedEngine;sharedEngine=null;sharedState=new EngineState();
         }
         if(engine!=null)engine.destroy();
+    }
+
+    private static void promoteToSharedEngine(MainActivity owner){
+        FlutterEngine engine=owner.getFlutterEngine();
+        if(engine==null)return;
+        synchronized(MainActivity.class){
+            sharedEngine=engine;
+            sharedState=owner.engineState;
+        }
+        owner.ownsEngine=false;
+        final FlutterEngine promoted=engine;
+        engine.addEngineLifecycleListener(new FlutterEngine.EngineLifecycleListener(){
+            public void onPreEngineRestart(){}
+            public void onEngineWillDestroy(){
+                synchronized(MainActivity.class){
+                    if(sharedEngine!=promoted)return;
+                    sharedEngine=null;sharedState=new EngineState();
+                }
+            }
+        });
     }
 }

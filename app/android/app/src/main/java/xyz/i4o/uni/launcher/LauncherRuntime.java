@@ -76,10 +76,23 @@ public final class LauncherRuntime {
         public int apps=-1, design=-1, media=-1, settings=-1;
         /** 已经拿到的 apps 组是否带图标；只拿过 package/label 投影时为 false。 */
         public boolean icons;
-        void reset(){apps=design=media=settings=-1;icons=false;}
+        public String projectedSource="";
+        void reset(){apps=design=media=settings=-1;icons=false;projectedSource="";}
     }
     private int appsRevision=0, designRevision=0, mediaRevision=0, settingsRevision=0;
     private String designFingerprint="", mediaFingerprint="";
+    private boolean inDeliver;
+    private TurnSnapshot activeTurn;
+
+    private static final class TurnSnapshot {
+        JSONObject climate, telemetry, systemStatus, weather, calendar, navigation,
+            integrationPreferences, debugBridge, vehicleMemory, bootLaunch,
+            wirelessAdb, trafficLights, fullMedia, strippedMedia, appNames,
+            transfer, quark, cleaner;
+        String design, projectedKey;
+        JSONArray projectedApps;
+        boolean demo, hideNavigation, globalNavigation, globalNavigationGranted, dark;
+    }
     private final Runnable appsRefreshTask=()->refreshAppsInBackground();
     private boolean appsRefreshQueued;
     private final java.util.concurrent.atomic.AtomicInteger appsRefreshGeneration=new java.util.concurrent.atomic.AtomicInteger();
@@ -299,20 +312,33 @@ public final class LauncherRuntime {
     public boolean handle(JSONObject request)throws Exception{return callOnMain(()->handleOnMain(request));}
 
     private long demoPosition(){return demoPositionMs+(demoPlaying?Math.max(0,android.os.SystemClock.elapsedRealtime()-demoSampleAt):0);}
-    private JSONObject buildSnapshot(StaticCursor cursor, boolean includeSettings, boolean includeApps){
-        JSONObject state=new JSONObject();try{
+    private TurnSnapshot obtainTurnSnapshot(){
+        if(inDeliver&&activeTurn!=null)return activeTurn;
+        TurnSnapshot t=new TurnSnapshot();
+        try{
+            t.demo=prefs.getBoolean("demo",false);
+            t.hideNavigation=prefs.getBoolean("hideNavigation",false);
+            t.globalNavigation=prefs.getBoolean("globalNavigation",false);
+            t.globalNavigationGranted=context.checkSelfPermission("android.permission.WRITE_SECURE_SETTINGS")==android.content.pm.PackageManager.PERMISSION_GRANTED;
+            t.dark=(context.getResources().getConfiguration().uiMode&Configuration.UI_MODE_NIGHT_MASK)==Configuration.UI_MODE_NIGHT_YES;
             JSONObject climate=new JSONObject().put("left",simulator.left).put("right",simulator.right).put("fan",simulator.fan).put("power",simulator.power)
                 .put("auto",simulator.auto).put("ac",simulator.ac).put("sync",simulator.sync).put("recirc",simulator.recirc)
                 .put("driverHeat",simulator.driverHeat).put("driverVent",simulator.driverVent).put("passengerHeat",simulator.passengerHeat);
-            JSONObject telemetry=vehicle.snapshot();
-            if(!prefs.getBoolean("demo",false))climate=telemetry.optJSONObject("climate")==null?new JSONObject():telemetry.getJSONObject("climate");
-            state.put("systemStatus",systemStatus.snapshot()).put("weather",weather.snapshot()).put("calendar",calendar.snapshot()).put("navigation",navigation.snapshot()).put("integrationPreferences",new JSONObject().put("mediaPackage",prefs.getString("mediaPackage","auto")).put("mapTextureScale",prefs.getBoolean("mapTextureScale",false)).put("navigationCardTitleHidden",prefs.getBoolean("navigationCardTitleHidden",true)).put("autoPlayMusic",prefs.getBoolean("autoPlayMusic",false)).put("steeringKeysEnabled",prefs.getBoolean("steeringKeysEnabled",true)).put("instrumentSyncEnabled",prefs.getBoolean("instrumentSyncEnabled",true)));
-            state.put("debugBridge",debugBridge.snapshot());
-            state.put("demo",prefs.getBoolean("demo",false)).put("hideNavigation",prefs.getBoolean("hideNavigation",false))
-                .put("globalNavigation",prefs.getBoolean("globalNavigation",false))
-                .put("globalNavigationGranted",context.checkSelfPermission("android.permission.WRITE_SECURE_SETTINGS")==android.content.pm.PackageManager.PERMISSION_GRANTED)
-                .put("dark",(context.getResources().getConfiguration().uiMode&Configuration.UI_MODE_NIGHT_MASK)==Configuration.UI_MODE_NIGHT_YES)
-                .put("climate",climate).put("vehicle",telemetry).put("version",xyz.i4o.uni.launcher.BuildConfig.VERSION_NAME+"-flutter");
+            t.telemetry=vehicle.snapshot();
+            if(!t.demo)climate=t.telemetry.optJSONObject("climate")==null?new JSONObject():t.telemetry.getJSONObject("climate");
+            t.climate=climate;
+            t.systemStatus=systemStatus.snapshot();
+            t.weather=weather.snapshot();
+            t.calendar=calendar.snapshot();
+            t.navigation=navigation.snapshot();
+            t.integrationPreferences=new JSONObject()
+                .put("mediaPackage",prefs.getString("mediaPackage","auto"))
+                .put("mapTextureScale",prefs.getBoolean("mapTextureScale",false))
+                .put("navigationCardTitleHidden",prefs.getBoolean("navigationCardTitleHidden",true))
+                .put("autoPlayMusic",prefs.getBoolean("autoPlayMusic",false))
+                .put("steeringKeysEnabled",prefs.getBoolean("steeringKeysEnabled",true))
+                .put("instrumentSyncEnabled",prefs.getBoolean("instrumentSyncEnabled",true));
+            t.debugBridge=debugBridge.snapshot();
             JSONObject memory=new JSONObject();
             try{
                 memory.put("driveModeEnabled",prefs.getBoolean("memoryDriveModeEnabled",false))
@@ -320,47 +346,87 @@ public final class LauncherRuntime {
                     .put("startStopEnabled",prefs.getBoolean("memoryStartStopEnabled",false))
                     .put("startStop",prefs.getBoolean("memoryStartStop",true))
                     .put("driveModes",new JSONArray(java.util.Arrays.asList(CommandPolicy.DRIVE_MODES)))
-                    .put("demo",prefs.getBoolean("demo",false));
+                    .put("demo",t.demo);
             }catch(Exception ignored){}
-            state.put("vehicleMemory",memory);
-            state.put("bootLaunch",bootLaunch.snapshot());
-            state.put("wirelessAdb",wirelessAdb.snapshot());
+            t.vehicleMemory=memory;
+            t.bootLaunch=bootLaunch.snapshot();
+            t.wirelessAdb=wirelessAdb.snapshot();
+            t.trafficLights=trafficLights.snapshot();
+            t.fullMedia=t.demo?demoMedia():media.snapshot().put("preferredPackage",prefs.getString("mediaPackage","auto"));
+            t.strippedMedia=stripMediaPayload(t.fullMedia);
+            t.appNames=storedAppNames();
+            t.design=prefs.getString("savedDesign","");
+            trackDesign(t.design,t.appNames);
+            trackMedia(t.fullMedia);
+            t.projectedKey=t.fullMedia.optString("source")+"|"+prefs.getString("mediaPackage","auto");
+            t.transfer=transfer.snapshot();
+            t.quark=quark.snapshot();
+            t.cleaner=cleaner.snapshot();
+        }catch(Exception e){UniLog.e(LogTags.APP,"快照构建失败",e);}
+        if(inDeliver)activeTurn=t;
+        return t;
+    }
+
+    private static JSONObject stripMediaPayload(JSONObject full){
+        JSONObject copy=new JSONObject();
+        if(full==null)return copy;
+        java.util.Iterator<String> keys=full.keys();
+        while(keys.hasNext()){
+            String k=keys.next();
+            if("artwork".equals(k)||"lyrics".equals(k)||"lyricTimeline".equals(k)
+                ||"lyricTimelineLabel".equals(k)||"lyricTimelineWords".equals(k))continue;
+            try{copy.put(k,full.opt(k));}catch(Exception ignored){}
+        }
+        return copy;
+    }
+
+    private JSONObject buildSnapshot(StaticCursor cursor, boolean includeSettings, boolean includeApps){
+        JSONObject state=new JSONObject();try{
+            TurnSnapshot t=obtainTurnSnapshot();
+            state.put("systemStatus",t.systemStatus).put("weather",t.weather).put("calendar",t.calendar).put("navigation",t.navigation).put("integrationPreferences",t.integrationPreferences);
+            state.put("debugBridge",t.debugBridge);
+            state.put("demo",t.demo).put("hideNavigation",t.hideNavigation)
+                .put("globalNavigation",t.globalNavigation)
+                .put("globalNavigationGranted",t.globalNavigationGranted)
+                .put("dark",t.dark)
+                .put("climate",t.climate).put("vehicle",t.telemetry).put("version",xyz.i4o.uni.launcher.BuildConfig.VERSION_NAME+"-flutter");
+            state.put("vehicleMemory",t.vehicleMemory);
+            state.put("bootLaunch",t.bootLaunch);
+            state.put("wirelessAdb",t.wirelessAdb);
             state.put("desktopSelected",homeVisible&&desktopContent);
-            state.put("trafficLights",trafficLights.snapshot());
-            JSONObject mediaState=prefs.getBoolean("demo",false)?demoMedia():media.snapshot().put("preferredPackage",prefs.getString("mediaPackage","auto"));
-            JSONObject appNames=storedAppNames();
-            String design=prefs.getString("savedDesign","");
-            trackDesign(design,appNames);
-            trackMedia(mediaState);
+            state.put("trafficLights",t.trafficLights);
 
             // 分组版本：图标、布局、媒体资源各自独立，只补发发生变化的部分。
             // 只想画底栏的窗口用「package/label 投影」代替整份 apps：查显示名
             // 不需要图标，几百个图标的 base64 没必要过一遍 JSON。真会列出应用的
             // 页面（全部应用/导航选择/播放器选择）传 includeApps=true，游标会
             // 靠 icons 位把整组补上。
-            boolean wantApps=includeApps&&(cursor.apps!=appsRevision||!cursor.icons);
-            boolean wantLabels=!includeApps&&(cursor.apps!=appsRevision||!cursor.icons);
+            String projectedKey=t.projectedKey;
+            boolean wantApps=(includeApps&&(cursor.apps!=appsRevision||!cursor.icons))||(cursor.icons&&cursor.apps!=appsRevision);
+            boolean wantLabels=!includeApps&&!cursor.icons&&(cursor.apps!=appsRevision||!projectedKey.equals(cursor.projectedSource));
             boolean wantDesign=cursor.design!=designRevision;
             boolean wantMedia=cursor.media!=mediaRevision;
             boolean wantSettings=includeSettings&&systemSettings.isWarmed()&&cursor.settings!=settingsRevision;
 
             if(wantApps)state.put("apps",installed);
-            else if(wantLabels)state.put("apps",appProjection(installed,
-                mediaState.optString("source"),prefs.getString("mediaPackage","auto")));
-            if(wantDesign){state.put("savedDesign",design).put("appNames",appNames);}
-            if(!wantMedia){mediaState.remove("artwork");mediaState.remove("lyrics");}
+            else if(wantLabels){
+                if(t.projectedApps==null)t.projectedApps=appProjection(installed,
+                    t.fullMedia.optString("source"),prefs.getString("mediaPackage","auto"));
+                state.put("apps",t.projectedApps);
+            }
+            if(wantDesign){state.put("savedDesign",t.design).put("appNames",t.appNames);}
             if(wantSettings){
                 JSONArray entries=systemSettings.snapshot();
                 if(entries!=null)state.put("systemSettings",new JSONObject().put("entries",entries).put("navigationAudio",navigationAudio.snapshot()));
             }
-            state.put("runtimeOwnerCount",listeners.size()).put("media",mediaState)
-                .put("transfer",transfer.snapshot())
-                .put("quark",quark.snapshot())
-                .put("cleaner",cleaner.snapshot())
+            state.put("runtimeOwnerCount",listeners.size()).put("media",wantMedia?t.fullMedia:t.strippedMedia)
+                .put("transfer",t.transfer)
+                .put("quark",t.quark)
+                .put("cleaner",t.cleaner)
                 .put("partial",!(wantApps&&wantDesign&&wantMedia));
 
-            if(wantApps){cursor.apps=appsRevision;cursor.icons=true;}
-            else if(wantLabels){cursor.apps=appsRevision;cursor.icons=false;}
+            if(wantApps){cursor.apps=appsRevision;cursor.icons=true;cursor.projectedSource=projectedKey;}
+            else if(wantLabels){cursor.apps=appsRevision;cursor.icons=false;cursor.projectedSource=projectedKey;}
             if(wantDesign)cursor.design=designRevision;
             if(wantMedia)cursor.media=mediaRevision;
             if(wantSettings)cursor.settings=settingsRevision;
@@ -393,7 +459,10 @@ public final class LauncherRuntime {
         if(!fingerprint.equals(designFingerprint)){designFingerprint=fingerprint;designRevision++;}
     }
     private void trackMedia(JSONObject media){
-        String fingerprint=media.optString("artwork","").hashCode()+":"+media.optString("lyrics","").hashCode();
+        String fingerprint=media.optString("artwork","").hashCode()+":"
+            +media.optString("lyrics","").hashCode()+":"
+            +media.optString("lyricTimeline","").hashCode()+":"
+            +media.optString("lyricTimelineLabel","");
         if(!fingerprint.equals(mediaFingerprint)){mediaFingerprint=fingerprint;mediaRevision++;}
     }
 
@@ -577,7 +646,15 @@ public final class LauncherRuntime {
             refreshAppsInBackground();return true;
         }
         if("request-uninstall".equals(action)){if(!apps.requestUninstall(value))toast("该应用不可卸载");return true;}
-        if("launch-app".equals(action)){if(!apps.launch(value))toast("应用未安装或无法启动");return true;}
+        if("launch-app".equals(action)){
+            String navPkg=navigation.selected();
+            if(!navPkg.isEmpty()&&value!=null&&(value.equals(navPkg)||value.startsWith(navPkg+"/"))){
+                if(!navigation.launchFullscreen())toast("请选择已安装的导航应用");
+                return true;
+            }
+            if(!apps.launch(value))toast("应用未安装或无法启动");
+            return true;
+        }
         if("media-access".equals(action)){try{context.startActivity(new Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));}catch(Exception e){toast("系统没有提供媒体授权入口");}return true;}
         // 垃圾清理：扫描与清理都在 StorageCleaner 的后台线程，这里只做派发。
         // value 是逗号分隔的类目 id，长度与白名单由 StorageCleaner 再校验一次。
@@ -683,6 +760,7 @@ public final class LauncherRuntime {
      * the rate so a chatty source cannot force a rebuild on every single event. */
     public void publish(){
         onMain(()->{
+            activeTurn=null;
             if(publishScheduled)return null;
             publishScheduled=true;
             long wait=PUBLISH_INTERVAL_MS-(android.os.SystemClock.elapsedRealtime()-publishedAt);
@@ -694,11 +772,18 @@ public final class LauncherRuntime {
     private final Runnable deliver=()->{
         publishScheduled=false;
         publishedAt=android.os.SystemClock.elapsedRealtime();
-        // An owner may remove itself/another owner during notification.
-        for(Map.Entry<Object,Runnable> entry:new IdentityHashMap<>(listeners).entrySet()){
-            if(listeners.get(entry.getKey())!=entry.getValue())continue;
-            try{entry.getValue().run();}
-            catch(RuntimeException e){UniLog.w(LogTags.APP,"快照监听器异常",e);}
+        inDeliver=true;
+        activeTurn=null;
+        try{
+            // An owner may remove itself/another owner during notification.
+            for(Map.Entry<Object,Runnable> entry:new IdentityHashMap<>(listeners).entrySet()){
+                if(listeners.get(entry.getKey())!=entry.getValue())continue;
+                try{entry.getValue().run();}
+                catch(RuntimeException e){UniLog.w(LogTags.APP,"快照监听器异常",e);}
+            }
+        }finally{
+            inDeliver=false;
+            activeTurn=null;
         }
     };
 

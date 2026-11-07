@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import '../platform/adaptive_quality.dart';
 import '../platform/native_gateway.dart';
 import '../controller/launcher_controller.dart';
@@ -47,63 +49,73 @@ class _GlobalPanelAppState extends State<GlobalPanelApp> {
     final next = dock['panelRevision'] as int? ?? 0;
     if (revision == next) return;
     revision = next;
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      if (!mounted || revision != next) return;
-      final nav = navigator.currentState;
-      if (nav == null) return;
-      nav.popUntil((r) => r.isFirst);
-      final context = nav.overlay!.context;
-      if (dock['panel'] == '') {
-        replaceBackdrop(null);
-        return;
-      }
-      if (dock['panel'] == 'recents') {
-        replaceBackdrop(null);
-        await WidgetsBinding.instance.endOfFrame;
-        if (mounted && revision == next) {
-          await widget.controller.command('panel-ready', value: '$next');
-        }
-        return;
-      }
-      if (widget.controller.appearance.usesBackdropBlur &&
-          widget.controller.gateway is AndroidGateway) {
-        final bytes = await AndroidGateway.methods
-            .invokeMethod<Uint8List>('panel-backdrop');
-        if (!mounted || revision != next || !context.mounted) return;
-        if (bytes != null) {
-          await precacheImage(MemoryImage(bytes), context);
-          if (!mounted || revision != next || !context.mounted) return;
-        }
-        replaceBackdrop(bytes);
-      }
-      switch (dock['panel']) {
-        case 'media':
-          await showMediaPanel(context, widget.controller);
-        case 'climate':
-          await showClimatePanel(context, widget.controller);
-        case 'vehicle':
-          await showVehiclePanel(context, widget.controller);
-        case 'navigation':
-          await showNavigationPicker(context, widget.controller);
-        case 'music-picker':
-          await showMusicPicker(context, widget.controller);
-        case 'uni-menu':
-          await showUniDockMenu(context, widget.controller);
-        case 'cleaner':
-          await showCleanerPanel(context, widget.controller);
-        case 'transfer':
-          await showFileTransferPopup(context, widget.controller);
-        case 'apps':
-          await showAppsPanel(context, widget.controller);
-        default:
-          return;
-      }
-      // An older route finishing must not dismiss a newly selected panel.
-      if (mounted && revision == next) {
-        await widget.controller.command('dismiss-dock-panel', value: '$next');
-      }
-    });
+    final phase = SchedulerBinding.instance.schedulerPhase;
+    if (navigator.currentState != null &&
+        phase != SchedulerPhase.persistentCallbacks &&
+        phase != SchedulerPhase.midFrameMicrotasks) {
+      scheduleMicrotask(() => _presentPanel(dock, next));
+    } else {
+      WidgetsBinding.instance
+          .addPostFrameCallback((_) => _presentPanel(dock, next));
+    }
     WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  Future<void> _presentPanel(Map<String, dynamic> dock, int next) async {
+    if (!mounted || revision != next) return;
+    final nav = navigator.currentState;
+    if (nav == null) return;
+    nav.popUntil((r) => r.isFirst);
+    final context = nav.overlay!.context;
+    if (dock['panel'] == '') {
+      replaceBackdrop(null);
+      return;
+    }
+    if (dock['panel'] == 'recents') {
+      replaceBackdrop(null);
+      await WidgetsBinding.instance.endOfFrame;
+      if (mounted && revision == next) {
+        await widget.controller.command('panel-ready', value: '$next');
+      }
+      return;
+    }
+    if (widget.controller.appearance.usesBackdropBlur &&
+        widget.controller.gateway is AndroidGateway) {
+      final bytes = await AndroidGateway.methods
+          .invokeMethod<Uint8List>('panel-backdrop');
+      if (!mounted || revision != next || !context.mounted) return;
+      if (bytes != null) {
+        await precacheImage(MemoryImage(bytes), context);
+        if (!mounted || revision != next || !context.mounted) return;
+      }
+      replaceBackdrop(bytes);
+    }
+    switch (dock['panel']) {
+      case 'media':
+        await showMediaPanel(context, widget.controller);
+      case 'climate':
+        await showClimatePanel(context, widget.controller);
+      case 'vehicle':
+        await showVehiclePanel(context, widget.controller);
+      case 'navigation':
+        await showNavigationPicker(context, widget.controller);
+      case 'music-picker':
+        await showMusicPicker(context, widget.controller);
+      case 'uni-menu':
+        await showUniDockMenu(context, widget.controller);
+      case 'cleaner':
+        await showCleanerPanel(context, widget.controller);
+      case 'transfer':
+        await showFileTransferPopup(context, widget.controller);
+      case 'apps':
+        await showAppsPanel(context, widget.controller);
+      default:
+        return;
+    }
+    // An older route finishing must not dismiss a newly selected panel.
+    if (mounted && revision == next) {
+      await widget.controller.command('dismiss-dock-panel', value: '$next');
+    }
   }
 
   @override
