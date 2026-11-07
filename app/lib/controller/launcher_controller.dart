@@ -290,11 +290,16 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
       }
       final media = state['media'], previousMedia = previous['media'];
       if (media is Map && previousMedia is Map) {
+        final sameTrack = media['title'] == previousMedia['title'] &&
+            media['artist'] == previousMedia['artist'] &&
+            media['source'] == previousMedia['source'];
         Map<String, dynamic>? merged;
-        for (final key in _carriedMedia) {
-          if (!media.containsKey(key) && previousMedia.containsKey(key)) {
-            merged ??= Map<String, dynamic>.from(media);
-            merged[key] = previousMedia[key];
+        if (sameTrack) {
+          for (final key in _carriedMedia) {
+            if (!media.containsKey(key) && previousMedia.containsKey(key)) {
+              merged ??= Map<String, dynamic>.from(media);
+              merged[key] = previousMedia[key];
+            }
           }
         }
         final candidate = merged ?? media;

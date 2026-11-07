@@ -164,7 +164,7 @@ public final class MediaAdapter {
         lastTrackPrefs=context.getSharedPreferences("uni_last_track",Context.MODE_PRIVATE);
         lastSource=lastTrackPrefs.getString("source", "");
         lyrics=new LyricsResolver(new File(context.getFilesDir(),"media-lyrics"),changed);
-        timeline=new LyricTimelineProvider(new File(context.getFilesDir(),"lyric-timeline"));
+        timeline=new LyricTimelineProvider(new File(context.getFilesDir(),"lyric-timeline"),changed);
         listener=new ComponentName(context,MediaAccessService.class);
         officialBridge=new OfficialMediaBridge(context,(action,source)->{
             if("select-online".equals(action))return selectOnline(source);
@@ -558,9 +558,9 @@ if(next!=null&&isOnlinePlayer(next.getPackageName())){
                     .put("positionMs",anchorPositionMs).put("positionKnown",positionKnown)
                     .put("sampledAtMs",anchorSampledAtMs)
                     .put("speed",speed);
-                if(!timed.isEmpty())j.put("lyricTimeline",timed.json)
-                    .put("lyricTimelineLabel",timed.label)
-                    .put("lyricTimelineWords",timed.wordTimed);
+                j.put("lyricTimeline",timed.isEmpty()?"":timed.json)
+                    .put("lyricTimelineLabel",timed.isEmpty()?"":timed.label)
+                    .put("lyricTimelineWords",!timed.isEmpty()&&timed.wordTimed);
                 netease.augmentSnapshot(j);
                 if(!text.isEmpty())j.put("lyricsReason","");
             } else {

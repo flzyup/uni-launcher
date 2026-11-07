@@ -1,5 +1,7 @@
 package xyz.i4o.uni.launcher.integration.lyrics;
 
+import android.os.Handler;
+import android.os.Looper;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -42,6 +44,8 @@ public final class LyricTimelineProvider {
 
     private final LyricCatalog catalog;
     private final ExecutorService worker;
+    private final Runnable changed;
+    private final Handler main = new Handler(Looper.getMainLooper());
     private final Map<String, CacheEntry> memory =
             new LinkedHashMap<String, CacheEntry>(MEMORY_ENTRIES, 0.75f, true) {
                 @Override
@@ -53,7 +57,12 @@ public final class LyricTimelineProvider {
     private final Set<String> inFlight = ConcurrentHashMap.newKeySet();
 
     public LyricTimelineProvider(File cacheDir) {
+        this(cacheDir, null);
+    }
+
+    public LyricTimelineProvider(File cacheDir, Runnable changed) {
         this.catalog = new LyricCatalog(cacheDir);
+        this.changed = changed;
         this.worker = Executors.newSingleThreadExecutor(new ThreadFactory() {
             @Override
             public Thread newThread(Runnable runnable) {
@@ -166,6 +175,7 @@ public final class LyricTimelineProvider {
                                         // karaoke without the caller asking again.
                                         memoryPut(key, CacheEntry.of(better.timeline,
                                                 better.sourceLabel, false, true));
+                                        if (changed != null) main.post(changed);
                                     }
                                 });
                         if (result.isEmpty()) {
@@ -173,6 +183,7 @@ public final class LyricTimelineProvider {
                         } else {
                             memoryPut(key, CacheEntry.of(result.timeline, result.sourceLabel,
                                     false, true));
+                            if (changed != null) main.post(changed);
                         }
                     } catch (RuntimeException unexpected) {
                         misses.put(key, System.currentTimeMillis());
