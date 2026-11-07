@@ -34,6 +34,8 @@ public final class WorkspacePolicy {
     private int resized;
     /** 上一次记过日志的已调整任务数：轮询每秒一次，只在数量变化时落一条。 */
     private int loggedResized=-1;
+    /** 记录已向系统请求过调整的栈与目标尺寸，防止不支持缩放的全屏栈每秒重复触发 resizeStack。 */
+    private final java.util.Map<Integer,String> attempted=new java.util.HashMap<>();
     private final Runnable check=new Runnable(){public void run(){
         if(!running)return;
         update();if(available)handler.postDelayed(this,POLL_MS);
@@ -77,6 +79,7 @@ public final class WorkspacePolicy {
         try{
             DisplayMetrics real=new DisplayMetrics();((WindowManager)context.getSystemService(Context.WINDOW_SERVICE)).getDefaultDisplay().getRealMetrics(real);
             Rect target=new Rect(0,0,real.widthPixels,dockTop(context,prefs));
+            String ownPrefix=context.getPackageName()+"/";
             for(Object info:(List<?>)stacks.invoke(manager)){
                 Class<?> t=info.getClass();
                 if(t.getField("displayId").getInt(info)!=0)continue;
@@ -86,12 +89,13 @@ public final class WorkspacePolicy {
                 if(compatibilityOnly&&!WorkspaceCompatibilityPolicy.shouldResize(visible,names)){
                     restoreOne(id,bounds);continue;
                 }
-                if(!visible||names==null||names.length==0)continue;
+                if(!visible||names==null||names.length==0){attempted.remove(id);continue;}
                 // OEM recents crashes in a delayed HomePresenter callback when
                 // stack resize recreates its Activity. Its task cards already
                 // fit above the bottom strip; retain its native fullscreen size.
+                // UNI's own MainActivity already reserves dockTop via viewportHeightPx.
                 boolean nativeSize=false;for(String name:names)if(name!=null
-                    &&(name.startsWith("com.ecarx.parking/")||name.startsWith("com.ecarx.recents/")))nativeSize=true;
+                    &&(name.startsWith("com.ecarx.parking/")||name.startsWith("com.ecarx.recents/")||name.startsWith(ownPrefix)))nativeSize=true;
                 if(nativeSize){restoreOne(id,bounds);continue;}
                 // Preserve floating, split-screen or PIP tasks; never resize a
                 // map's virtual display, SystemUI window or unrelated small task.
@@ -99,7 +103,10 @@ public final class WorkspacePolicy {
                     ||(bounds.height()!=real.heightPixels&&!bounds.equals(target)
                        &&bounds.height()!=real.heightPixels-Math.round(real.widthPixels*96f/1920f)
                        &&!originals.has(""+id)))continue;
-                if(bounds.equals(target))continue;
+                if(bounds.equals(target)){attempted.remove(id);continue;}
+                String attemptSig=target.flattenToString()+"|"+bounds.flattenToString()+"|"+names[0];
+                if(attemptSig.equals(attempted.get(id)))continue;
+                attempted.put(id,attemptSig);
                 String key=""+id;
                 if(!originals.has(key)){
                     originals.put(key,bounds.flattenToString());prefs.edit().putString(SAVED,originals.toString()).apply();
@@ -111,6 +118,7 @@ public final class WorkspacePolicy {
         }catch(Exception e){available=false;UniLog.w(LogTags.SYS,"Unable to reserve task workspace",e,"tag","UniWorkspace");UniLog.fail(LogTags.SYS,"sys/workspace","reason","resize-failed","error",e.getClass().getSimpleName());}
     }
     private void restoreOne(int id,Rect current)throws Exception{
+        attempted.remove(id);
         String key=""+id;if(!originals.has(key))return;
         Rect original=Rect.unflattenFromString(originals.optString(key));
         if(original!=null&&!original.equals(current))resize(id,original);

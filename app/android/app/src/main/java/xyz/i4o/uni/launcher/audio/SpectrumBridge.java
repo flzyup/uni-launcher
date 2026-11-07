@@ -141,6 +141,8 @@ public final class SpectrumBridge {
         volatile int captureSize,sampleRate;
         long startedAt;
         Runnable poll;
+        Runnable delayedRelease;
+        static final long RELEASE_GRACE_MS=3000;
         AudioManager audioManager;
         boolean sessionWarned;
 
@@ -201,13 +203,20 @@ public final class SpectrumBridge {
             double capturedPeak=peakLevel;
             running=false;reason="idle";source="none";signalSeen=false;peakLevel=0;generation++;
             quietFrames=0;
-            main.post(this::releaseVisualizer);
+            if(poll!=null){main.removeCallbacks(poll);poll=null;}
+            if(delayedRelease!=null)main.removeCallbacks(delayedRelease);
+            delayedRelease=()->{
+                delayedRelease=null;
+                if(!running&&demand()==0)releaseVisualizer();
+            };
+            main.postDelayed(delayedRelease,RELEASE_GRACE_MS);
             publishState();
             if(!hadSignal)UniLog.w(LogTags.SPECTRUM,"频谱采集已停止但没有采到信号","frames",capturedFrames,"signalFrames",capturedSignalFrames,"tag",TAG);
             UniLog.done(LogTags.SPECTRUM,"spectrum/capture","action","stop","frames",capturedFrames,"signalFrames",capturedSignalFrames,"peakLevel",capturedPeak,"tag",TAG);
         }
 
         void startCapture(){
+            if(delayedRelease!=null){main.removeCallbacks(delayedRelease);delayedRelease=null;}
             running=true;reason="starting";detail="";signalSeen=false;startedAt=System.currentTimeMillis();
             quietFrames=0;
             // 新的一轮采集：上一包的电平不再有参考意义，第一帧必须推出去。
@@ -223,7 +232,12 @@ public final class SpectrumBridge {
         void attachOutputMix(int epoch){
             if(!running||epoch!=generation)return;
             try{
-                openVisualizer(0);
+                if(visualizer==null||attachedSessionId!=0){
+                    if(visualizer!=null)releaseVisualizer();
+                    openVisualizer(0);
+                }else{
+                    startedAt=System.currentTimeMillis();
+                }
                 source="output-mix";
                 reason="listening";detail="";
                 publishState();
@@ -437,6 +451,7 @@ public final class SpectrumBridge {
          * whole process down — the capture is already broken at that point.
          */
         void releaseVisualizer(){
+            if(delayedRelease!=null){main.removeCallbacks(delayedRelease);delayedRelease=null;}
             if(poll!=null)main.removeCallbacks(poll);poll=null;
             if(visualizer!=null){
                 try{visualizer.setEnabled(false);}catch(Throwable ignored){}

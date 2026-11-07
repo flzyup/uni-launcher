@@ -233,7 +233,13 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
     'savedDesign',
     'appNames'
   ];
-  static const _carriedMedia = ['artwork', 'lyrics'];
+  static const _carriedMedia = [
+    'artwork',
+    'lyrics',
+    'lyricTimeline',
+    'lyricTimelineLabel',
+    'lyricTimelineWords',
+  ];
 
   /// Last observed media identity, so only real transitions are logged.
   /// Telemetry packets arrive up to 12 times a second; logging each one would

@@ -69,9 +69,13 @@ public final class NeteaseMediaAdapter {
                         }
                     } else if ("get_lyric_action".equals(event)) {
                         String[] lines = extras.getStringArray("lyric");
-                        lyricLine = lines != null && lines.length > 1 ? text(lines[1]) : "";
-                        lyricPrevious = lines != null && lines.length > 0 ? text(lines[0]) : "";
-                        lyricNext = lines != null && lines.length > 2 ? text(lines[2]) : "";
+                        String nextLine = lines != null && lines.length > 1 ? text(lines[1]) : "";
+                        String nextPrev = lines != null && lines.length > 0 ? text(lines[0]) : "";
+                        String nextNext = lines != null && lines.length > 2 ? text(lines[2]) : "";
+                        if (nextLine.equals(lyricLine) && nextPrev.equals(lyricPrevious) && nextNext.equals(lyricNext)) return;
+                        lyricLine = nextLine;
+                        lyricPrevious = nextPrev;
+                        lyricNext = nextNext;
                     } else if ("lyric_loading_action".equals(event)
                             || "lyric_message_action".equals(event)) {
                         clearLyrics();

@@ -460,16 +460,22 @@ if(next!=null&&isOnlinePlayer(next.getPackageName())){
     private static void copyText(MediaMetadata source,MediaMetadata.Builder target,String key){
         CharSequence value=source.getText(key);if(value!=null&&value.length()>0)target.putText(key,value);
     }
+    private String anchorTrackKey="";
+    private boolean anchorPlaying,anchorPositionKnown;
+    private float anchorSpeed;
+    private long anchorPositionMs=-1,anchorSampledAtMs=-1;
+
     public JSONObject snapshot(){
         JSONObject j=new JSONObject();try{
+            JSONObject official=officialBridge.snapshot();
             j.put("authorized",authorized).put("available",controller!=null).put("playing",false).put("preferredPackage",preferred).put("sessions",activeSources)
-                .put("steeringControlReady",officialBridge.snapshot().optBoolean("registered"))
+                .put("steeringControlReady",official.optBoolean("registered"))
                 .put("steeringEnabled",steeringEnabled)
                 .put("instrumentEnabled",instrumentEnabled)
                 .put("steeringKeys",steeringKeys.snapshot())
                 .put("steeringInject",injector.snapshot().put("kugou",kugou.snapshot()))
-                .put("instrumentMetadataReady",officialBridge.snapshot().optBoolean("playbackAccepted"))
-                .put("officialMedia",officialBridge.snapshot())
+                .put("instrumentMetadataReady",official.optBoolean("playbackAccepted"))
+                .put("officialMedia",official)
                 .put("reason",!authorized?"请授权媒体访问":controller==null?"所选播放器尚未建立媒体会话":"");
             if(controller!=null){
                 MediaMetadata m=controller.getMetadata();PlaybackState p=controller.getPlaybackState();
@@ -523,14 +529,31 @@ if(next!=null&&isOnlinePlayer(next.getPackageName())){
                 long castAt=System.currentTimeMillis();
                 // The user-tuned offset shifts the clock, not the document: the card and the
                 // cast panel both read this position, so a correction applies to both.
-                long castPosition=Math.max(0,position(p)+LyricOffset.forTrack(title,artist));
+                long offsetMs=LyricOffset.forTrack(title,artist);
+                long castPosition=Math.max(0,position(p)+offsetMs);
                 LyricCast.publish(title,artist,timed.label,timed.timeline,casting,
                         castPosition,castAt,p==null?1f:p.getPlaybackSpeed());
+                boolean positionKnown=p!=null&&p.getPosition()>=0;
+                float speed=p==null?0f:p.getPlaybackSpeed();
+                String trackKey=controller.getPackageName()+"\u0000"+title+"\u0000"+artist+"\u0000"+duration+"\u0000"+offsetMs;
+                long expectedPos=anchorPositionMs;
+                if(anchorPlaying&&anchorSampledAtMs>0&&castAt>=anchorSampledAtMs){
+                    expectedPos+=Math.round((castAt-anchorSampledAtMs)*anchorSpeed);
+                }
+                if(!trackKey.equals(anchorTrackKey)||casting!=anchorPlaying||positionKnown!=anchorPositionKnown
+                        ||Math.abs(speed-anchorSpeed)>0.001f||anchorSampledAtMs<=0||Math.abs(castPosition-expectedPos)>250){
+                    anchorTrackKey=trackKey;
+                    anchorPlaying=casting;
+                    anchorPositionKnown=positionKnown;
+                    anchorSpeed=speed;
+                    anchorPositionMs=castPosition;
+                    anchorSampledAtMs=castAt;
+                }
                 j.put("lyrics",text).put("lyricsSource",source)
                     .put("durationMs",duration)
-                    .put("positionMs",castPosition).put("positionKnown",p!=null&&p.getPosition()>=0)
-                    .put("sampledAtMs",castAt)
-                    .put("speed",p==null?0:p.getPlaybackSpeed());
+                    .put("positionMs",anchorPositionMs).put("positionKnown",positionKnown)
+                    .put("sampledAtMs",anchorSampledAtMs)
+                    .put("speed",speed);
                 if(!timed.isEmpty())j.put("lyricTimeline",timed.json)
                     .put("lyricTimelineLabel",timed.label)
                     .put("lyricTimelineWords",timed.wordTimed);

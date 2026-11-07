@@ -44,6 +44,8 @@ public final class GlobalDockService extends Service {
     private boolean panelReady;
     private static final long PANEL_IDLE_MS=5000;
     private static final JSONArray NO_RECENTS=new JSONArray();
+    private static final java.util.regex.Pattern SIGNATURE_TIMESTAMPS=
+        java.util.regex.Pattern.compile("\"([A-Za-z]*AtMs|[A-Za-z]*AtElapsedMs|sourceTimestampNanos|ageMs)\":-?\\d+");
     private final Runnable releaseIdlePanel=()->{
         if(!panel.isEmpty()||panelWindow==null)return;
         panelWindow.suspend();
@@ -218,7 +220,16 @@ public final class GlobalDockService extends Service {
         }
         UniLog.done(LogTags.DOCK,"dock/attach","surface","dock");
         UniLog.i(LogTags.DOCK,"底栏窗口已创建","nativeInsets",nativeInsets,"workspace",workspace.available());
-        runtime.addListener(this,this::update);update();
+        runtime.addListener(this,this::onRuntimeChanged);update();
+        main.postDelayed(this::prewarmPanel,1800);
+    }
+    private void prewarmPanel(){
+        if(dockWindow==null||panelWindow!=null||!panel.isEmpty())return;
+        try{
+            panelWindow=new OverlayWindow(true);
+            main.removeCallbacks(releaseIdlePanel);
+            main.postDelayed(releaseIdlePanel,1500);
+        }catch(RuntimeException ignored){}
     }
     /** Each view retains its size for its entire lifetime. In particular a
      * dialog never reallocates the dock's Flutter texture or changes its focus. */
@@ -327,7 +338,7 @@ public final class GlobalDockService extends Service {
             String text=packet().toString();
             // Same reasoning as MainActivity.emit(): timestamp-only differences must
             // not wake the dock/panel engine while nothing it renders has changed.
-            String sig=text.replaceAll("\"([A-Za-z]*AtMs|[A-Za-z]*AtElapsedMs)\":-?\\d+","\"t\":0");
+            String sig=SIGNATURE_TIMESTAMPS.matcher(text).replaceAll("\"t\":0");
             if(sig.equals(sentSignature))return;
             sentSignature=sig;
             sink.success(text);
@@ -481,6 +492,15 @@ public final class GlobalDockService extends Service {
     }
     private String topTaskPackage(){
         return xyz.i4o.uni.launcher.overlay.DisplayTasks.topPackage(this);
+    }
+    private void onRuntimeChanged(){
+        if(dockWindow==null)return;
+        if(cameraSuspended&&runtime.homeVisible()){
+            cameraSuspended=false;
+            update();
+            return;
+        }
+        publish();
     }
     private void update(){
         if(dockWindow==null)return;

@@ -32,6 +32,9 @@ class _LyricsViewState extends State<LyricsView> {
   Lyrics lyrics = const Lyrics([]);
   int active = -1;
   String payload = '';
+  Object? _rawTimeline;
+  String _rawLyrics = '';
+  bool _hasParsedSource = false;
   bool _tickersEnabled = false;
   String _layoutSignature = '';
   List<double> _lineHeights = const [];
@@ -65,18 +68,30 @@ class _LyricsViewState extends State<LyricsView> {
     // One document for the card and for the cluster cast panel: the resolved timeline when the
     // snapshot carries one, the player's raw text only as a fallback. Both used to pick their
     // own source, so a credit line could be highlighted here while the panel showed a gap.
-    final timeline = LyricTimeline.parse(widget.media['lyricTimeline']);
+    final rawTimeline = widget.media['lyricTimeline'];
     final raw = widget.media['lyrics'] is String
         ? widget.media['lyrics'] as String
         : '';
-    final next = timeline.lines.isEmpty ? raw : 'T${timeline.lines.length}@${timeline.lines.first.timeMs}';
-    final changed = payload != next;
-    if (changed) {
-      payload = next;
-      lyrics = timeline.lines.isEmpty
-          ? Lyrics.parse(raw)
-          : Lyrics.fromTimeline(timeline);
-      active = -1;
+    var changed = false;
+    if (!_hasParsedSource ||
+        (!identical(rawTimeline, _rawTimeline) &&
+            rawTimeline != _rawTimeline) ||
+        raw != _rawLyrics) {
+      _hasParsedSource = true;
+      _rawTimeline = rawTimeline;
+      _rawLyrics = raw;
+      final timeline = LyricTimeline.parse(rawTimeline);
+      final next = timeline.lines.isEmpty
+          ? raw
+          : 'T${timeline.lines.length}@${timeline.lines.first.timeMs}';
+      changed = payload != next;
+      if (changed) {
+        payload = next;
+        lyrics = timeline.lines.isEmpty
+            ? Lyrics.parse(raw)
+            : Lyrics.fromTimeline(timeline);
+        active = -1;
+      }
     }
     timer?.cancel();
     timer = null;
