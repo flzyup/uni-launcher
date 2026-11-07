@@ -77,6 +77,11 @@ public final class MainActivity extends FlutterActivity {
         MainActivity a=active.get();
         if(a!=null)a.runOnUiThread(()->{if(a.otaEvents!=null)a.otaEvents.invokeMethod("boot-check",null);});
     }
+    /** 任何入口切往全屏导航前先关闭内嵌宿主可见态，阻止 verifyPlacement 把已迁回主屏的导航栈拉回虚拟屏。 */
+    public static void hideEmbeddedNavigation(){
+        MainActivity a=active.get();
+        if(a!=null)a.runOnUiThread(()->{if(a.mapHost!=null)a.mapHost.setVisible(false);});
+    }
     public static void refreshNavigationChrome(boolean systemNavHidden){
         MainActivity a=active.get();
         if(a!=null)a.runOnUiThread(()->{

@@ -646,7 +646,15 @@ public final class LauncherRuntime {
             refreshAppsInBackground();return true;
         }
         if("request-uninstall".equals(action)){if(!apps.requestUninstall(value))toast("该应用不可卸载");return true;}
-        if("launch-app".equals(action)){if(!apps.launch(value))toast("应用未安装或无法启动");return true;}
+        if("launch-app".equals(action)){
+            String navPkg=navigation.selected();
+            if(!navPkg.isEmpty()&&value!=null&&(value.equals(navPkg)||value.startsWith(navPkg+"/"))){
+                if(!navigation.launchFullscreen())toast("请选择已安装的导航应用");
+                return true;
+            }
+            if(!apps.launch(value))toast("应用未安装或无法启动");
+            return true;
+        }
         if("media-access".equals(action)){try{context.startActivity(new Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));}catch(Exception e){toast("系统没有提供媒体授权入口");}return true;}
         // 垃圾清理：扫描与清理都在 StorageCleaner 的后台线程，这里只做派发。
         // value 是逗号分隔的类目 id，长度与白名单由 StorageCleaner 再校验一次。

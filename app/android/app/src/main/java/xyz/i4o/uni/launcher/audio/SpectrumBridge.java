@@ -72,6 +72,12 @@ public final class SpectrumBridge {
     /** 静音保活包间隔：界面靠它区分「还在采」和「没在采」。 */
     static final long PUBLISH_KEEPALIVE_MS=500;
 
+    /** 拖动内嵌地图期间暂停主线程 FFT 采样与频谱分发，把帧预算优先让给 60fps 地图纹理。 */
+    private static volatile long touchActiveUntilMs;
+    public static void notifyMapTouch(boolean active){
+        touchActiveUntilMs=active?android.os.SystemClock.uptimeMillis()+250:0;
+    }
+
     private static Broker broker;
     private final Context context;
     private final MethodChannel methods;
@@ -368,6 +374,10 @@ public final class SpectrumBridge {
 
         void capture(int epoch){
             if(!running||epoch!=generation||visualizer==null)return;
+            if(android.os.SystemClock.uptimeMillis()<touchActiveUntilMs){
+                main.postDelayed(poll,POLL_MS);
+                return;
+            }
             try{
                 if(visualizer.getFft(fft)!=Visualizer.SUCCESS)throw new IllegalStateException("fft-unavailable");
                 // 复用同一块缓冲区：20 Hz 的采集不该每秒堆出 20 个 double[]。

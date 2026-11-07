@@ -8,7 +8,9 @@ import android.content.Intent;
 import android.hardware.display.DisplayManager;
 import android.hardware.display.VirtualDisplay;
 import android.os.Handler;
+import android.os.HandlerThread;
 import android.os.Looper;
+import android.os.Process;
 import android.os.SystemClock;
 import android.view.InputDevice;
 import android.view.InputEvent;
@@ -23,6 +25,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
+import xyz.i4o.uni.launcher.audio.SpectrumBridge;
 import xyz.i4o.uni.launcher.integration.NavigationApps;
 import xyz.i4o.uni.launcher.log.LogTags;
 import xyz.i4o.uni.launcher.log.UniLog;
@@ -37,12 +41,17 @@ public final class LiveNavigationHost {
     private final TextureRegistry textures;
     private final MethodChannel host;
     private final Handler main=new Handler(Looper.getMainLooper());
+    private final HandlerThread inputThread;
+    private final Handler inputHandler;
     private LiveMap map;
     private int nextId;
     private boolean closed,hostVisible=true;
     public LiveNavigationHost(Activity activity,BinaryMessenger messenger,TextureRegistry textures){
         this.activity=activity;this.messenger=messenger;this.textures=textures;
         UniLog.enter(LogTags.NAV,"nav/host");
+        inputThread=new HandlerThread("uni-map-input",Process.THREAD_PRIORITY_DISPLAY);
+        inputThread.start();
+        inputHandler=new Handler(inputThread.getLooper());
         host=new MethodChannel(messenger,"xyz.i4o.uni.launcher/navigation");
         host.setMethodCallHandler((call,result)->{
             try{
@@ -93,7 +102,16 @@ public final class LiveNavigationHost {
     public org.json.JSONArray snapshot(){
         org.json.JSONArray result=new org.json.JSONArray();if(map!=null)result.put(new org.json.JSONObject(map.status()));return result;
     }
-    public void close(){if(closed)return;closed=true;UniLog.enter(LogTags.NAV,"nav/host","stage","detach");main.removeCallbacksAndMessages(null);host.setMethodCallHandler(null);if(map!=null){map.close();map=null;}UniLog.done(LogTags.NAV,"nav/host","stage","detach");}
+    public void close(){
+        if(closed)return;closed=true;
+        UniLog.enter(LogTags.NAV,"nav/host","stage","detach");
+        main.removeCallbacksAndMessages(null);
+        host.setMethodCallHandler(null);
+        if(map!=null){map.close();map=null;}
+        inputHandler.removeCallbacksAndMessages(null);
+        inputThread.quitSafely();
+        UniLog.done(LogTags.NAV,"nav/host","stage","detach");
+    }
 
     private final class LiveMap {
         final int id;
@@ -101,6 +119,7 @@ public final class LiveNavigationHost {
         final MethodChannel channel;
         final AtomicBoolean awaitingFrame=new AtomicBoolean(true);
         final AtomicLong consumedFrames=new AtomicLong();
+        final AtomicReference<MotionEvent> pendingMove=new AtomicReference<>();
         TextureRegistry.SurfaceTextureEntry texture;
         Surface surface;
         VirtualDisplay display;
@@ -112,6 +131,14 @@ public final class LiveNavigationHost {
         boolean disposed,requestedVisible=true,ready,pointerDown;
         long downTime;
         String phase="loading",reason="正在载入实时地图";
+        final Runnable drainMove=()->{
+            MotionEvent move=pendingMove.getAndSet(null);
+            if(move==null)return;
+            try{
+                if(!disposed&&forwardEvent!=null&&inputForwarder!=null)
+                    forwardEvent.invoke(inputForwarder,move);
+            }catch(Exception ignored){}finally{move.recycle();}
+        };
         final Runnable timeout=()->{if(!disposed&&!ready){phase="unavailable";reason="地图未输出画面，请重试或全屏打开";publish();}};
         LiveMap(int id,String pkg,int logicalWidth,int logicalHeight,float scale)throws Exception{
             this.id=id;this.pkg=pkg;this.scale=scale;
@@ -176,10 +203,11 @@ public final class LiveNavigationHost {
         }
         int pixels(int logical){return Math.max(64,Math.min(1920,Math.round(logical*scale)));}
 
-        /** 密度同比缩放，导航 App 的 dp 逻辑尺寸保持不变，因此它自己的界面不会重排。 */
+        /** 保持与物理屏幕完全一致的 densityDpi：高德 MainMapActivity 的 configChanges
+         *  声明了 screenSize|smallestScreenSize|screenLayout 但未声明 density(0x1000)，
+         *  若虚拟屏改变 DPI，切全屏/回桌面会触发 Activity 销毁重建并丢失正在进行的导航。 */
         int textureDensity(){
-            int base=activity.getResources().getDisplayMetrics().densityDpi;
-            return Math.max(72,Math.round(base*scale));
+            return Math.max(72,activity.getResources().getDisplayMetrics().densityDpi);
         }
 
         void resize(int logicalWidth,int logicalHeight){
@@ -214,22 +242,57 @@ public final class LiveNavigationHost {
         ComponentName placeExistingTask()throws Exception{
             Object manager=Class.forName("android.app.ActivityManager").getMethod("getService").invoke(null);
             java.lang.reflect.Method all=manager.getClass().getMethod("getAllStackInfos");all.setAccessible(true);
-            for(Object stack:(List<?>)all.invoke(manager)){
+            int targetDisplay=display.getDisplay().getDisplayId();
+            List<?> stacks=(List<?>)all.invoke(manager);
+            for(Object stack:stacks){
+                Class<?> type=stack.getClass();
+                if(type.getField("displayId").getInt(stack)!=targetDisplay)continue;
+                String[] names=(String[])type.getField("taskNames").get(stack);
+                if(names==null)continue;
+                for(String name:names){
+                    if(name!=null&&name.startsWith(pkg+"/")){
+                        android.graphics.Rect bounds=(android.graphics.Rect)type.getField("bounds").get(stack);
+                        if(bounds!=null&&(bounds.width()!=width||bounds.height()!=height)){
+                            java.lang.reflect.Method resizeStack=manager.getClass().getMethod("resizeStack",int.class,android.graphics.Rect.class,boolean.class,boolean.class,boolean.class,int.class);
+                            resizeStack.setAccessible(true);
+                            resizeStack.invoke(manager,type.getField("stackId").getInt(stack),new android.graphics.Rect(0,0,width,height),true,true,false,-1);
+                        }
+                        return ComponentName.unflattenFromString(name);
+                    }
+                }
+            }
+            for(Object stack:stacks){
                 Class<?> type=stack.getClass();String[] names=(String[])type.getField("taskNames").get(stack);
-                if(names==null||names.length!=1||names[0]==null||!names[0].startsWith(pkg+"/"))continue;
-                if(type.getField("displayId").getInt(stack)!=display.getDisplay().getDisplayId()){
+                if(names==null)continue;
+                int matchIndex=-1;
+                for(int i=0;i<names.length;i++){
+                    if(names[i]!=null&&names[i].startsWith(pkg+"/")){matchIndex=i;break;}
+                }
+                if(matchIndex<0)continue;
+                int stackId=type.getField("stackId").getInt(stack);
+                if(names.length==1){
                     java.lang.reflect.Method move=manager.getClass().getMethod("moveStackToDisplay",int.class,int.class);move.setAccessible(true);
-                    move.invoke(manager,type.getField("stackId").getInt(stack),display.getDisplay().getDisplayId());
+                    move.invoke(manager,stackId,targetDisplay);
                     taskMoves++;
                     // AMap keeps full-screen Activity bounds after moving back.
                     // Resize the stack before it draws, so the existing view tree
                     // relayouts without clearing the live texture.
                     java.lang.reflect.Method resizeStack=manager.getClass().getMethod("resizeStack",int.class,android.graphics.Rect.class,boolean.class,boolean.class,boolean.class,int.class);
                     resizeStack.setAccessible(true);
-                    resizeStack.invoke(manager,type.getField("stackId").getInt(stack),new android.graphics.Rect(0,0,width,height),true,true,false,-1);
+                    resizeStack.invoke(manager,stackId,new android.graphics.Rect(0,0,width,height),true,true,false,-1);
+                    return ComponentName.unflattenFromString(names[matchIndex]);
                 }
-                return ComponentName.unflattenFromString(names[0]);
-            }return null;
+                int[] taskIds=(int[])type.getField("taskIds").get(stack);
+                if(taskIds!=null&&matchIndex<taskIds.length){
+                    ActivityOptions options=ActivityOptions.makeBasic();options.setLaunchDisplayId(targetDisplay);
+                    java.lang.reflect.Method fromRecents=manager.getClass().getMethod("startActivityFromRecents",int.class,android.os.Bundle.class);
+                    fromRecents.setAccessible(true);
+                    fromRecents.invoke(manager,taskIds[matchIndex],options.toBundle());
+                    taskMoves++;
+                    return ComponentName.unflattenFromString(names[matchIndex]);
+                }
+            }
+            return null;
         }
         void verifyPlacement(int epoch){
             if(disposed||epoch!=generation||!hostVisible||!requestedVisible)return;
@@ -261,17 +324,43 @@ public final class LiveNavigationHost {
             }
             long now=SystemClock.uptimeMillis();if(action==0){downTime=now;pointerDown=true;}
             if(!pointerDown&&action!=0)return;
-            MotionEvent event=MotionEvent.obtain(downTime,now,action|((action==5||action==6)?index<<MotionEvent.ACTION_POINTER_INDEX_SHIFT:0),count,properties,coords,0,0,1,1,0,0,InputDevice.SOURCE_TOUCHSCREEN,0);
-            try{forwardEvent.invoke(inputForwarder,event);}finally{event.recycle();}
+            final long eventDownTime=downTime;
+            final int maskedAction=action|((action==5||action==6)?index<<MotionEvent.ACTION_POINTER_INDEX_SHIFT:0);
             if(action==1||action==3)pointerDown=false;
+            SpectrumBridge.notifyMapTouch(pointerDown);
+            MotionEvent event=MotionEvent.obtain(eventDownTime,now,maskedAction,count,properties,coords,0,0,1,1,0,0,InputDevice.SOURCE_TOUCHSCREEN,0);
+            if(action==2){
+                MotionEvent previous=pendingMove.getAndSet(event);
+                if(previous!=null)previous.recycle();
+                else inputHandler.post(drainMove);
+            }else{
+                inputHandler.post(()->{
+                    drainMove.run();
+                    try{
+                        if(!disposed&&forwardEvent!=null&&inputForwarder!=null)
+                            forwardEvent.invoke(inputForwarder,event);
+                    }catch(Exception ignored){}finally{event.recycle();}
+                });
+            }
         }
         void cancelTouch(){
-            if(!pointerDown||forwardEvent==null)return;
-            MotionEvent event=MotionEvent.obtain(downTime,SystemClock.uptimeMillis(),MotionEvent.ACTION_CANCEL,0,0,0);event.setSource(InputDevice.SOURCE_TOUCHSCREEN);
-            try{forwardEvent.invoke(inputForwarder,event);}catch(Exception ignored){}finally{event.recycle();pointerDown=false;}
+            if(!pointerDown)return;
+            pointerDown=false;
+            SpectrumBridge.notifyMapTouch(false);
+            final long cancelDownTime=downTime;
+            final long now=SystemClock.uptimeMillis();
+            inputHandler.post(()->{
+                MotionEvent stale=pendingMove.getAndSet(null);
+                if(stale!=null)stale.recycle();
+                if(forwardEvent==null||inputForwarder==null)return;
+                MotionEvent event=MotionEvent.obtain(cancelDownTime,now,MotionEvent.ACTION_CANCEL,0,0,0);event.setSource(InputDevice.SOURCE_TOUCHSCREEN);
+                try{forwardEvent.invoke(inputForwarder,event);}catch(Exception ignored){}finally{event.recycle();}
+            });
         }
         void close(){
             if(disposed)return;cancelTouch();disposed=true;generation++;main.removeCallbacks(timeout);channel.setMethodCallHandler(null);
+            MotionEvent stale=pendingMove.getAndSet(null);
+            if(stale!=null)stale.recycle();
             if(display!=null){display.release();display=null;}
             if(surface!=null){surface.release();surface=null;}
             if(texture!=null){texture.setOnFrameConsumedListener(null);texture.release();texture=null;}

@@ -114,10 +114,11 @@ public final class NavigationApps {
     public boolean launchFullscreen(){
         String pkg=selected();Intent intent=displayIntent();if(pkg.isEmpty()||intent==null){UniLog.fail(LogTags.NAV,"nav/launch","package",pkg,"reason","没有可用的导航入口");return false;}
         UniLog.enter(LogTags.NAV,"nav/launch","package",pkg,"mode","fullscreen");
+        xyz.i4o.uni.launcher.MainActivity.hideEmbeddedNavigation();
         try{moveOwnSingleTaskToDisplay(pkg);}
         catch(Exception|LinkageError e){UniLog.w(LogTags.NAV,"No embedded navigation stack to restore",e,"package",pkg);}
         try{
-            context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TOP|Intent.FLAG_ACTIVITY_SINGLE_TOP));
+            context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_SINGLE_TOP));
             UniLog.done(LogTags.NAV,"nav/launch","package",pkg,"mode","fullscreen");
             return true;
         }catch(Exception|LinkageError e){UniLog.w(LogTags.NAV,"Unable to open navigation full screen",e,"package",pkg);UniLog.fail(LogTags.NAV,"nav/launch","package",pkg,"mode","fullscreen","reason","启动失败");return false;}
@@ -128,12 +129,21 @@ public final class NavigationApps {
         java.util.List<?> stacks=(java.util.List<?>)all.invoke(manager);
         for(Object stack:stacks){
             Class<?> type=stack.getClass();String[] names=(String[])type.getField("taskNames").get(stack);
-            if(names==null||names.length!=1||names[0]==null||!names[0].startsWith(pkg+"/"))continue;
-            int display=type.getField("displayId").getInt(stack);if(display==0)return;
+            if(names==null)continue;
+            int display=type.getField("displayId").getInt(stack);
+            boolean matched=false;
+            if(display!=0){
+                for(String name:names)if(name!=null&&name.startsWith(pkg+"/")){matched=true;break;}
+            }else if(names.length==1&&names[0]!=null&&names[0].startsWith(pkg+"/")){
+                matched=true;
+            }
+            if(!matched)continue;
             int id=type.getField("stackId").getInt(stack);
-            java.lang.reflect.Method move=manager.getClass().getMethod("moveStackToDisplay",int.class,int.class);move.setAccessible(true);
-            move.invoke(manager,id,0);
-            UniLog.i(LogTags.NAV,"内嵌导航栈已切回物理屏幕","package",pkg,"stackId",id,"display",0);
+            if(display!=0){
+                java.lang.reflect.Method move=manager.getClass().getMethod("moveStackToDisplay",int.class,int.class);move.setAccessible(true);
+                move.invoke(manager,id,0);
+                UniLog.i(LogTags.NAV,"内嵌导航栈已切回物理屏幕","package",pkg,"stackId",id,"display",0);
+            }
             // Moving the stack does not stretch its Activity bounds. Resize it
             // to the physical workspace before the fullscreen transition draws,
             // then restore card bounds when LiveNavigationHost moves it back.
@@ -143,6 +153,11 @@ public final class NavigationApps {
             java.lang.reflect.Method resizeStack=manager.getClass().getMethod("resizeStack",int.class,android.graphics.Rect.class,boolean.class,boolean.class,boolean.class,int.class);
             resizeStack.setAccessible(true);
             resizeStack.invoke(manager,id,new android.graphics.Rect(0,0,real.widthPixels,top),true,true,false,-1);
+            try{
+                java.lang.reflect.Method focus=manager.getClass().getMethod("setFocusedStack",int.class);
+                focus.setAccessible(true);
+                focus.invoke(manager,id);
+            }catch(Exception ignored){}
             UniLog.i(LogTags.NAV,"地图视图已铺满物理屏幕","package",pkg,"width",real.widthPixels,"height",top);
             return;
         }
