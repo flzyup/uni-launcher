@@ -23,7 +23,13 @@ parser.add_argument('--out', type=Path, default=None,
                          'never mix with the raw build output, where several '
                          'stale APKs used to sit and get installed by mistake.')
 parser.add_argument('--toolchain', type=Path, default=None,
-                    help='directory that holds platform.pk8 and platform.x509.pem')
+                    help='directory that holds platform.pk8 and platform.x509.pem '
+                         '(only used when no keystore is found)')
+parser.add_argument('--ks', type=Path, default=None,
+                    help='AOSP 测试签名 keystore；默认取 app/android/signing/'
+                         'uni-debug.keystore，与 Gradle 构建用的是同一张证书')
+parser.add_argument('--ks-alias', default='uni-debug')
+parser.add_argument('--ks-pass', default='android')
 parser.add_argument('--java', type=Path, default=None,
                     help='java launcher used to run apksigner')
 parser.add_argument('--apksigner', type=Path, default=None,
@@ -67,26 +73,54 @@ def first_dir(candidates, what):
         '\n  '.join(str(c) for c in candidates if c))
 
 
-# -- The platform key -------------------------------------------------------
+# -- 签名素材 ---------------------------------------------------------------
 #
-# The car only grants `android.car.permission.CAR_VENDOR_EXTENSION` to apps
-# signed with **its own** platform certificate. That certificate is the AOSP
-# platform key, and the fingerprint below is checked on every signature — a
-# package signed with anything else simply does not get the permission.
+# 全项目只有一张证书：AOSP 测试签名（testkey）。车机只认它 ——
+# `android.car.permission.CAR_VENDOR_EXTENSION` 这类 signature|privileged 权限按证书
+# 授予，所以开发包（Gradle）和实车包（本脚本）必须签同一张。
 #
-# The key is kept outside Git. The sibling `cardesk` project uses the very
-# same key for its platform build, so that directory is a valid source too.
-toolchain = first_dir([
-    args.toolchain,
-    os.environ.get('IP753_SIGNING_DIR'),
-    '/data/tools/linkco-android/ip753-signing',
-    WORKSPACE / 'cardesk' / 'platform-key',
-], 'the platform key directory (platform.pk8 + platform.x509.pem)')
-key = toolchain / 'platform.pk8'
-cert = toolchain / 'platform.x509.pem'
-for path in (key, cert):
-    if not path.is_file():
-        parser.error('Missing local input: ' + str(path))
+# 两种素材形态都认，优先 keystore（与 Gradle 完全同一份文件）：
+#   1) uni-debug.keystore，alias uni-debug
+#   2) platform.pk8 + platform.x509.pem（cardesk 那套目录布局）
+# 签完一律用 apksigner 读回证书，与下面的指纹逐字比对。
+EXPECTED_SHA256 = 'c8a2e9bccf597c2fb6dc66bee293fc13f2fc47ec77bc6b2b0d52c11f51192ab8'
+
+
+def first_existing(candidates):
+    for candidate in candidates:
+        if not candidate:
+            continue
+        path = Path(candidate).expanduser()
+        if path.is_file():
+            return path
+    return None
+
+
+keystore = first_existing([
+    args.ks,
+    os.environ.get('UNI_SIGNING_STORE'),
+    REPO / 'app' / 'android' / 'signing' / 'uni-debug.keystore',
+    '/data/tools/linkco-android/uni-debug.keystore',
+])
+if keystore is not None:
+    sign_key = ['--ks', str(keystore), '--ks-key-alias', args.ks_alias,
+                '--ks-pass', 'pass:' + args.ks_pass,
+                '--key-pass', 'pass:' + args.ks_pass]
+    material = [keystore]
+else:
+    toolchain = first_dir([
+        args.toolchain,
+        os.environ.get('IP753_SIGNING_DIR'),
+        '/data/tools/linkco-android/ip753-signing',
+        WORKSPACE / 'cardesk' / 'platform-key',
+    ], 'the platform key directory (platform.pk8 + platform.x509.pem)')
+    key = toolchain / 'platform.pk8'
+    cert = toolchain / 'platform.x509.pem'
+    for path in (key, cert):
+        if not path.is_file():
+            parser.error('Missing local input: ' + str(path))
+    sign_key = ['--key', str(key), '--cert', str(cert)]
+    material = [key, cert]
 
 # -- The Java that runs apksigner ------------------------------------------
 java = first_file([
@@ -122,7 +156,7 @@ else:
     if jar is None:
         parser.error('No apksigner.jar under ' + str(sdk / 'build-tools'))
 
-for path in [source, java, jar, key, cert]:
+for path in [source, java, jar, *material]:
     if not path.is_file():
         parser.error('Missing local input: ' + str(path))
 
@@ -172,19 +206,21 @@ with tempfile.TemporaryDirectory(prefix='uni-car-sign-') as temp:
         resource=temp/'insets-unsigned.apk'
         build_nav_insets(resource, sdk)
         signed_resource=temp/'insets.apk'
-        subprocess.run([*signer,'sign','--key',str(key),'--cert',str(cert),
+        subprocess.run([*signer,'sign',*sign_key,
             '--v4-signing-enabled','false','--out',str(signed_resource),str(resource)],check=True)
         signing_source=temp/'launcher.apk'
         shutil.copyfile(source,signing_source)
         with zipfile.ZipFile(signing_source,'a',zipfile.ZIP_DEFLATED) as apk:
             apk.write(signed_resource,'assets/uni-nav-insets.apk')
-    subprocess.run([*signer, 'sign', '--key', str(key), '--cert', str(cert),
+    subprocess.run([*signer, 'sign', *sign_key,
                 '--v1-signing-enabled', 'true', '--v2-signing-enabled', 'true',
-                '--v3-signing-enabled', 'false', '--v4-signing-enabled', 'false',
+                # v3 一并写入：与 Gradle 出的 release 包保持同一套方案。Android 9 车机认 v3，
+                # 更老的系统只读 v2 块，所以两边都留着不会影响安装。
+                '--v3-signing-enabled', 'true', '--v4-signing-enabled', 'false',
                 '--out', str(target), str(signing_source)], check=True)
 verified = subprocess.run([*signer, 'verify', '--print-certs', str(target)],
                           check=True, capture_output=True, text=True).stdout
-expected = 'c8a2e9bccf597c2fb6dc66bee293fc13f2fc47ec77bc6b2b0d52c11f51192ab8'
+expected = EXPECTED_SHA256
 if 'certificate SHA-256 digest: ' + expected not in verified:
     target.unlink()
     raise SystemExit('Certificate does not match the verified IP753 test target')
@@ -211,7 +247,7 @@ if target.parent == REPO / 'dist':
         '| --- | --- | --- | --- | --- | --- |',
         '| `' + target.name + '` | `xyz.i4o.uni.launcher` | **'
         + str(version_code or '?') + '** | `' + str(version or '?')
-        + '` | AOSP platform 签名 | `' + digest + '` |',
+        + '` | AOSP 测试签名（testkey） | `' + digest + '` |',
         '',
         '> 这是**唯一需要安装**的包。装到车机后重启桌面。',
         '',

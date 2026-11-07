@@ -42,6 +42,11 @@ class _ClusterLyricsSettingsTabState extends State<ClusterLyricsSettingsTab> {
   double? _dragX;
   double? _dragY;
 
+  /// Live slider values. They follow the thumb while it moves and are persisted on release, so
+  /// dragging the width does not fire one channel call per pixel.
+  double? _widthDraft;
+  double? _fontDraft;
+
   @override
   void initState() {
     super.initState();
@@ -102,25 +107,29 @@ class _ClusterLyricsSettingsTabState extends State<ClusterLyricsSettingsTab> {
     int? rows,
     int? accent,
     String? style,
+    String? motion,
   }) async {
     final turnOn = enabled ?? (display != null ? true : _status.enabled);
     final target = display ?? (turnOn ? (_selected ?? _firstSecondary) : null);
     final next = await widget.client.apply(
       display: target,
-      fontSp: fontSp ?? _status.fontSp,
+      fontSp: fontSp ?? _fontDraft ?? _status.fontSp,
       solidBackground: solidBackground ?? _status.solidBackground,
       xRatio: xRatio ?? _dragX ?? _status.xRatio,
       yRatio: yRatio ?? _dragY ?? _status.yRatio,
-      widthRatio: widthRatio ?? _status.widthRatio,
+      widthRatio: widthRatio ?? _widthDraft ?? _status.widthRatio,
       rows: rows ?? _status.rows,
       accent: accent ?? _status.accent,
       style: style ?? _status.style,
+      motion: motion ?? _status.motion,
     );
     if (!mounted) return;
     setState(() {
       _status = next;
       _dragX = null;
       _dragY = null;
+      _widthDraft = null;
+      _fontDraft = null;
     });
     // The report is the only place a refusal by the system shows up, so a failure also
     // re-reads the display list: a cluster that slept and woke on a new id re-resolves.
@@ -256,24 +265,23 @@ class _ClusterLyricsSettingsTabState extends State<ClusterLyricsSettingsTab> {
                 SizedBox(height: Design.px(10)),
                 _LabelRow(
                     label: '宽度',
-                    value:
-                        (ClusterLayout.widthRatio(_status.widthRatio) * 100).round()),
-                Row(children: [
-                  for (final ratio in const [0.5, 0.7, 0.86, 0.94, 1.0])
-                    Padding(
-                      padding: EdgeInsets.only(right: Design.px(12)),
-                      child: OutlinedButton(
-                        key: ValueKey('cluster-width-${(ratio * 100).round()}'),
-                        style: s.selectionStyle(
-                            (ClusterLayout.widthRatio(_status.widthRatio) - ratio)
-                                    .abs() <
-                                0.01),
-                        onPressed: () => _apply(widthRatio: ratio),
-                        child: Text('${(ratio * 100).round()}%'),
-                      ),
-                    ),
-                  const Spacer(),
-                ]),
+                    value: ((_widthDraft ?? _status.widthRatio) * 100).round()),
+                Slider(
+                  key: const ValueKey('cluster-width-slider'),
+                  value: ClusterLayout.widthRatio(_widthDraft ?? _status.widthRatio),
+                  min: ClusterLayout.minWidthRatio,
+                  max: ClusterLayout.maxWidthRatio,
+                  divisions: 32,
+                  label:
+                      '${(ClusterLayout.widthRatio(_widthDraft ?? _status.widthRatio) * 100).round()}%',
+                  onChanged: _loading
+                      ? null
+                      : (value) => setState(() => _widthDraft = value),
+                  onChangeEnd: _loading
+                      ? null
+                      : (value) => _apply(
+                          widthRatio: ClusterLayout.widthRatio(value)),
+                ),
               ]),
         ),
         SizedBox(height: Design.px(18)),
@@ -340,23 +348,29 @@ class _ClusterLyricsSettingsTabState extends State<ClusterLyricsSettingsTab> {
         SizedBox(height: Design.px(18)),
         SettingBlock(
           title: '字形与配色',
-          note: '${_status.fontSp.round()} sp',
+          note: '${(_fontDraft ?? _status.fontSp).round()} sp',
           child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Row(children: [
-                  for (final step in const [24.0, 30.0, 36.0, 44.0, 54.0])
-                    Padding(
-                      padding: EdgeInsets.only(right: Design.px(12)),
-                      child: OutlinedButton(
-                        key: ValueKey('cluster-font-${step.round()}'),
-                        style: s.selectionStyle(_status.fontSp == step),
-                        onPressed: () => _apply(fontSp: step),
-                        child: Text('${step.round()}'),
-                      ),
-                    ),
-                  const Spacer(),
-                ]),
+                _LabelRow(
+                    label: '字号',
+                    value: (_fontDraft ?? _status.fontSp).round()),
+                Slider(
+                  key: const ValueKey('cluster-font-slider'),
+                  value: ClusterLayout.fontSp(_fontDraft ?? _status.fontSp),
+                  min: ClusterLayout.minFontSp,
+                  max: ClusterLayout.maxFontSp,
+                  divisions: (ClusterLayout.maxFontSp - ClusterLayout.minFontSp)
+                      .round(),
+                  label: '${(_fontDraft ?? _status.fontSp).round()} sp',
+                  onChanged: _loading
+                      ? null
+                      : (value) => setState(() => _fontDraft = value),
+                  onChangeEnd: _loading
+                      ? null
+                      : (value) =>
+                          _apply(fontSp: ClusterLayout.fontSp(value)),
+                ),
                 SizedBox(height: Design.px(14)),
                 _LabelRow(label: '高亮色', value: null),
                 Wrap(spacing: Design.px(12), runSpacing: Design.px(12), children: [
@@ -391,6 +405,44 @@ class _ClusterLyricsSettingsTabState extends State<ClusterLyricsSettingsTab> {
                   subtitle: const Text('关闭后文字直接压在原车机画面上，适合纯黑仪表底'),
                   value: _status.solidBackground,
                   onChanged: (value) => _apply(solidBackground: value),
+                ),
+              ]),
+        ),
+        SizedBox(height: Design.px(18)),
+        SettingBlock(
+          title: '动画',
+          note: ClusterLayout.motionLabel(_status.motion),
+          child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(children: [
+                  for (final option in const [
+                    (ClusterLayout.motionNone, '无'),
+                    (ClusterLayout.motionWords, '逐次+动效'),
+                  ])
+                    Padding(
+                      padding: EdgeInsets.only(right: Design.px(12)),
+                      child: OutlinedButton(
+                        key: ValueKey('cluster-motion-${option.$1}'),
+                        style: s.selectionStyle(
+                            ClusterLayout.motion(_status.motion) == option.$1),
+                        onPressed: _loading
+                            ? null
+                            : () => _apply(motion: option.$1),
+                        child: Text(option.$2),
+                      ),
+                    ),
+                  const Spacer(),
+                ]),
+                SizedBox(height: Design.px(12)),
+                Text(
+                  ClusterLayout.motionEnabled(_status.motion)
+                      ? '切行时上一行向上淡出、新行从下方浮起，唱到的字跟着高亮推进。'
+                          '需要持续重绘，仪表盘上的歌词窗口会一直占用一点帧。'
+                      : '默认关闭：切行直接替换，不逐词高亮。只在换行的那一刻重绘一次，'
+                          '两句之间完全不占帧——车机在跑地图时这一档最省。',
+                  key: const ValueKey('cluster-motion-note'),
+                  style: TextStyle(fontSize: Design.px(17), color: s.muted, height: 1.45),
                 ),
               ]),
         ),

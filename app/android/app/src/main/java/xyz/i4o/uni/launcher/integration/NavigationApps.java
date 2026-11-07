@@ -23,12 +23,38 @@ public final class NavigationApps {
     private final Context context;
     private final SharedPreferences prefs;
     private final PackageQueries queries;
-    private String autoCandidate="";
-    private long autoResolvedAt;
+    private volatile String autoCandidate="";
+    private volatile long autoResolvedAt;
+    /**
+     * auto 解析结果保鲜期。
+     *
+     * <p>以前是 1 秒，而且同步跑在 snapshot 里。{@code getRunningTasks} /
+     * {@code getRecentTasks} 是 system_server 往返，实测单次 80~225ms；更要命的是
+     * 它占着 ActivityManager 的锁，主线程紧接着的 {@code checkSelfPermission}
+     * 也要走 ActivityManager —— 于是连主线程的权限检查都跟着排队几十毫秒。
+     * 现在只在「首次」和「装态变化」时解析，其余时间一律读缓存。
+     */
+    private static final long AUTO_TTL_MS=30000;
+    private int autoGeneration=-1;
+    /** 单线程解析器：getRunningTasks / getRecentTasks 是 system_server 往返，不能放主线程。 */
+    private static final java.util.concurrent.ExecutorService RESOLVER=
+        java.util.concurrent.Executors.newSingleThreadExecutor(r->{
+            Thread t=new Thread(r,"nav-resolve");t.setDaemon(true);t.setPriority(Thread.MIN_PRIORITY);return t;
+        });
+    private volatile boolean autoResolved;
+    private final java.util.concurrent.atomic.AtomicBoolean autoRefreshing=
+        new java.util.concurrent.atomic.AtomicBoolean();
+    /** 解析结果变化后的通知（Runtime 用它补发一包快照）。 */
+    public volatile Runnable onChanged;
     // 仅用于日志：记录最近一次的选择结果。selected() 会被广播与快照高频调用，
     // 每次都打印会把同一行刷满文件。
     private String tracedSelection="";
-    private String autoReason="";
+    private volatile String autoReason="";
+    // options() 每次都要 queryIntentActivities 两遍（PackageManager 全表扫描），
+    // 而结果只在装/卸应用或切语言时才会变。缓存到下一次包变化为止。
+    private org.json.JSONArray optionsCache;
+    private int optionsGeneration=-1;
+    private String optionsLocale="";
     public NavigationApps(Context context,SharedPreferences prefs){
         this.context=context.getApplicationContext();
         if(this.context==null)throw new IllegalArgumentException("Application context required");
@@ -42,12 +68,53 @@ public final class NavigationApps {
     public String selected(){
         String saved=prefs.getString("navigationPackage","auto");
         if(!"auto".equals(saved)){traceSelection(saved,"pinned","用户指定的导航应用");return saved;}
-        long now=android.os.SystemClock.elapsedRealtime();
-        if(autoCandidate.isEmpty()||now-autoResolvedAt>=1000){
-            autoCandidate=resolveAuto();autoResolvedAt=now;
+        if(!autoResolved){
+            // 首次：同步解析一次（冷启动付一次），之后一律读缓存。
+            autoCandidate=resolveAuto();
+            autoResolvedAt=android.os.SystemClock.elapsedRealtime();
+            autoGeneration=queries.generation();
+            autoResolved=true;
+        }else if(queries.generation()!=autoGeneration
+            ||android.os.SystemClock.elapsedRealtime()-autoResolvedAt>=AUTO_TTL_MS){
+            refreshAutoAsync();
         }
         traceSelection(autoCandidate,"auto",autoReason);
         return autoCandidate;
+    }
+    /**
+     * 后台刷新 auto 结果。
+     *
+     * <p>以前这是 {@code snapshot()} 里的同步调用：每次快照都可能走
+     * {@code getRunningTasks(32)} + {@code getRecentTasks(32)} 两次 system_server
+     * 往返，实测单次 80~225ms，全部压在主线程上，而快照是 12Hz 触发的 —— 于是
+     * 桌面在「按 home 回来」这种时刻根本没有空闲的主线程可用。
+     */
+    private void refreshAutoAsync(){
+        if(!autoRefreshing.compareAndSet(false,true))return;
+        final boolean had=autoResolved;
+        final String previous=autoCandidate;
+        try{
+            RESOLVER.execute(()->{
+                try{
+                    String pkg=resolveAuto();
+                    boolean changed=!had||!pkg.equals(previous);
+                    autoCandidate=pkg;
+                    autoResolvedAt=android.os.SystemClock.elapsedRealtime();
+                    autoGeneration=queries.generation();
+                    autoResolved=true;
+                    if(changed){
+                        Runnable notify=onChanged;
+                        if(notify!=null)notify.run();   // publish() 自己会切回主线程
+                    }
+                }catch(RuntimeException|LinkageError ignored){
+                    // 解析失败保持上一次的结果，下一次 TTL 再试
+                }finally{
+                    autoRefreshing.set(false);
+                }
+            });
+        }catch(RuntimeException e){
+            autoRefreshing.set(false);
+        }
     }
     // 只在选择结果变化时记录：结果本身稳定，变化才是维护者要看的状态。
     private synchronized void traceSelection(String pkg,String source,String reason){
@@ -166,9 +233,10 @@ public final class NavigationApps {
         JSONObject j=new JSONObject();try{
             String selected=selected();
             Intent intent=launchIntent(selected);
-            boolean permission=context.checkSelfPermission("android.permission.INJECT_EVENTS")==PackageManager.PERMISSION_GRANTED;
-            boolean stacks=context.checkSelfPermission("android.permission.MANAGE_ACTIVITY_STACKS")==PackageManager.PERMISSION_GRANTED;
-            boolean move=context.checkSelfPermission("android.permission.INTERNAL_SYSTEM_WINDOW")==PackageManager.PERMISSION_GRANTED;
+            final int perms=permissions();
+            boolean permission=(perms&1)!=0;
+            boolean stacks=(perms&2)!=0;
+            boolean move=(perms&4)!=0;
             boolean api=Build.VERSION.SDK_INT==28;
             boolean enabled=prefs.getBoolean("embedNavigation",true);
             String label=selected.isEmpty()?"地图导航":queries.get(selected).label;
@@ -179,8 +247,27 @@ public final class NavigationApps {
                 .put("reason",intent==null?"请安装或选择导航应用":!enabled?"地图嵌入已关闭":!api?"当前容器适用于 Android 9":!permission||!stacks||!move?"需要车机系统嵌入授权":"等待地图容器就绪");
         }catch(Exception ignored){}return j;
     }
+    // 权限位：checkSelfPermission 在 Android 9 上是一次 ActivityManager 往返，
+    // snapshot 里以前每次都要付三次。缓存 10 秒 —— 平台签名权限安装时就定了，
+    // 留一个短过期只是为了让用户真的改了设置之后能自己恢复。
+    private int permFlags=-1;
+    private long permAtMs;
+    private int permissions(){
+        long now=android.os.SystemClock.elapsedRealtime();
+        if(permFlags<0||now-permAtMs>10000){
+            int flags=0;
+            if(context.checkSelfPermission("android.permission.INJECT_EVENTS")==PackageManager.PERMISSION_GRANTED)flags|=1;
+            if(context.checkSelfPermission("android.permission.MANAGE_ACTIVITY_STACKS")==PackageManager.PERMISSION_GRANTED)flags|=2;
+            if(context.checkSelfPermission("android.permission.INTERNAL_SYSTEM_WINDOW")==PackageManager.PERMISSION_GRANTED)flags|=4;
+            permFlags=flags;permAtMs=now;
+        }
+        return permFlags;
+    }
     /** Launchable navigation apps for the card title-bar switcher. */
-    private org.json.JSONArray options(String selected){
+    private org.json.JSONArray options(String selected){        final int generation=queries.generation();
+        final String locale=queries.locales;
+        org.json.JSONArray cached=optionsCache;
+        if(cached!=null&&generation==optionsGeneration&&locale.equals(optionsLocale))return cached;
         org.json.JSONArray list=new org.json.JSONArray();
         try{
             LinkedHashMap<String,String> seen=new LinkedHashMap<>();
@@ -204,6 +291,7 @@ public final class NavigationApps {
                 list.put(new JSONObject().put("package",e.getKey()).put("label",e.getValue()));
             }
         }catch(Exception ignored){}
+        optionsCache=list;optionsGeneration=generation;optionsLocale=locale;
         return list;
     }
     private String labelOf(String pkg){
@@ -218,6 +306,9 @@ public final class NavigationApps {
         final Context application;
         final Map<String,AppEntry> entries=new LinkedHashMap<>();
         String locales="";
+        /** 每次包集合或语言变化就 +1，给上层当缓存键。 */
+        private volatile int generation;
+        int generation(){return generation;}
         PackageQueries(Context application){
             this.application=application;
             IntentFilter filter=new IntentFilter();
@@ -226,13 +317,13 @@ public final class NavigationApps {
             // Process/Application-lifetime registration, shared by all helpers.
             application.registerReceiver(new BroadcastReceiver(){
                 @Override public void onReceive(Context c,Intent intent){
-                    synchronized(PackageQueries.this){entries.clear();}
+                    synchronized(PackageQueries.this){entries.clear();generation++;}
                 }
             },filter);
         }
         synchronized AppEntry get(String pkg){
             String current=application.getResources().getConfiguration().getLocales().toLanguageTags();
-            if(!locales.equals(current)){entries.clear();locales=current;}
+            if(!locales.equals(current)){entries.clear();locales=current;generation++;}
             AppEntry cached=entries.get(pkg);
             if(cached!=null)return cached;
             PackageManager pm=application.getPackageManager();

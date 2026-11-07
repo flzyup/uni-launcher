@@ -31,6 +31,9 @@ import xyz.i4o.uni.launcher.platform.LiveNavigationHost;
 /** Home window and Flutter bridge; shared integrations live in LauncherRuntime. */
 public final class MainActivity extends FlutterActivity {
     private static java.lang.ref.WeakReference<MainActivity> active=new java.lang.ref.WeakReference<>(null);
+    /** 切走时抓下的最后一帧；切回时先贴上去，Flutter 画好再撤（见 installResumeSnapshot）。 */
+    private android.widget.ImageView resumeSnapshot;
+    private android.graphics.Bitmap snapshotBitmap;
 
     /** 存储权限的请求码：导出诊断包要往公共目录写文件。 */
     private static final int REQUEST_STORAGE=4107;
@@ -218,8 +221,17 @@ public final class MainActivity extends FlutterActivity {
                 else if("prelude".equals(call.method)){
                     // 首帧快速通道：只有外观与布局，不碰任何适配器/扫描。
                     // Dart 拿到就能用正确的主题画出第一帧，完整快照随后跟上。
+                    StartupTrace.mark("prelude");
                     result.success(preludeSnapshot());
                     initialSettings=false;
+                }
+                // Dart 侧回填「桌面内容首帧」：native 只到窗口首绘，用户真正看到
+                // 桌面是这一帧，冷启动的总账要打在这里。
+                else if("mark".equals(call.method)){
+                    String label=call.arguments instanceof CharSequence?call.arguments.toString():"";
+                    if(label.startsWith("launcherContent")){StartupTrace.mark(label);StartupTrace.summary();}
+                    else if(!label.isEmpty())StartupTrace.mark(label);
+                    result.success(null);
                 }
                 else if("otaInfo".equals(call.method)){
                     android.content.pm.PackageInfo info=getPackageManager().getPackageInfo(getPackageName(),0);
@@ -338,6 +350,10 @@ public final class MainActivity extends FlutterActivity {
         StartupTrace.mark("onCreate");
         StartupTrace.install(this);
         UniLog.init(this);
+        // 越早越好：FlutterActivity 等一下会在自己的 onCreate 里 setTheme(NormalTheme)
+        // 并装上 FlutterView，之后 window 的背景就交给主题了。提前给我们自己的
+        // drawable，PhoneWindow 会保留它，Flutter 首帧之前露出的就不是白色。
+        applyBootCanvas();
         UniLog.enter(LogTags.APP,"launcher/onCreate");
         rt=LauncherRuntime.get(this);
         // 垃圾清理要读写公开存储：面板一打开就由这里申请权限，界面上没有「去授权」这一步。
@@ -382,11 +398,117 @@ public final class MainActivity extends FlutterActivity {
             public boolean onPreDraw(){
                 traceRoot.getViewTreeObserver().removeOnPreDrawListener(this);
                 StartupTrace.mark("firstDraw");
-                StartupTrace.summary();
+                // 汇总等 Dart 回报 launcherContent（桌面真的画出来）再做；
+                // 这里只兜底：Dart 起不来时 3 秒后按首绘结账，统计不能缺。
+                traceRoot.postDelayed(StartupTrace::summary,3000);
                 UniLog.done(LogTags.APP,"launcher/onCreate","settings",initialSettings);
                 return true;
             }
         });
+        installResumeSnapshot();
+    }
+
+    /**
+     * 切回桌面时的「秒开」覆盖层。
+     *
+     * <p>Flutter 的绘制走 {@code FlutterSurfaceView}，窗口被遮住时系统会把那块
+     * surface 收走；切回来要重建 GrContext、把所有纹理重新上传、再整屏重绘。
+     * 820A 上实测这一段是 500–800 ms —— 而原厂桌面是原生 View，切回只是合成
+     * 已有的 buffer。差别不在代码写得好不好，在渲染架构。
+     *
+     * <p>所以换个思路：切走时用 {@link android.view.PixelCopy} 抓一张当前画面存着，
+     * 切回来先把它贴在最上层。用户看到的是「立刻回到走之前的样子」，真正的
+     * Flutter 帧画好之后再撤掉。视觉上是 0 ms，代价是一张半分辨率的截图。
+     */
+    private void installResumeSnapshot(){
+        if(android.os.Build.VERSION.SDK_INT<26)return;  // PixelCopy 从 O 开始
+        resumeSnapshot=new android.widget.ImageView(this);
+        resumeSnapshot.setScaleType(android.widget.ImageView.ScaleType.FIT_XY);
+        resumeSnapshot.setVisibility(android.view.View.GONE);
+        resumeSnapshot.setClickable(false);
+        resumeSnapshot.setFocusable(false);
+        resumeSnapshot.setImportantForAccessibility(android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        addContentView(resumeSnapshot,new android.view.ViewGroup.LayoutParams(
+            android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+            android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+    }
+
+    /** 窗口还完整可见时抓帧；失败就当作没有快照，切回走原来的路径。 */
+    private void captureResumeSnapshot(){
+        if(resumeSnapshot==null)return;
+        final android.view.View root=getWindow().getDecorView();
+        final int w=root.getWidth(),h=root.getHeight();
+        if(w<=0||h<=0)return;
+        // PixelCopy 要求目标位图与源区域等尺寸，所以不能先缩小再抓；RGB_565 已经
+        // 把这块从 8 MB 压到 4 MB，够用就行 —— 它只是一张过渡用的静态图。
+        final android.graphics.Bitmap shot;
+        try{shot=android.graphics.Bitmap.createBitmap(w,h,android.graphics.Bitmap.Config.RGB_565);}
+        catch(OutOfMemoryError e){return;}
+        try{
+            android.view.PixelCopy.request(getWindow(),shot,result->{
+                if(result!=android.view.PixelCopy.SUCCESS){shot.recycle();return;}
+                android.graphics.Bitmap previous=snapshotBitmap;
+                snapshotBitmap=shot;
+                if(previous!=null&&!previous.isRecycled())previous.recycle();
+            },new android.os.Handler(android.os.Looper.getMainLooper()));
+        }catch(RuntimeException e){
+            UniLog.w(LogTags.APP,"切回快照抓帧失败",e,"reason",e.getClass().getSimpleName());
+        }
+    }
+
+    private void showResumeSnapshot(){
+        if(resumeSnapshot==null||snapshotBitmap==null||snapshotBitmap.isRecycled())return;
+        resumeSnapshot.setImageBitmap(snapshotBitmap);
+        resumeSnapshot.setVisibility(android.view.View.VISIBLE);
+        resumeSnapshot.bringToFront();
+        // 兜底：某些情况下 Flutter 不会再回调「UI 已显示」（比如它一直认为自己
+        // 还在显示），到点就撤，免得静态图把界面永久盖住。
+        resumeSnapshot.removeCallbacks(hideResumeSnapshot);
+        resumeSnapshot.postDelayed(hideResumeSnapshot,1200);
+    }
+
+    private final Runnable hideResumeSnapshot=new Runnable(){
+        public void run(){
+            if(resumeSnapshot==null)return;
+            if(resumeSnapshot.getVisibility()!=android.view.View.VISIBLE)return;
+            resumeSnapshot.setVisibility(android.view.View.GONE);
+            UniLog.d(LogTags.APP,"切回快照已撤下","reason","fallback-timeout");
+        }
+    };
+
+    /** Flutter 真正画出这一帧之后才撤覆盖层，顺序不能反。 */
+    private final io.flutter.embedding.engine.renderer.FlutterUiDisplayListener resumeUiShown=
+        new io.flutter.embedding.engine.renderer.FlutterUiDisplayListener(){
+            @Override public void onFlutterUiDisplayed(){
+                if(resumeSnapshot==null)return;
+                resumeSnapshot.removeCallbacks(hideResumeSnapshot);
+                if(resumeSnapshot.getVisibility()==android.view.View.VISIBLE){
+                    resumeSnapshot.setVisibility(android.view.View.GONE);
+                    UniLog.d(LogTags.APP,"切回快照已撤下","reason","first-frame");
+                }
+            }
+            @Override public void onFlutterUiNoLongerDisplayed(){}
+        };
+
+    /**
+     * 启动窗口底色跟随上次保存的外观。
+     *
+     * <p>窗口在进程启动时就已经被系统画出来了（starting window 用 LaunchTheme
+     * 的 windowBackground），那一段只能靠资源兜底；这里管的是紧接着的一段：
+     * {@code NormalTheme} 接管之后、Flutter 首帧之前露出的那块窗口底色。
+     * 以前它是 {@code ?android:colorBackground}（浅色主题下纯白），现在换成
+     * 上次外观真实的画布色，浅色用户不会再看到「深→白→浅」的三段闪烁。
+     */
+    private void applyBootCanvas(){
+        try{
+            final int argb=LauncherRuntime.bootCanvasArgb(this);
+            getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(argb));
+            // 落一条日志：启动白屏的排查只看这一行 —— 它必须等于上次外观的画布色，
+            // 而不是 0xFFFFFFFF。
+            UniLog.i(LogTags.APP,"启动底色","argb",String.format(java.util.Locale.US,"#%08X",argb));
+        }catch(RuntimeException ignored){
+            // 拿不到 window 时保持主题里的深色兜底，启动不能因此失败。
+        }
     }
 
     private void updateSnapshot(){
@@ -394,13 +516,18 @@ public final class MainActivity extends FlutterActivity {
             m=engineState.cursor.media,s=engineState.cursor.settings;
         // 主窗口始终走带设置目录的快照：设置目录预热完成后由游标补发一次，其余
         // 时间只发分组增量，绝不触发同步扫描。
+        long s0=android.os.SystemClock.elapsedRealtimeNanos();
         JSONObject packet=rt.snapshotWithSettings(engineState.cursor);
+        long s1=android.os.SystemClock.elapsedRealtimeNanos();
         // The settings catalogue is a legitimate large payload; without its cursor
         // here, its first delivery looked like a leak and hid real ones.
         boolean staticIncluded=a!=engineState.cursor.apps||d!=engineState.cursor.design
             ||m!=engineState.cursor.media||s!=engineState.cursor.settings;
         decorate(packet);
+        long s2=android.os.SystemClock.elapsedRealtimeNanos();
         engineState.cached=packet.toString();
+        long s3=android.os.SystemClock.elapsedRealtimeNanos();
+        splitBuildMs=(s1-s0)/1000000L;splitDecorateMs=(s2-s1)/1000000L;splitStringMs=(s3-s2)/1000000L;
         // Invariant: a telemetry-only packet must stay small. If a payload key ever
         // leaks back into the delta pack, say so instead of silently stalling frames.
         if(!staticIncluded&&engineState.cached.length()>65536)
@@ -427,10 +554,21 @@ public final class MainActivity extends FlutterActivity {
         return packet;
     }
 
-    private void decorate(JSONObject state){
+    /**
+     * 窗口投影：insets / 显示指标 / 权限 / 悬浮坞状态。
+     *
+     * <p>只缓存**真的贵且几乎不变**的两项：悬浮窗权限（AppOps → system_server）
+     * 和显示指标。insets、content 高度、悬浮坞的 expanded/panelReady 这些是本地
+     * 字段读，每次现算 —— 它们有独立的发布路径（{@code GlobalDockService} 自己的
+     * 发射口），缓存了就会出现「面板已经开了、主窗口还认为没开」且之后不再发
+     * 新包、永远停在旧值的那种坏死状态。
+     */
+    private JSONObject decorate(JSONObject state){
+        long d0=android.os.SystemClock.elapsedRealtimeNanos();
         try{
             View content=findViewById(android.R.id.content),decor=getWindow().getDecorView();
             WindowInsets insets=decor.getRootWindowInsets();
+            long d1=android.os.SystemClock.elapsedRealtimeNanos();
             boolean alreadyInset=content!=null&&insets!=null&&insets.getSystemWindowInsetBottom()>0&&content.getHeight()>0
                 &&content.getHeight()+insets.getSystemWindowInsetBottom()<=decor.getHeight()+1;
             state.put("contentReservesSystemBars",alreadyInset);
@@ -440,7 +578,7 @@ public final class MainActivity extends FlutterActivity {
             if(insets!=null&&insets.getStableInsetBottom()>0)reservedBottomPx=insets.getStableInsetBottom();
             if(content!=null&&content.getHeight()>0){
                 int usable=content.getHeight();
-                android.util.DisplayMetrics real=new android.util.DisplayMetrics();getWindowManager().getDefaultDisplay().getRealMetrics(real);
+                android.util.DisplayMetrics real=realMetrics();
                 if(!rt.prefs().getBoolean("hideNavigation",false)&&!rt.prefs().getBoolean("systemNavigationHidden",false)
                     &&real.heightPixels>reservedBottomPx)
                     usable=Math.min(usable,real.heightPixels-reservedBottomPx);
@@ -449,14 +587,57 @@ public final class MainActivity extends FlutterActivity {
                 }
                 state.put("contentHeightPx",content.getHeight()).put("viewportHeightPx",usable).put("reservedBottomPx",reservedBottomPx);
             }
+            long d2=android.os.SystemClock.elapsedRealtimeNanos();
             state.put("initialSettings",initialSettings)
                 .put("systemNavigationHidden",rt.prefs().getBoolean("systemNavigationHidden",false))
-                .put("systemNavigationGranted",SystemNavigationPolicy.granted(this))
-                .put("globalDock",GlobalDockService.snapshot(this));
+                .put("systemNavigationGranted",navGranted())
+                .put("globalDock",GlobalDockService.snapshot(this,overlayAllowed()));
+            long d3=android.os.SystemClock.elapsedRealtimeNanos();
+            splitInsetsMs=(d1-d0)/1000000L;splitGeometryMs=(d2-d1)/1000000L;splitDockMs=(d3-d2)/1000000L;
         }catch(Exception e){UniLog.e(LogTags.APP,"窗口快照失败",e);}
+        return state;
     }
 
+    /** AppOps 查询按 2 秒复用：只有用户去系统设置授权才会变。 */
+    private Boolean overlayAllowed(){
+        long now=android.os.SystemClock.elapsedRealtime();
+        if(overlayAllowed==null||now-overlayAllowedAt>=PERMISSION_CACHE_MS){
+            overlayAllowed=android.provider.Settings.canDrawOverlays(this);overlayAllowedAt=now;
+        }
+        return overlayAllowed;
+    }
+
+    private android.util.DisplayMetrics realMetrics(){
+        long now=android.os.SystemClock.elapsedRealtime();
+        if(realMetrics==null||now-realMetricsAt>=WINDOW_PROJECTION_TTL_MS){
+            android.util.DisplayMetrics metrics=new android.util.DisplayMetrics();
+            getWindowManager().getDefaultDisplay().getRealMetrics(metrics);
+            realMetrics=metrics;realMetricsAt=now;
+        }
+        return realMetrics;
+    }
+
+    /** WRITE_SECURE_SETTINGS 的查询同样按 2 秒复用：它只在装机/授权时变。 */
+    private Boolean navGrantedCache;private long navGrantedAt;
+    /** 上一包 decorate 的三段：insets 读取 / 几何计算 / 悬浮坞快照。 */
+    private long splitInsetsMs,splitGeometryMs,splitDockMs;
+
+    private boolean navGranted(){
+        long now=android.os.SystemClock.elapsedRealtime();
+        if(navGrantedCache==null||now-navGrantedAt>=PERMISSION_CACHE_MS){
+            navGrantedCache=SystemNavigationPolicy.granted(this);navGrantedAt=now;
+        }
+        return navGrantedCache;
+    }
+
+    /** 权限/显示指标缓存作废；调用点在窗口、配置或用户命令可能改了它们的每一处。 */
+    private void invalidateWindowCaches(){overlayAllowed=null;realMetrics=null;navGrantedCache=null;}
+
     private void handle(JSONObject request)throws Exception{
+        // 用户操作可能改掉窗口投影里的东西（隐藏导航栏、悬浮坞开关、系统设置
+        // 刷新），缓存必须先失效，否则那一次发布带回去还是旧值，界面不会自己
+        // 再变第二次。
+        invalidateWindowCaches();
         if(GlobalDockService.handleCommand(this,request)){
             if(chrome!=null)chrome.apply();
             publish();return;
@@ -483,6 +664,15 @@ public final class MainActivity extends FlutterActivity {
         rt.handle(request);
     }
 
+    /**
+     * 请求一次窗口快照，同一轮主线程消息内只真正打一次包。
+     *
+     * <p>一次「从第三方应用返回桌面」以前会连打三到四次全量 JSON：onNewIntent、
+     * onStart 里 setHomeVisible 的、onStart 末尾显式的、onResume 的，外加 content
+     * 布局变化那一次。它们的内容几乎完全相同，后面几次全靠 signature 去重才没把
+     * 多余的包发出去 —— 但打包本身（buildSnapshot 在主线程组装 JSON）是实打实做了
+     * 三遍。这里只置一次排程标志，落在一轮消息之后执行，重复请求直接合并。
+     */
     private void publish(){
         if(rt==null)return;
         // updateSnapshot() advances this window's group cursors, so a packet that
@@ -492,8 +682,55 @@ public final class MainActivity extends FlutterActivity {
         // apps as delivered, so the badge fell back to the raw package name and
         // the whole app grid stayed empty for the rest of the session.
         if(engineState.sink==null)return;
-        updateSnapshot();emit();
+        if(snapshotQueued)return;
+        snapshotQueued=true;
+        // 排到主线程 Handler 而不是某个 View 上：View.post 在窗口 detach 时
+        // 会丢消息，标志就永远停在 true，之后的快照全部被吞掉。
+        ui.post(snapshotRun);
     }
+
+    private boolean snapshotQueued;
+    private final android.os.Handler ui=new android.os.Handler(android.os.Looper.getMainLooper());
+    private int packetCount;private long packetMs,packetWorstMs,packetWindowAt;
+    private long updateMsSum,emitMsSum;
+    /** 上一包的拆解：JSON 组装 / 窗口装饰 / 序列化，慢的时候直接看这三个。 */
+    private long splitBuildMs,splitDecorateMs,splitStringMs;
+    private Boolean overlayAllowed;private long overlayAllowedAt;
+    private android.util.DisplayMetrics realMetrics;private long realMetricsAt;
+    private static final long WINDOW_PROJECTION_TTL_MS=2000;
+    /** 权限类结果只随「用户去系统设置授权」变，而那条路一定经过 onResume，
+     *  所以按 60 秒兜底、靠 invalidateWindowCaches() 精确失效就够了 —— 
+     *  2 秒的 TTL 在 15 秒一包的实际节奏下等于每次都失效，白付 IPC。 */
+    private static final long PERMISSION_CACHE_MS=60000;
+    private final Runnable snapshotRun=()->{
+        snapshotQueued=false;
+        if(rt==null||engineState.sink==null)return;
+        long t0=android.os.SystemClock.elapsedRealtimeNanos();
+        updateSnapshot();
+        long tMid=android.os.SystemClock.elapsedRealtimeNanos();
+        emit();
+        long t1=android.os.SystemClock.elapsedRealtimeNanos();
+        long ms=(t1-t0)/1000000L,updateMs=(tMid-t0)/1000000L,emitMs=(t1-tMid)/1000000L;
+        // 这段是主线程上的 JSON 组装，返回桌面那一下卡不卡，账都在这里。
+        // 逐包留痕会自己变成噪声（这一行要格式化再写 logd，慢机器上几毫秒），
+        // 所以只记 32ms 以上的单包，另外每 30 秒汇总一行：包数、均值、最差
+        // ——「空闲时到底拼了几次快照」一眼可见。
+        packetCount++;packetMs+=ms;updateMsSum+=updateMs;emitMsSum+=emitMs;
+        if(ms>packetWorstMs)packetWorstMs=ms;
+        if(ms>=32)UniLog.d(LogTags.APP,"快照打包耗时","ms",ms,"updateMs",updateMs,"emitMs",emitMs,
+            "buildMs",splitBuildMs,"decorateMs",splitDecorateMs,"stringMs",splitStringMs,
+            "insetsMs",splitInsetsMs,"geomMs",splitGeometryMs,"dockMs",splitDockMs,
+            "chars",engineState.cached==null?0:engineState.cached.length());
+        long now=android.os.SystemClock.elapsedRealtime();
+        if(packetWindowAt==0)packetWindowAt=now;
+        else if(now-packetWindowAt>=30000){
+            int n=Math.max(1,packetCount);
+            UniLog.d(LogTags.APP,"快照节流","packets",packetCount,"avgMs",packetMs/n,
+                "updateMs",updateMsSum/n,"emitMs",emitMsSum/n,
+                "worstMs",packetWorstMs);
+            packetCount=0;packetMs=0;packetWorstMs=0;updateMsSum=0;emitMsSum=0;packetWindowAt=now;
+        }
+    };
 
     private static final java.util.regex.Pattern SIGNATURE_TIMESTAMPS=
         java.util.regex.Pattern.compile("\"([A-Za-z]*AtMs|[A-Za-z]*AtElapsedMs|sourceTimestampNanos|ageMs)\":-?\\d+");
@@ -522,7 +759,7 @@ public final class MainActivity extends FlutterActivity {
                 updateSnapshotFull();JSONObject full=new JSONObject(engineState.cached),report=new JSONObject();
                 for(String key:new String[]{"version","demo","hideNavigation","systemNavigationHidden","systemNavigationGranted","contentReservesSystemBars","contentHeightPx","viewportHeightPx","reservedBottomPx","desktopSelected","systemStatus","weather","calendar","navigation","vehicle","trafficLights"})report.put(key,full.opt(key));
                 JSONObject m=full.optJSONObject("media"),safe=new JSONObject();
-                if(m!=null)for(String key:new String[]{"available","authorized","playing","source","preferredPackage","sessions","reason","canToggle","canNext","canPrevious","canSeek","controlSource","lyricsSource","durationMs","positionMs","steeringControlReady","steeringKeys","steeringInject","steeringEnabled","instrumentEnabled","instrumentMetadataReady"})safe.put(key,m.opt(key));
+                if(m!=null)for(String key:new String[]{"available","authorized","playing","source","preferredPackage","sessions","reason","canToggle","canNext","canPrevious","canSeek","controlSource","lyricsSource","durationMs","positionMs","steeringControlReady","steeringKeys","steeringInject","steeringIdleDrops","dimCluster","dimClusterEnabled","transportEffect","steeringEnabled","instrumentEnabled","instrumentMetadataReady"})safe.put(key,m.opt(key));
                 if(m!=null)safe.put("lyricsAvailable",!m.optString("lyrics").isEmpty()).put("artworkAvailable",!m.optString("artwork").isEmpty()).put("officialMedia",m.optJSONObject("officialMedia"));
                 report.put("audioSpectrum",new JSONObject(xyz.i4o.uni.launcher.audio.SpectrumBridge.diagnostics()));
                 if(ambientBridge!=null)report.put("ambientLight",new JSONObject(ambientBridge.status()));
@@ -538,22 +775,36 @@ public final class MainActivity extends FlutterActivity {
 
     @Override protected void onStart(){
         super.onStart();
-        UniLog.enter(LogTags.APP,"launcher/onStart");
+        UniLog.enter(LogTags.APP,"launcher/onStart","at",System.currentTimeMillis());
+        // 先把上一次离开时的画面贴上去，再让 Flutter 慢慢重绘 —— 顺序不能反。
+        showResumeSnapshot();
+        if(getFlutterEngine()!=null)
+            getFlutterEngine().getRenderer().addIsDisplayingFlutterUiListener(resumeUiShown);
         // Reconcile stale legacy UNI policy after upgrades even when the global
         // dock is off; both switches keep their own persisted state.
         SystemNavigationPolicy.setHidden(this,rt.prefs(),rt.prefs().getBoolean("systemNavigationHidden",false));
         if(chrome!=null)chrome.apply();
         rt.setHomeVisible(true);rt.addListener(this,this::publish);
         if(mapHost!=null)mapHost.setVisible(true);
-        publish();
+        // 这里不再显式 publish()：addListener / setHomeVisible 已经在同一轮主线程
+        // 消息里排好了快照，onResume 紧接着还会再排一次。多打一次包只是把同一份
+        // JSON 在主线程上再组装一遍。
+    }
+
+    @Override protected void onPause(){
+        // 窗口还在最上层时抓这一帧；等到 onStop 就已经被下一个应用盖住了。
+        captureResumeSnapshot();
+        super.onPause();
     }
 
     @Override protected void onResume(){
         LauncherVisibility.set(true);
+        // 从别的应用回桌面时窗口/权限/坞状态可能已经变了，投影缓存先作废。
+        invalidateWindowCaches();
         super.onResume();if(chrome!=null)chrome.apply();
         OtaBootReceiver.scheduleLauncherBroadcasts(this);
         GlobalDockService.ensureStarted(this);publish();
-        UniLog.done(LogTags.APP,"launcher/onResume");
+        UniLog.done(LogTags.APP,"launcher/onResume","at",System.currentTimeMillis());
     }
 
     @Override protected void onStop(){
@@ -564,6 +815,8 @@ public final class MainActivity extends FlutterActivity {
             rt.removeListener(this);
         }
         if(mapHost!=null)mapHost.setVisible(false);
+        if(getFlutterEngine()!=null)
+            getFlutterEngine().getRenderer().removeIsDisplayingFlutterUiListener(resumeUiShown);
         super.onStop();
         UniLog.enter(LogTags.APP,"launcher/onStop");
     }
@@ -582,13 +835,66 @@ public final class MainActivity extends FlutterActivity {
     /**
      * 车机有时把媒体键当普通按键派发给当前窗口，而不是走 MediaSession 路由。
      * 这类按键交给媒体适配层（按动作分组与方控输入通道折叠，不会切两次）。
+     *
+     * <p>HOME 单独处理：AOSP 的 PhoneWindowManager 一般会在派发前把 HOME 吞掉
+     * （直接走 launchHome），所以这段在手机上多半收不到；但把 HOME 当普通键下发
+     * 的车机（例如原车输入通道直派）会走到这里。能收到就必须自己处理，否则用户
+     * 在设置页或应用抽屉里按 HOME 一点反应都没有。
      */
     @Override public boolean dispatchKeyEvent(android.view.KeyEvent event){
-        if(event!=null&&event.getAction()==android.view.KeyEvent.ACTION_DOWN&&event.getRepeatCount()==0
-            &&rt!=null&&rt.dispatchSteeringKey(event.getKeyCode(),"window"))return true;
+        if(event!=null&&event.getAction()==android.view.KeyEvent.ACTION_DOWN&&event.getRepeatCount()==0){
+            if(event.getKeyCode()==android.view.KeyEvent.KEYCODE_HOME){
+                dispatchHomeFirst("window");
+                return true;
+            }
+            if(rt!=null&&rt.dispatchSteeringKey(event.getKeyCode(),"window"))return true;
+        }
         return super.dispatchKeyEvent(event);
     }
-    @Override public void onConfigurationChanged(Configuration c){super.onConfigurationChanged(c);UniLog.event(LogTags.APP,"配置变化", "orientation", c.orientation);publish();}
+    /** 让桌面落回第一屏：设置页关掉、应用抽屉退回首页、编辑态收尾。 */
+    /**
+     * 原生其它入口（原车 HOME 私有码、底栏）要求回桌面。
+     *
+     * <p>没有活动窗口时至少把底栏面板收掉，避免「面板窗口还在最上面盖着」。
+     */
+    public static void requestHomeFirst(String via){
+        MainActivity host=active.get();
+        if(host==null){GlobalDockService.dismissPanelNow(via);return;}
+        host.bringSelfToFront();
+        host.dispatchHomeFirst(via);
+    }
+    /**
+     * 把桌面窗口拉回前台。
+     *
+     * <p>原车 HOME（VHAL 注入 KEYCODE_HOME，被我们的原车输入通道截到）到达时，
+     * 桌面通常正躲在第三方应用后面 —— 这时候只把 Flutter 的页码重置、面板收掉，
+     * 用户在屏幕上什么都看不到，表现就是「按 HOME 没反应」。所以先真的把自己
+     * 拉到前面，再走「回首屏」。
+     */
+    private void bringSelfToFront(){
+        if(isFinishing()||hasWindowFocus())return;
+        try{
+            Intent intent=new Intent(this,MainActivity.class)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                    |Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    |Intent.FLAG_ACTIVITY_SINGLE_TOP
+                    |Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+            startActivity(intent);
+            UniLog.event(LogTags.APP,"HOME 拉起桌面","hasFocus",false,"at",System.currentTimeMillis());
+        }catch(Throwable e){
+            UniLog.w(LogTags.APP,"HOME 拉起桌面失败",e);
+        }
+    }
+    private void dispatchHomeFirst(String via){
+        UniLog.event(LogTags.APP,"HOME 回首屏","channel",via,"at",System.currentTimeMillis());
+        // 面板窗口（全部应用 / 最近任务 / 媒体 / 空调）是独立 overlay，压在 Activity
+        // 之上；先直接收掉，不等 Dart 往返，否则用户看到的是「HOME 按了没反应」。
+        GlobalDockService.dismissPanelNow("home");
+        // The parameter is the input channel that reported the key ("window", 方控…). It used to
+        // shadow the Flutter MethodChannel field, so the call below did not compile.
+        if(channel!=null)channel.invokeMethod("home-first",null);
+    }
+    @Override public void onConfigurationChanged(Configuration c){invalidateWindowCaches();super.onConfigurationChanged(c);UniLog.event(LogTags.APP,"配置变化", "orientation", c.orientation);publish();}
     @Override public void onRequestPermissionsResult(int requestCode,String[] permissions,int[] results){
         super.onRequestPermissionsResult(requestCode,permissions,results);
         // 权限回调是「频谱/日历到底能不能用」的第一现场，结果必须落盘：
@@ -722,12 +1028,16 @@ public final class MainActivity extends FlutterActivity {
         // 桌面入口有两种：回到桌面 / 直接进设置。分不清是哪一种时，
         // 「用户点了没反应」和「点了进错地方」都很难查，这里明确记一笔。
         boolean settings=isSettingsIntent(intent);
-        UniLog.event(LogTags.APP,"分发入口请求","target",settings?"settings":"home");
+        UniLog.event(LogTags.APP,"分发入口请求","target",settings?"settings":"home","at",System.currentTimeMillis());
         if(intent!=null&&intent.getBooleanExtra("uniSpectrumPermission",false)){
             getWindow().getDecorView().post(()->requestPermissions(new String[]{android.Manifest.permission.RECORD_AUDIO},4106));
             intent.removeExtra("uniSpectrumPermission");
         }
-        if(channel!=null)channel.invokeMethod(settings?"open-settings":"home",null);
+        if(settings){
+            if(channel!=null)channel.invokeMethod("open-settings",null);
+        }else{
+            dispatchHomeFirst("intent");
+        }
     }
 
     @Override protected void onNewIntent(Intent intent){
@@ -738,6 +1048,9 @@ public final class MainActivity extends FlutterActivity {
 
     @Override protected void onDestroy(){
         UniLog.enter(LogTags.APP,"launcher/onDestroy");
+        if(snapshotBitmap!=null&&!snapshotBitmap.isRecycled())snapshotBitmap.recycle();
+        snapshotBitmap=null;
+        resumeSnapshot=null;
         if(wallpaperResult!=null){wallpaperResult.success(null);wallpaperResult=null;}
         if(rt!=null)rt.removeListener(this);
         if(mapHost!=null)mapHost.close();

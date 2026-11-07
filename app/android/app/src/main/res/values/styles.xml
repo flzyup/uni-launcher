@@ -2,8 +2,8 @@
 <resources>
     <!-- Theme applied to the Android Window while the process is starting when the OS's Dark Mode setting is off -->
     <style name="LaunchTheme" parent="@android:style/Theme.Light.NoTitleBar">
-        <!-- Show a splash screen on the activity. Automatically removed when
-             the Flutter engine draws its first frame -->
+        <!-- 预览窗口 / Flutter splash 用的就是这一份；必须是深色启动底，
+             见 res/values/colors.xml 的说明。 -->
         <item name="android:windowBackground">@drawable/launch_background</item>
     </style>
     <!-- Theme applied to the Android Window as soon as the process has started.
@@ -13,6 +13,9 @@
 
          This Theme is only used starting with V2 of Flutter's Android embedding. -->
     <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
-        <item name="android:windowBackground">?android:colorBackground</item>
+        <!-- 不要用 ?android:colorBackground：它在 Light 主题下是纯白，会盖住
+             已经画好的深色启动底，形成「先白一下再变深」的二次闪烁。
+             运行时由 LauncherRuntime.bootCanvasArgb() 按上次外观覆盖精确色。 -->
+        <item name="android:windowBackground">@color/uni_boot_canvas</item>
     </style>
 </resources>

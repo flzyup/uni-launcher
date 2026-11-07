@@ -74,6 +74,10 @@ class ClusterCastStatus {
   /// `plain` (bare text), `pill` (translucent plate) or `glow`.
   final String style;
 
+  /// Effects mode: `none` (default — hard cut, no word fill, no frame loop) or `words`
+  /// (karaoke sweep plus a slide-and-fade between lines).
+  final String motion;
+
   /// Last attach outcome, human readable. This is the field to show when nothing
   /// appears on the cluster: it says whether the window was added, refused, or
   /// whether no target display was resolved at all.
@@ -99,6 +103,7 @@ class ClusterCastStatus {
     this.rows = 3,
     this.accent = 0xFF7FE3D4,
     this.style = 'pill',
+    this.motion = 'none',
     this.report = '',
     this.track = '',
     this.artist = '',
@@ -121,6 +126,7 @@ class ClusterCastStatus {
         rows: _asInt(json['rows'], 3),
         accent: _asInt(json['accent'], 0xFF7FE3D4),
         style: '${json['style'] ?? 'pill'}',
+        motion: '${json['motion'] ?? 'none'}',
         report: '${json['report'] ?? ''}',
         track: '${json['track'] ?? ''}',
         artist: '${json['artist'] ?? ''}',
@@ -141,6 +147,7 @@ class ClusterCastStatus {
     int? rows,
     int? accent,
     String? style,
+    String? motion,
     String? report,
     String? track,
     String? artist,
@@ -160,6 +167,7 @@ class ClusterCastStatus {
         rows: rows ?? this.rows,
         accent: accent ?? this.accent,
         style: style ?? this.style,
+        motion: motion ?? this.motion,
         report: report ?? this.report,
         track: track ?? this.track,
         artist: artist ?? this.artist,
@@ -235,6 +243,7 @@ class ClusterLyrics {
     int rows = 3,
     int accent = 0xFF7FE3D4,
     String style = 'pill',
+    String motion = 'none',
   }) async {
     try {
       final raw = await channel.invokeMethod<Map<dynamic, dynamic>>('clusterLyricsApply', {
@@ -249,6 +258,7 @@ class ClusterLyrics {
         'rows': rows,
         'accent': accent,
         'style': style,
+        'motion': motion,
       });
       if (raw == null) return ClusterCastStatus.unknown;
       return ClusterCastStatus.fromJson(raw);

@@ -130,6 +130,7 @@ class CleanerState {
   String get phaseLabel => switch (phase) {
         'scan' => '扫描中',
         'clean' => '清理中',
+        'refresh' => '重新统计',
         _ => '',
       };
 
@@ -137,7 +138,11 @@ class CleanerState {
   String get purgeLabel {
     if (!cleaning) return '';
     if (purgeTotal <= 0) return '正在清理缓存…';
-    return '正在清理 $purgeFiles / $purgeTotal 个文件';
+    // 应用缓存走系统接口、没有文件粒度，顺手把 current（「应用缓存 12/33」）接在数字后面。
+    // 否则清 124 个系统应用那几分钟里数字一动不动，看着就是卡死。
+    return current.isEmpty
+        ? '正在清理 $purgeFiles / $purgeTotal 个文件'
+        : '正在清理 $purgeFiles / $purgeTotal 个文件 · $current';
   }
 
   /// 扫完才有意义：交代这次到底看了多少条目、花了多久。
