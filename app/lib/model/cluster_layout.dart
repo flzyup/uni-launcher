@@ -26,6 +26,34 @@ class ClusterLayout {
   static const double defaultWidth = 0.94;
   static const int defaultRowsCount = 3;
 
+  /// Text size range in sp. Below 18 the panel stops being readable at arm's length in a car;
+  /// above 72 a three-row panel no longer fits a 720p cluster.
+  static const double minFontSp = 18;
+  static const double maxFontSp = 72;
+  static const double defaultFontSp = 34;
+
+  /// Effects mode names, shared with `ClusterPanelGeometry` on the native side.
+  ///
+  /// [motionNone] is the default on purpose: the cast window sits on a head unit that is already
+  /// driving a map, so with effects off it repaints when the line changes instead of 25 times a
+  /// second. [motionWords] turns on the karaoke sweep *and* the slide-plus-fade between lines.
+  static const String motionNone = 'none';
+  static const String motionWords = 'words';
+  static const String defaultMotion = motionNone;
+
+  static double fontSp(double value) {
+    if (value.isNaN) return defaultFontSp;
+    return value.clamp(minFontSp, maxFontSp).toDouble();
+  }
+
+  /// Normalises a stored motion name; anything unrecognised is the cheap default.
+  static String motion(String? value) => value == motionWords ? motionWords : motionNone;
+
+  static bool motionEnabled(String? value) => motion(value) == motionWords;
+
+  static String motionLabel(String? value) =>
+      motionEnabled(value) ? '逐次+动效' : '无';
+
   static double clampRatio(double value) {
     if (value.isNaN) return defaultX;
     return value.clamp(0.0, 1.0).toDouble();

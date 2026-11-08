@@ -81,6 +81,8 @@ class FakeGateway implements NativeGateway {
   @override
   void onHome(void Function() callback) {}
   @override
+  void onHomeFirst(void Function() callback) {}
+  @override
   Future<PickedWallpaper?> pickWallpaper() async => wallpaper;
   @override
   Future<void> setDesktopPage(int page) async {

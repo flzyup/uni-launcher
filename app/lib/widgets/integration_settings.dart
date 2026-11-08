@@ -129,6 +129,18 @@ class IntegrationSettings extends StatelessWidget {
                   onChanged: (v) =>
                       controller.command('instrument-sync', enabled: v)),
               SizedBox(height: Design.px(10)),
+              // 仪表自带的媒体控件是第三条链路：和原车媒体中心并行，所以单独一个开关。
+              DesignSwitchTile(
+                  key: const ValueKey('dim-cluster'),
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('仪表自带媒体控件'),
+                  subtitle: const Text(
+                      '把播放状态同步到仪表原生媒体控件，仪表上按播放/上一首也会收回桌面；'
+                      '仪表界面没反应或出现两套控件时保持关闭'),
+                  value: prefs['dimClusterEnabled'] == true,
+                  onChanged: (v) =>
+                      controller.command('dim-cluster', enabled: v)),
+              SizedBox(height: Design.px(10)),
               Text(
                   '选择网易云、QQ 音乐或原车音乐后，歌曲、封面、歌词和播放控制均跟随该应用。请先在播放器中播放一首歌曲并授权媒体访问。',
                   style: TextStyle(

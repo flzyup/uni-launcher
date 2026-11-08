@@ -131,12 +131,13 @@ void main() {
     c.home();
     g.pending.last.complete();
     await second;
-    expect(c.page, 0);
-    final cancelled = c.switchPage(1);
+    expect(c.page, 1,
+        reason: 'Home keeps the page the user left on instead of flipping back');
+    final cancelled = c.switchPage(0);
     c.home();
     g.pending.last.complete();
     await cancelled;
-    expect(c.page, 0, reason: 'a delayed platform reply cannot undo Home');
+    expect(c.page, 1, reason: 'a delayed platform reply cannot undo Home');
     c.dispose();
     await g.dispose();
   });

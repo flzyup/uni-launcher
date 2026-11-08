@@ -15,7 +15,9 @@ SDK = Path('/data/tools/linkco-android/sdk')
 INTEGRATION = ROOT / 'app/android/app/src/main/java/xyz/i4o/uni/launcher/integration'
 CORE = ROOT / 'app/android/app/src/main/java/xyz/i4o/uni/launcher/core/MediaSourcePolicy.java'
 KEY_POLICY = CORE.parent/'SteeringKeyPolicy.java'
+EFFECT = CORE.parent/'MediaEffectTracker.java'
 STEERING = INTEGRATION/'SteeringKeyBridge.java'
+DIM = INTEGRATION/'DimMediaBridge.java'
 STUBS = {
 'android/content/Context.java': '''package android.content;
 import android.content.pm.*;import android.content.res.*;import android.media.session.*;import java.util.*;
@@ -128,7 +130,7 @@ def main():
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(body)
         retention = CORE.parent/'MediaTextRetention.java'
-        sources = [*doubles.rglob('*.java'), CORE, KEY_POLICY, retention, INTEGRATION/'NeteaseMediaAdapter.java', STEERING]
+        sources = [*doubles.rglob('*.java'), CORE, KEY_POLICY, EFFECT, retention, INTEGRATION/'NeteaseMediaAdapter.java', STEERING, DIM]
         tests = ROOT/'app/native-tests/test-performance'
         adapters = [INTEGRATION/'NavigationApps.java', INTEGRATION/'MediaAdapter.java']
         out = temp/'classes';out.mkdir()
@@ -155,7 +157,7 @@ def main():
         # Use Java 8 bootstrap symbols for javac's lambdas, Android API 28 for
         # Android signatures, then let D8 desugar for the production min SDK.
         run([JAVA/'javac', '--release', '8', '-encoding', 'UTF-8', '-cp', platform, '-d', actual,
-             *adapters, STEERING, KEY_POLICY, INTEGRATION/'NeteaseMediaAdapter.java', INTEGRATION/'OfficialMediaBridge.java', INTEGRATION/'MediaAccessService.java', INTEGRATION/'LyricsResolver.java', CORE, retention])
+             *adapters, STEERING, DIM, KEY_POLICY, EFFECT, INTEGRATION/'NeteaseMediaAdapter.java', INTEGRATION/'OfficialMediaBridge.java', INTEGRATION/'MediaAccessService.java', INTEGRATION/'LyricsResolver.java', CORE, retention])
         dex = temp/'dex';dex.mkdir()
         run([JAVA/'java', '-cp', SDK/'cmdline-tools/latest/lib/r8.jar', 'com.android.tools.r8.D8', '--min-api', '24', '--lib', platform, '--output', dex, *actual.rglob('*.class')])
         print('PASS real Android API 28 compilation + D8 (min API 24); no device accessed', flush=True)

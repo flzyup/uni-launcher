@@ -22,6 +22,27 @@ void main() {
     expect(ClusterLayout.rows(0), 1);
   });
 
+  test('the font slider range is clamped on this side too', () {
+    // `ClusterPanelGeometry.fontSp` pins the same two ends; the slider must not be able to send
+    // a value the native side would silently rewrite.
+    expect(ClusterLayout.fontSp(2), ClusterLayout.minFontSp);
+    expect(ClusterLayout.fontSp(400), ClusterLayout.maxFontSp);
+    expect(ClusterLayout.fontSp(26), 26);
+    expect(ClusterLayout.fontSp(double.nan), ClusterLayout.defaultFontSp);
+  });
+
+  test('effects default to off and only the exact word name turns them on', () {
+    expect(ClusterLayout.motion(null), ClusterLayout.motionNone);
+    expect(ClusterLayout.motion(''), ClusterLayout.motionNone);
+    expect(ClusterLayout.motion('words+fx'), ClusterLayout.motionNone);
+    expect(ClusterLayout.motion('true'), ClusterLayout.motionNone);
+    expect(ClusterLayout.motion('words'), ClusterLayout.motionWords);
+    expect(ClusterLayout.motionEnabled('words'), isTrue);
+    expect(ClusterLayout.motionEnabled('none'), isFalse);
+    expect(ClusterLayout.motionLabel('words'), '逐次+动效');
+    expect(ClusterLayout.motionLabel('nope'), '无');
+  });
+
   test('the stored ratio is the block centre, not its corner', () {
     final origin = ClusterLayout.origin(
       displayWidth: 1920,

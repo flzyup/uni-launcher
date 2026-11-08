@@ -84,6 +84,47 @@ void main() {
     expect(find.text('第三行'), findsNothing);
     expect(t.takeException(), null);
   });
+  testWidgets('a track change replaces the document even when the shapes match',
+      (t) async {
+    // The reported symptom: the card kept showing the previous song's words after a skip.
+    // Two documents from two different songs, both starting with a credit line at 0 ms and
+    // carrying the same number of lines, used to produce the same identity string, so the
+    // widget concluded "nothing changed" and never repainted.
+    Future<void> play(String title, String body) async {
+      await t.pumpWidget(MaterialApp(
+          theme: launcherTheme(SurfaceStyle.from(const Appearance(), true)),
+          home: Scaffold(
+              body: SizedBox(
+                  width: 400,
+                  child: LyricsView(media: {
+                    'title': title,
+                    'artist': '同一个歌手',
+                    'lyricTimelineLabel': '网易云音乐',
+                    'lyricTimeline': body,
+                    'playing': false,
+                    'positionMs': 0,
+                    'positionKnown': true,
+                  })))));
+      await t.pumpAndSettle();
+    }
+
+    // Same line count, same first timestamp, same last timestamp — different words.
+    const a = '{"v":1,"lines":['
+        '{"t":0,"d":1000,"x":"作词：甲"},'
+        '{"t":1000,"d":1000,"x":"上一首的歌词"},'
+        '{"t":2000,"d":1000,"x":"结尾甲"}]}';
+    const b = '{"v":1,"lines":['
+        '{"t":0,"d":1000,"x":"作词：乙"},'
+        '{"t":1000,"d":1000,"x":"这一首的歌词"},'
+        '{"t":2000,"d":1000,"x":"结尾乙"}]}';
+
+    await play('上一首', a);
+    expect(find.text('上一首的歌词'), findsOneWidget);
+    await play('这一首', b);
+    expect(find.text('这一首的歌词'), findsOneWidget);
+    expect(find.text('上一首的歌词'), findsNothing);
+    expect(t.takeException(), isNull);
+  });
   testWidgets(
       'current dock lyric wraps to two lines and centers short and long text',
       (t) async {

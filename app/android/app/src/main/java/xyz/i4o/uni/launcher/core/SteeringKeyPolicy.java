@@ -23,11 +23,43 @@ public final class SteeringKeyPolicy {
     public static final int R_SEEK_NEXT=210005;
     /** AOSP 标准媒体键：方控不走，但车机注入、蓝牙 AVRCP 和原车媒体中心会用。 */
     public static final int MEDIA_PLAY_PAUSE=85, MEDIA_NEXT=87, MEDIA_PREVIOUS=88, MEDIA_PLAY=126, MEDIA_PAUSE=127;
+    /**
+     * 中控实体 HOME。
+     *
+     * <p>领克 05（IP753，192.168.22.198）那颗带指纹的圆形键不走内核输入设备
+     * （{@code getevent} 一条都没有），而是由 VHAL 直接注入标准 HOME：
+     * {@code VHAL.InputHandler injectKeyCode(0, 3, 0)} / {@code (1, 3, 0)}。
+     * 注入是真的发生了，但事件到不了窗口 —— 被原车输入派发层截走（OEM 桌面
+     * 那条路），所以要在原车输入通道里把它申请回来。
+     */
+    public static final int KEY_HOME=3;
+    /** ECARX 输入服务里的 HOME 私有码（300001），和中控面板那颗键一起出现。 */
+    public static final int PANEL_HOME=300001;
+    /** 300001 旁边那颗私有键（实车上和 HOME 一起出现），先只计数不映射，等实车核对。 */
+    public static final int PANEL_AUX=300002;
 
     private SteeringKeyPolicy(){}
 
     /** 需要向原车输入通道申请监听的键。 */
     public static int[] interceptKeys(){
+        // 申请范围放宽：领克 05 的方控「上一首/下一首」在这台车上不一定派发 200087/200088，
+        // 实测按了连一条都没有；原车对未知码是「能给的给、不能给的不给」，所以整批申请
+        // 再多也能拿到交集，真正收到的是什么码看日志 granted= 那一行。
+        int[] base=new int[]{R_MEDIA_PLAY_PAUSE,R_MEDIA_NEXT,R_MEDIA_PREVIOUS,R_SEEK_NEXT,
+            MEDIA_PLAY_PAUSE,MEDIA_PLAY,MEDIA_PAUSE,MEDIA_NEXT,MEDIA_PREVIOUS,
+            KEY_HOME,PANEL_HOME,PANEL_AUX};
+        int[][] ranges={{200000,200064},{210000,210016},{300000,300064},{110000,110016}};
+        int extra=0;
+        for(int[] r:ranges)extra+=r[1]-r[0];
+        int[] all=new int[base.length+extra];
+        int n=0;
+        for(int code:base)all[n++]=code;
+        for(int[] r:ranges)for(int code=r[0];code<r[1];code++)all[n++]=code;
+        return all;
+    }
+
+    /** 只申请媒体键：整批（含 HOME）被拒时的退路，保证方控不受牵连。 */
+    public static int[] mediaKeys(){
         return new int[]{R_MEDIA_PLAY_PAUSE,R_MEDIA_NEXT,R_MEDIA_PREVIOUS,R_SEEK_NEXT,
             MEDIA_PLAY_PAUSE,MEDIA_PLAY,MEDIA_PAUSE,MEDIA_NEXT,MEDIA_PREVIOUS};
     }
@@ -46,9 +78,13 @@ public final class SteeringKeyPolicy {
             case MEDIA_PAUSE: return "pause";
             case R_MEDIA_NEXT: case R_SEEK_NEXT: case MEDIA_NEXT: return "next";
             case R_MEDIA_PREVIOUS: case MEDIA_PREVIOUS: return "previous";
+            case PANEL_HOME: case KEY_HOME: return "home";
             default: return "";
         }
     }
+
+    /** 这个动作是不是「回桌面」，由运行时直接交给 HOME 处理，不进媒体适配层。 */
+    public static boolean isHome(String action){return "home".equals(action);}
 
     /**
      * 动作对应的 AOSP 媒体键码，供按键注入与专用广播旁路使用。

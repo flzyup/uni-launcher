@@ -36,6 +36,7 @@ class _FakeClient extends ClusterLyrics {
     int rows = 3,
     int accent = 0xFF7FE3D4,
     String style = 'pill',
+    String motion = 'none',
   }) async {
     final next = current.copyWith(
       enabled: display != null,
@@ -49,6 +50,7 @@ class _FakeClient extends ClusterLyrics {
       rows: rows,
       accent: accent,
       style: style,
+      motion: motion,
     );
     calls.add(_ApplyCall(display, next));
     return next;
@@ -198,9 +200,15 @@ void main() {
     await tester.pumpAndSettle();
     expect(_FakeClient.calls.last.status.rows, 2);
 
-    await tester.tap(find.byKey(const ValueKey('cluster-width-70')));
+    // Width is a slider now: drag the thumb, and the value must only be committed on release.
+    final width = find.byKey(const ValueKey('cluster-width-slider'));
+    final widthRect = tester.getRect(width);
+    await tester.dragFrom(
+        widthRect.centerLeft + const Offset(4, 0), Offset(widthRect.width * 0.3, 0));
     await tester.pumpAndSettle();
-    expect(_FakeClient.calls.last.status.widthRatio, closeTo(0.7, 1e-9));
+    final widthRatio = _FakeClient.calls.last.status.widthRatio;
+    expect(widthRatio, greaterThan(ClusterLayout.minWidthRatio));
+    expect(widthRatio, lessThan(ClusterLayout.maxWidthRatio));
 
     await tester.tap(find.byKey(const ValueKey('cluster-style-plain')));
     await tester.pumpAndSettle();
@@ -209,6 +217,45 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('cluster-accent-ffffc46b')));
     await tester.pumpAndSettle();
     expect(_FakeClient.calls.last.status.accent, 0xFFFFC46B);
+  });
+
+  testWidgets('the font slider moves the size and pins it inside the range',
+      (tester) async {
+    await tester.pumpWidget(_host(const ClusterLyricsSettingsTab(
+      client: _FakeClient([_cluster],
+          const ClusterCastStatus(
+              enabled: true, displayId: 2, displayName: '仪表', fontSp: 34)),
+    )));
+    await tester.pumpAndSettle();
+    final font = find.byKey(const ValueKey('cluster-font-slider'));
+    final rect = tester.getRect(font);
+    // Drag past the right end: the widget must clamp to MAX, not send 90 sp to the cluster.
+    await tester.dragFrom(rect.center, Offset(rect.width, 0));
+    await tester.pumpAndSettle();
+    expect(_FakeClient.calls.last.status.fontSp,
+        closeTo(ClusterLayout.maxFontSp, 1e-9));
+    // And back past the left end.
+    await tester.dragFrom(rect.center, Offset(-rect.width * 2, 0));
+    await tester.pumpAndSettle();
+    expect(_FakeClient.calls.last.status.fontSp,
+        closeTo(ClusterLayout.minFontSp, 1e-9));
+  });
+
+  testWidgets('effects are off by default and can be switched on', (tester) async {
+    await tester.pumpWidget(_host(const ClusterLyricsSettingsTab(
+      client: _FakeClient([_cluster],
+          const ClusterCastStatus(enabled: true, displayId: 2, displayName: '仪表')),
+    )));
+    await tester.pumpAndSettle();
+    // Nothing has been applied yet: the default has to come from the stored status, which is
+    // `none` unless a previous choice said otherwise.
+    expect(_FakeClient.calls, isEmpty);
+    expect(find.textContaining('只在换行的那一刻重绘一次'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('cluster-motion-words')));
+    await tester.pumpAndSettle();
+    expect(_FakeClient.calls.last.status.motion, ClusterLayout.motionWords);
+    expect(find.textContaining('向上淡出'), findsOneWidget);
   });
 
   testWidgets('the reset button returns the panel to the default placement',
