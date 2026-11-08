@@ -63,6 +63,14 @@ class _LyricsViewState extends State<LyricsView> {
     super.didUpdateWidget(old);
     final trackChanged = widget.media['title'] != old.media['title'] ||
         widget.media['artist'] != old.media['artist'];
+    if (trackChanged) {
+      _hasParsedSource = false;
+      _rawTimeline = null;
+      _rawLyrics = '';
+      payload = '';
+      lyrics = const Lyrics([]);
+      active = -1;
+    }
     refresh(reset: trackChanged);
   }
 
@@ -129,9 +137,36 @@ class _LyricsViewState extends State<LyricsView> {
 
   void updateLine({bool reset = false}) {
     final timeline = MediaTimeline.fromJson(widget.media);
-    final next = timeline.known
+    var next = timeline.known
         ? lyrics.activeAt(timeline.at(DateTime.now().millisecondsSinceEpoch))
         : -1;
+    final liveLine = widget.media['lyricLine']?.toString().trim() ?? '';
+    if (liveLine.isNotEmpty && lyrics.lines.isNotEmpty) {
+      if (next < 0 ||
+          next >= lyrics.lines.length ||
+          lyrics.lines[next].text.trim() != liveLine) {
+        int found = -1;
+        final start = (next - 3).clamp(0, lyrics.lines.length);
+        final end = (next + 4).clamp(0, lyrics.lines.length);
+        for (var i = start; i < end; i++) {
+          if (lyrics.lines[i].text.trim() == liveLine) {
+            found = i;
+            break;
+          }
+        }
+        if (found < 0) {
+          for (var i = 0; i < lyrics.lines.length; i++) {
+            if (lyrics.lines[i].text.trim() == liveLine) {
+              found = i;
+              break;
+            }
+          }
+        }
+        if (found >= 0) {
+          next = found;
+        }
+      }
+    }
     if (next == active && !reset) return;
     if (mounted) setState(() => active = next);
     WidgetsBinding.instance.addPostFrameCallback((_) {

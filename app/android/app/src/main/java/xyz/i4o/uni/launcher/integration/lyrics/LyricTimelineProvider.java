@@ -11,6 +11,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
+import xyz.i4o.uni.launcher.log.LogTags;
+import xyz.i4o.uni.launcher.log.UniLog;
 
 /**
  * Per-track lyric resolution with a non-blocking contract.
@@ -151,6 +153,15 @@ public final class LyricTimelineProvider {
 
         CacheEntry cachedEntry = memoryGet(key);
         if (cachedEntry != null) {
+            // When an embedded lyric update arrives (player finished loading lyrics or published
+            // a fresh payload for this track), upgrade the cached entry.
+            if (cachedEntry.embedded && embeddedLrc != null && !embeddedLrc.trim().isEmpty()) {
+                CacheEntry fresh = fromEmbedded(embeddedLrc);
+                if (fresh != null && !fresh.timeline.isEmpty()) {
+                    memoryPut(key, fresh);
+                    return fresh.toResult(key);
+                }
+            }
             if (cachedEntry.leadMerged) return cachedEntry.toResult(key);
             CacheEntry merged = CacheEntry.of(withLead(cachedEntry.timeline, embeddedLrc),
                     cachedEntry.label, cachedEntry.embedded, true);
@@ -160,8 +171,13 @@ public final class LyricTimelineProvider {
 
         CacheEntry embedded = fromEmbedded(embeddedLrc);
         if (embedded != null) {
-            memoryPut(key, embedded);
-            return embedded.toResult(key);
+            if (!matchesTrack(embeddedLrc, title, artist)) {
+                UniLog.fail(LogTags.LYRIC, "lyric/embedded-mismatch", "title", title, "artist", artist);
+                embedded = null;
+            } else {
+                memoryPut(key, embedded);
+                return embedded.toResult(key);
+            }
         }
         if (durationMs > 0 && durationMs < MIN_DURATION_MS) return Result.EMPTY;
 
@@ -227,6 +243,7 @@ public final class LyricTimelineProvider {
         if (text == null) return null;
         String body = text.trim();
         if (body.isEmpty()) return null;
+        if ("加载歌词中...".equals(body) || "歌词加载中...".equals(body) || "暂无歌词".equals(body)) return null;
         boolean tagged = body.indexOf('<') >= 0 && body.indexOf('>') > body.indexOf('<');
         String enhanced = tagged ? LyricCodecs.awlrc(body) : "";
         LyricTimeline timeline = enhanced.isEmpty()
@@ -234,6 +251,21 @@ public final class LyricTimelineProvider {
                 : LyricTimeline.parse(body, "", enhanced, "");
         if (timeline.isEmpty()) return null;
         return CacheEntry.of(timeline, "本地歌词", true);
+    }
+
+    static boolean matchesTrack(String lrcText, String title, String artist) {
+        if (lrcText == null || lrcText.isEmpty() || title == null || title.isEmpty()) return true;
+        java.util.regex.Matcher mTi = java.util.regex.Pattern.compile("(?im)^\\[ti:\\s*(.+?)\\s*]").matcher(lrcText);
+        if (mTi.find()) {
+            String lrcTitle = LyricCatalog.normalize(LyricCatalog.strip(mTi.group(1)));
+            String wantTitle = LyricCatalog.normalize(LyricCatalog.strip(title));
+            if (!lrcTitle.isEmpty() && !wantTitle.isEmpty()) {
+                if (!lrcTitle.contains(wantTitle) && !wantTitle.contains(lrcTitle)) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     /**

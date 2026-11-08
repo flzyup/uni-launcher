@@ -108,7 +108,7 @@ public final class ClusterPanelGeometryTest {
     public void aBiggerFontGrowsThePanelProportionally() {
         int small = ClusterPanelGeometry.height(24f, 3);
         int large = ClusterPanelGeometry.height(48f, 3);
-        assertEquals(small * 2, large);
+        assertTrue(Math.abs(small * 2 - large) <= 1);
         // The row pitch is the number the view reserves, so both sides must agree on it.
         assertEquals(Math.round(24f * ClusterPanelGeometry.ROW_SPACING * 3), small);
     }

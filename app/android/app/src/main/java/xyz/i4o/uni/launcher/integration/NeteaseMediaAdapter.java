@@ -72,6 +72,7 @@ public final class NeteaseMediaAdapter {
                         String nextLine = lines != null && lines.length > 1 ? text(lines[1]) : "";
                         String nextPrev = lines != null && lines.length > 0 ? text(lines[0]) : "";
                         String nextNext = lines != null && lines.length > 2 ? text(lines[2]) : "";
+                        if (isLoadingOrEmpty(nextLine)) nextLine = "";
                         if (nextLine.equals(lyricLine) && nextPrev.equals(lyricPrevious) && nextNext.equals(lyricNext)) return;
                         lyricLine = nextLine;
                         lyricPrevious = nextPrev;
@@ -189,24 +190,43 @@ public final class NeteaseMediaAdapter {
         }
     }
 
+    public String getLyrics() { return lyrics; }
+    public String getLyricsSource() { return lyricsSource; }
+    public String getLyricLine() { return lyricLine; }
+    public String getLyricPrevious() { return lyricPrevious; }
+    public String getLyricNext() { return lyricNext; }
+    public String getTrackIdentity() { return track; }
+
     private void readMetadata(MediaMetadata metadata) {
         if (metadata == null) { track = ""; mediaId = ""; clearLyrics(); return; }
         mediaId = text(metadata.getString(MediaMetadata.METADATA_KEY_MEDIA_ID));
         String title = text(metadata.getString(MediaMetadata.METADATA_KEY_TITLE));
         String artist = text(metadata.getString(MediaMetadata.METADATA_KEY_ARTIST));
         String identity = mediaId + "\n" + title + "\n" + artist;
-        if (!identity.equals(track)) {
+        boolean trackChanged = !identity.equals(track);
+        if (trackChanged) {
             track = identity;
             UniLog.done(LogTags.MEDIA, "media/metadata", "source", "netease", "mediaId", mediaId, "title", title, "artist", artist);
             clearLyrics();
+            // NetEase Cloud Music IoT retains the previous track's LYRIC extra in the first metadata
+            // callback right after a track switch. Never read LYRIC_KEY in the same transition turn.
+            return;
         }
         String value = text(metadata.getString(LYRIC_KEY));
+        if (isLoadingOrEmpty(value)) {
+            clearLyrics();
+            return;
+        }
         if (!value.isEmpty()) setLyrics(value, "netease-media-metadata");
         else if ("netease-media-metadata".equals(lyricsSource)) clearLyrics();
     }
 
     private void setLyrics(String value, String source) {
         value = text(value);
+        if (isLoadingOrEmpty(value)) {
+            clearLyrics();
+            return;
+        }
         // The player republishes the same lyrics; log the change only.
         boolean changed = !value.equals(lyrics) || !source.equals(lyricsSource);
         lyrics = value;
@@ -217,6 +237,16 @@ public final class NeteaseMediaAdapter {
         } else {
             UniLog.done(LogTags.LYRIC, "lyric/resolve", "source", lyricsSource, "length", lyrics.length());
         }
+    }
+
+    private static boolean isLoadingOrEmpty(String value) {
+        if (value == null || value.trim().isEmpty()) return true;
+        String trimmed = value.trim();
+        return "加载歌词中...".equals(trimmed)
+                || "歌词加载中...".equals(trimmed)
+                || "暂无歌词".equals(trimmed)
+                || "纯音乐，请欣赏".equals(trimmed)
+                || "纯音乐，无歌词".equals(trimmed);
     }
 
     private void clearLyrics() {
