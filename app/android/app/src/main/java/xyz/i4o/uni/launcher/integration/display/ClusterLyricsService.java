@@ -24,6 +24,7 @@ import java.util.Map;
 
 import xyz.i4o.uni.launcher.LauncherRuntime;
 import xyz.i4o.uni.launcher.integration.lyrics.LyricCast;
+import xyz.i4o.uni.launcher.integration.lyrics.LyricTimeline;
 
 /**
  * Paints lyrics on a display that is not the launcher's own — the instrument cluster on units
@@ -69,8 +70,9 @@ public final class ClusterLyricsService extends Service {
     public static final String KEY_ROWS = "rows";
     public static final String KEY_ACCENT = "accent";
     public static final String KEY_STYLE = "style";
+    public static final String KEY_MOTION = "motion";
 
-    private static final float DEFAULT_FONT_SP = 34f;
+    private static final float DEFAULT_FONT_SP = ClusterPanelGeometry.DEFAULT_FONT_SP;
     private static final long RETRY_MIN_MS = 1000;
     private static final long RETRY_MAX_MS = 30000;
     private static final long FRAME_MS = 40; // 25 fps is plenty for text and halves the draw cost
@@ -111,6 +113,20 @@ public final class ClusterLyricsService extends Service {
             if (!feedRunning) return;
             pump();
             handler.postDelayed(this, FEED_MS);
+        }
+    };
+
+    /**
+     * One-shot repaint armed for the exact moment the next lyric line starts.
+     *
+     * <p>With the effects off the panel must not hold a frame loop: between two lines there is
+     * nothing to animate, and 25 fps of identical frames is pure heat on a head unit. A single
+     * wake-up at the next line boundary keeps the words on time for the price of one draw.
+     */
+    private final Runnable lineWake = new Runnable() {
+        @Override
+        public void run() {
+            if (panel != null) startFrames();
         }
     };
 
@@ -185,8 +201,13 @@ public final class ClusterLyricsService extends Service {
             edit.putString(KEY_DISPLAY_NAME, name == null ? "" : String.valueOf(name));
         }
         if (values.containsKey("fontSp")) {
-            float fontSp = (float) asDouble(values.get("fontSp"), DEFAULT_FONT_SP);
-            edit.putFloat(KEY_FONT_SP, fontSp > 0 ? fontSp : DEFAULT_FONT_SP);
+            edit.putFloat(KEY_FONT_SP, ClusterPanelGeometry.fontSp(
+                    (float) asDouble(values.get("fontSp"), DEFAULT_FONT_SP)));
+        }
+        if (values.containsKey("motion")) {
+            // Only the two known names are stored: a stale or misspelled value would otherwise
+            // silently switch the effects — and the frame loop — on.
+            edit.putString(KEY_MOTION, ClusterPanelGeometry.motionName(values.get("motion")));
         }
         if (values.containsKey("solidBackground")) {
             edit.putBoolean(KEY_BACKGROUND, asBool(values.get("solidBackground"), true));
@@ -288,6 +309,8 @@ public final class ClusterLyricsService extends Service {
         out.put("rows", prefs.getInt(KEY_ROWS, ClusterPanelGeometry.DEFAULT_ROWS));
         out.put("accent", prefs.getInt(KEY_ACCENT, DEFAULT_ACCENT));
         out.put("style", prefs.getString(KEY_STYLE, "pill"));
+        out.put("motion", ClusterPanelGeometry.motionName(prefs.getString(KEY_MOTION,
+                ClusterPanelGeometry.MOTION_NAME_NONE)));
         out.put("report", reportForDisplay(prefs.getInt(KEY_DISPLAY_ID, -1)));
         LyricCast.State cast = LyricCast.state();
         out.put("track", cast.title);
@@ -487,9 +510,11 @@ public final class ClusterLyricsService extends Service {
             boolean solid = prefs.getBoolean(KEY_BACKGROUND, true);
             int accent = prefs.getInt(KEY_ACCENT, DEFAULT_ACCENT);
             int style = styleOf(prefs.getString(KEY_STYLE, "pill"));
+            int motion = ClusterPanelGeometry.motionOf(prefs.getString(KEY_MOTION,
+                    ClusterPanelGeometry.MOTION_NAME_NONE));
 
             view.configure(fontPx, rows, accent, mutedOf(accent),
-                    solid ? backgroundFor(style) : 0x00000000, style);
+                    solid ? backgroundFor(style) : 0x00000000, style, motion);
 
             WindowManager.LayoutParams params = (WindowManager.LayoutParams) view.getLayoutParams();
             if (params == null) {
@@ -552,10 +577,12 @@ public final class ClusterLyricsService extends Service {
             boolean solid = prefs.getBoolean(KEY_BACKGROUND, true);
             int accent = prefs.getInt(KEY_ACCENT, DEFAULT_ACCENT);
             int style = styleOf(prefs.getString(KEY_STYLE, "pill"));
+            int motion = ClusterPanelGeometry.motionOf(prefs.getString(KEY_MOTION,
+                    ClusterPanelGeometry.MOTION_NAME_NONE));
 
             ClusterLyricsView view = new ClusterLyricsView(displayContext);
             view.configure(fontPx, rows, accent, mutedOf(accent),
-                    solid ? backgroundFor(style) : 0x00000000, style);
+                    solid ? backgroundFor(style) : 0x00000000, style, motion);
 
             int width = ClusterPanelGeometry.width(metrics.widthPixels,
                     prefs.getFloat(KEY_WIDTH, ClusterPanelGeometry.DEFAULT_WIDTH_RATIO));
@@ -660,11 +687,38 @@ public final class ClusterLyricsService extends Service {
         lastDrawn = state;
         view.setState(state, System.currentTimeMillis());
         view.invalidate();
-        // 25 fps only while there is something to animate: a paused track, or one whose
-        // timeline has not landed yet, leaves the last frame on screen and costs nothing. The
-        // feed watchdog re-arms this loop the moment a new state shows up, so stopping here
-        // cannot strand the panel.
-        if (state.playing && state.hasTimeline()) startFrames();
+        // 25 fps only while there is something to animate. Effects on: the word fill and the
+        // line transition both need frames. Effects off: one repaint, then a wake-up armed for
+        // the next line, so an idle lyric line costs zero frames instead of 25 a second.
+        if (view.animates() && state.playing && state.hasTimeline()) {
+            startFrames();
+            return;
+        }
+        scheduleLineWake(state);
+    }
+
+    /** Arm the one-shot repaint for the next line boundary; 1.5 s heartbeat as a backstop. */
+    private void scheduleLineWake(LyricCast.State state) {
+        handler.removeCallbacks(lineWake);
+        if (panel == null || state == null || !state.playing || !state.hasTimeline()) return;
+        long now = System.currentTimeMillis();
+        long songNow = state.positionAt(now);
+        LyricTimeline.Cursor cursor = state.cursorAt(now);
+        long boundary = -1;
+        for (LyricTimeline.Nearby near : cursor.nearby) {
+            if (near.offset > 0 && near.timeMs > songNow) {
+                boundary = near.timeMs;
+                break;
+            }
+        }
+        if (boundary <= songNow && cursor.lineDurationMs > 0) {
+            boundary = cursor.lineStartMs + cursor.lineDurationMs;
+        }
+        long waitMs = 1500;
+        if (boundary > songNow) {
+            waitMs = Math.max(60, Math.min(1500, (long) ((boundary - songNow) / state.speed)));
+        }
+        handler.postDelayed(lineWake, waitMs);
     }
 
     // ---- small helpers ----

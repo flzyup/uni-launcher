@@ -27,7 +27,47 @@ public final class ClusterPanelGeometry {
     public static final float DEFAULT_WIDTH_RATIO = 0.94f;
     public static final int DEFAULT_ROWS = 3;
 
+    /** Text size range, in sp. Below 18 the panel is unreadable at arm's length in a car. */
+    public static final float MIN_FONT_SP = 18f;
+    public static final float MAX_FONT_SP = 72f;
+    public static final float DEFAULT_FONT_SP = 34f;
+
+    /**
+     * Motion modes.
+     *
+     * <p>{@link #MOTION_NONE} is the default because the panel sits on a head unit whose CPU is
+     * already driving the map behind it: without word fill and without a line transition the
+     * cast window only repaints when the line actually changes, not 25 times a second.
+     *
+     * <p>{@link #MOTION_FLOW} adds both effects — the karaoke sweep across the singing syllable,
+     * and a slide-plus-fade when the active line is replaced instead of a hard cut.
+     */
+    public static final int MOTION_NONE = 0;
+    public static final int MOTION_FLOW = 1;
+    public static final String MOTION_NAME_NONE = "none";
+    public static final String MOTION_NAME_FLOW = "words";
+
     private ClusterPanelGeometry() {
+    }
+
+    /** Text size clamped into the usable range; NaN and non-positive values take the default. */
+    public static float fontSp(float value) {
+        if (Float.isNaN(value) || Float.isInfinite(value) || value <= 0f) return DEFAULT_FONT_SP;
+        return Math.max(MIN_FONT_SP, Math.min(MAX_FONT_SP, value));
+    }
+
+    /** Stored motion name to the view's constant; anything unrecognised is the cheap default. */
+    public static int motionOf(Object value) {
+        return MOTION_NAME_FLOW.equals(value == null ? "" : String.valueOf(value))
+                ? MOTION_FLOW
+                : MOTION_NONE;
+    }
+
+    /** The value to persist for a motion name, so a typo cannot silently turn effects on. */
+    public static String motionName(Object value) {
+        return MOTION_NAME_FLOW.equals(value == null ? "" : String.valueOf(value))
+                ? MOTION_NAME_FLOW
+                : MOTION_NAME_NONE;
     }
 
     public static float clampRatio(float value, float fallback) {

@@ -84,10 +84,11 @@ class _LyricsViewState extends State<LyricsView> {
       _rawTimeline = rawTimeline;
       _rawLyrics = raw;
       final timeline = LyricTimeline.parse(rawTimeline);
-      final next = timeline.lines.isEmpty
-          ? raw
-          : 'T${timeline.lines.length}@${timeline.lines.first.timeMs}';
-      changed = payload != next || reset;
+      // 外层只知道「源变了」，可 payload 必须能表达「换的是哪一首歌」：
+      // 两首歌行数相同、首行都在 0 ms 时，只用长度打标签会让 changed 永远为 false，
+      // 界面就停在上一首的词上。签名里带上曲目与来源。
+      final next = _signature(timeline, raw);
+      changed = payload != next;
       if (changed) {
         payload = next;
         lyrics = timeline.lines.isEmpty
@@ -105,6 +106,25 @@ class _LyricsViewState extends State<LyricsView> {
         widget.media['positionKnown'] == true)
       timer = Timer.periodic(
           const Duration(milliseconds: 250), (_) => updateLine());
+  }
+
+  /// Identity of the document currently on screen.
+  ///
+  /// Must cover *which track* the document belongs to. The first version keyed on
+  /// `lines.length@firstTimeMs` alone, and two different songs whose lyrics both start with a
+  /// credit line at 0 ms and happen to carry the same line count produced the same signature —
+  /// so the widget never noticed the track change and kept painting the previous song's words.
+  String _signature(LyricTimeline timeline, String raw) {
+    final title = widget.media['title']?.toString() ?? '';
+    final artist = widget.media['artist']?.toString() ?? '';
+    final source = widget.media['lyricsSource']?.toString() ?? '';
+    final label = widget.media['lyricTimelineLabel']?.toString() ?? '';
+    final body = timeline.lines.isEmpty
+        ? 'raw:${raw.length}:${raw.hashCode}'
+        : 'T${timeline.lines.length}@${timeline.lines.first.timeMs}'
+            '-${timeline.lines.last.timeMs}:${timeline.lines.first.text.hashCode}'
+            '${timeline.lines.last.text.hashCode}';
+    return '$title|$artist|$source|$label|$body';
   }
 
   void updateLine({bool reset = false}) {

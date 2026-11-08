@@ -60,17 +60,42 @@ public final class GlobalDockService extends Service {
         try{Intent i=new Intent(c,GlobalDockService.class);if(Build.VERSION.SDK_INT>=26)c.startForegroundService(i);else c.startService(i);}
         catch(RuntimeException e){UniLog.w(LogTags.DOCK,"Unable to start global dock",e,"tag","UniDock");}
     }
-    public static JSONObject snapshot(Context c){
+    /**
+     * 引擎探测（是否在渲染 / 活着几个引擎）要进 Flutter 引擎取状态，实测一次
+     * 20~110ms —— 它在主窗口每次发包时都会被读，纯属让发布替渲染付费。
+     * 主窗口那条路径（allowed 非 null）按 2 秒记一次；dock 自己的窗口仍现查，
+     * 因为它靠 rendering 决定自己的呈现。
+     */
+    private static long probeAt;private static boolean probeRendering;private static int probeLive;
+
+    private static void probe(GlobalDockService s,boolean memoize){
+        long now=android.os.SystemClock.elapsedRealtime();
+        if(!memoize||now-probeAt>=2000){
+            probeRendering=s!=null&&s.dockWindow!=null&&s.dockWindow.engine.getRenderer().isDisplayingFlutterUi();
+            probeLive=LauncherEngines.liveCount();
+            probeAt=now;
+        }
+    }
+
+    public static JSONObject snapshot(Context c){return snapshot(c,null);}
+
+    /**
+     * @param allowed 调用方缓存好的悬浮窗权限结果，null 表示现查。
+     *                {@link Settings#canDrawOverlays} 走 AppOps → system_server，
+     *                实测一次几十毫秒，而它只有用户在系统设置里授权才会变。
+     */
+    public static JSONObject snapshot(Context c,Boolean allowed){
         JSONObject j=new JSONObject();try{
             GlobalDockService s=active;
+            probe(s,allowed!=null);
             j.put("enabled",c.getSharedPreferences("launcher",0).getBoolean("globalDockEnabled",false))
-             .put("allowed",Settings.canDrawOverlays(c)).put("running",s!=null&&s.dockWindow!=null)
+             .put("allowed",allowed!=null?allowed:Settings.canDrawOverlays(c)).put("running",s!=null&&s.dockWindow!=null)
              .put("visible",s!=null&&s.visible).put("expanded",s!=null&&!s.panel.isEmpty())
              .put("nativeNavigationInsets",s!=null&&s.nativeInsets)
              .put("workspaceReserved",s!=null&&(s.nativeInsets||s.workspace!=null&&s.workspace.available()))
              .put("workspaceResizes",s==null||s.workspace==null?0:s.workspace.resized())
              .put("panelReady",s!=null&&s.panelReady)
-             .put("liveFlutterEngines",LauncherEngines.liveCount())
+             .put("liveFlutterEngines",probeLive)
              .put("panelEngineAlive",s!=null&&s.panelWindow!=null)
              .put("panelWindowAttached",s!=null&&s.panelWindow!=null&&s.panelWindow.attached)
              .put("panelEngineIdentity",s==null||s.panelWindow==null?0:System.identityHashCode(s.panelWindow.engine))
@@ -80,7 +105,7 @@ public final class GlobalDockService extends Service {
              .put("recentsClearSupported",s!=null&&s.recentTasks!=null&&s.recentTasks.canRemove())
              .put("backdropAvailable",s!=null&&s.panelBackdrop!=null)
              .put("panel",s==null?"":s.panel).put("panelRevision",s==null?0:s.panelRevision)
-             .put("rendering",s!=null&&s.dockWindow!=null&&s.dockWindow.engine.getRenderer().isDisplayingFlutterUi());
+             .put("rendering",s!=null&&s.dockWindow!=null&&probeRendering);
             if(s!=null&&s.dockWindow!=null){
                 WindowManager.LayoutParams b=s.dockWindow.bounds;
                 int[] location=new int[2];s.dockWindow.view.getLocationOnScreen(location);
@@ -425,6 +450,21 @@ public final class GlobalDockService extends Service {
         main.removeCallbacks(releaseIdlePanel);main.postDelayed(releaseIdlePanel,PANEL_IDLE_MS);
     }
     private void resetRecentItems(){recentTaskItems=new JSONArray();recentTasksReady=false;recentTasksRevision++;}
+    /**
+     * HOME 回首屏：直接收起面板窗口（全部应用 / 最近任务 / 媒体 / 空调都是它）。
+     *
+     * 面板是压在本 Activity 之上的独立 overlay 窗口，只把桌面翻回第一页不够 ——
+     * 窗口还在最上面盖着。这条不走 Dart 往返，按 HOME 时立刻生效。
+     */
+    public static boolean dismissPanelNow(String reason){
+        GlobalDockService service=active;
+        if(service==null)return false;
+        String closing=service.panel;
+        if(closing.isEmpty())return false;
+        service.dismissPanel();
+        UniLog.event(LogTags.DOCK,"HOME 收起面板","panel",closing,"by",reason);
+        return true;
+    }
     private void toggleRecents(){
         if("recents".equals(panel)){dismissPanel();return;}
         dismissPanel();

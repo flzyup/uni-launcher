@@ -80,7 +80,7 @@ python tools/probe_storage.py -s <serial>                      # 实车采集（
 | 图标 | `uni_icon.dart:49` | `Icons.cleaning_services_outlined → 'broom'`，资源已存在 |
 | 权限先例 | `MainActivity` 4105（日历）/ 4106（录音） | 同一种 `requestPermissions` + `onRequestPermissionsResult` 写法，4107 沿用 |
 
-签名事实：`targetSdk=28`，车机包用 platform 证书（`build.gradle.kts` 的 `uniLocal` signing config），manifest 里 `STATUS_BAR_SERVICE`、`INSTALL_PACKAGES` 等 signature 权限实际生效 → 本应用是特权应用，`DELETE_CACHE_FILES` / `PACKAGE_USAGE_STATS` 随签名自动授予，只有 `WRITE_EXTERNAL_STORAGE` 要过一次系统弹窗。
+签名事实：`targetSdk=28`，全项目只有一张证书——AOSP 测试签名（`build.gradle.kts` 的 `aospTest` signing config，SHA-256 `C8:A2:E9:BC:…`，实车包与开发包同一张），manifest 里 `STATUS_BAR_SERVICE`、`INSTALL_PACKAGES` 等 signature 权限实际生效 → 本应用是特权应用，`DELETE_CACHE_FILES` / `PACKAGE_USAGE_STATS` 随签名自动授予，只有 `WRITE_EXTERNAL_STORAGE` 要过一次系统弹窗。
 
 ---
 

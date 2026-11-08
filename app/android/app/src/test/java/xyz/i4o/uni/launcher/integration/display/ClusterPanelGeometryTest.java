@@ -76,4 +76,40 @@ public final class ClusterPanelGeometryTest {
         assertEquals(ClusterPanelGeometry.DEFAULT_WIDTH_RATIO,
                 ClusterPanelGeometry.widthRatio(Float.NaN), 1e-6);
     }
+
+    @Test
+    public void theFontSliderRangeIsClampedNotTrusted() {
+        // The two range ends are what the Flutter slider offers; anything outside it is either a
+        // stale preference from an older build or a corrupt one.
+        assertEquals(ClusterPanelGeometry.MIN_FONT_SP, ClusterPanelGeometry.fontSp(4f), 1e-6);
+        assertEquals(ClusterPanelGeometry.MAX_FONT_SP, ClusterPanelGeometry.fontSp(400f), 1e-6);
+        assertEquals(26f, ClusterPanelGeometry.fontSp(26f), 1e-6);
+        assertEquals(ClusterPanelGeometry.DEFAULT_FONT_SP,
+                ClusterPanelGeometry.fontSp(0f), 1e-6);
+        assertEquals(ClusterPanelGeometry.DEFAULT_FONT_SP,
+                ClusterPanelGeometry.fontSp(Float.NaN), 1e-6);
+    }
+
+    @Test
+    public void effectsAreOffUnlessTheStoredNameSaysWords() {
+        // Default off is the whole point: an unknown or missing value must not start a frame
+        // loop on a head unit that is already drawing a map.
+        assertEquals(ClusterPanelGeometry.MOTION_NONE, ClusterPanelGeometry.motionOf(null));
+        assertEquals(ClusterPanelGeometry.MOTION_NONE, ClusterPanelGeometry.motionOf(""));
+        assertEquals(ClusterPanelGeometry.MOTION_NONE,
+                ClusterPanelGeometry.motionOf("words+fx"));
+        assertEquals(ClusterPanelGeometry.MOTION_NONE, ClusterPanelGeometry.motionOf("true"));
+        assertEquals(ClusterPanelGeometry.MOTION_FLOW, ClusterPanelGeometry.motionOf("words"));
+        assertEquals(ClusterPanelGeometry.MOTION_NAME_NONE, ClusterPanelGeometry.motionName("nope"));
+        assertEquals(ClusterPanelGeometry.MOTION_NAME_FLOW, ClusterPanelGeometry.motionName("words"));
+    }
+
+    @Test
+    public void aBiggerFontGrowsThePanelProportionally() {
+        int small = ClusterPanelGeometry.height(24f, 3);
+        int large = ClusterPanelGeometry.height(48f, 3);
+        assertEquals(small * 2, large);
+        // The row pitch is the number the view reserves, so both sides must agree on it.
+        assertEquals(Math.round(24f * ClusterPanelGeometry.ROW_SPACING * 3), small);
+    }
 }

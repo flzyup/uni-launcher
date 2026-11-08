@@ -18,7 +18,9 @@ import xyz.i4o.uni.launcher.core.MediaTextRetention;
 import xyz.i4o.uni.launcher.log.LogTags;
 import xyz.i4o.uni.launcher.log.UniLog;
 import xyz.i4o.uni.launcher.core.SteeringKeyPolicy;
+import xyz.i4o.uni.launcher.core.MediaEffectTracker;
 import xyz.i4o.uni.launcher.integration.lyrics.LyricCast;
+import xyz.i4o.uni.launcher.integration.lyrics.LyricCatalog;
 import java.util.HashMap;
 import java.util.Map;
 import xyz.i4o.uni.launcher.integration.lyrics.LyricOffset;
@@ -39,6 +41,14 @@ public final class MediaAdapter {
     private final MediaSession steeringSession;
     private final SteeringKeyBridge steeringKeys;
     private final SteeringKeyPolicy.Debounce steeringDedupe=new SteeringKeyPolicy.Debounce();
+    /** 仪表（DIM）自带媒体控件那条链路：只写状态/时长，按键从仪表收回来。 */
+    private final DimMediaBridge dim;
+    /** 传输控制「说成功但没动」的记账：下一次同类按键直接换执行器。 */
+    private final MediaEffectTracker effects=new MediaEffectTracker();
+    /** 设置页「仪表媒体通道」的开关，默认关：写仪表是可选项，先看着仪表再打开。 */
+    private volatile boolean dimClusterEnabled;
+    /** 桌面没在观察会话时到达的按键数，只做诊断。 */
+    private int idleDrops;
     /** 设置页「方向盘控制音乐」的开关，默认开。关掉后不接原车输入、也不处理任何方控键。 */
     private volatile boolean steeringEnabled=true;
     /** 设置页「仪表同步」的开关，默认开。关掉后不再向原车媒体中心注册/上报。 */
@@ -105,11 +115,18 @@ public final class MediaAdapter {
                 handler.postDelayed(this,PLAY_CONFIRM_MS);return;
             }
             if(pendingPlayStage==0){
-                pendingPlayStage=1;launchSource(pendingPlaySource);
+                // 第一层补偿：重发一次 play，再走系统媒体键。
+                //
+                // 这一步以前是 launchSource()，等于「点了播放没立刻响，就把播放器
+                // 整个拉到桌面前面」—— 导航看不见了，用户只是想续播。媒体键落到
+                // 的是 MediaButtonReceiver（广播/服务），播放器自己决定要不要露脸，
+                // 桌面这边不会被抢走。
+                pendingPlayStage=1;
+                if(sameSession)sendPlay(controller);
+                relayKey("play");
                 handler.postDelayed(this,PLAY_CONFIRM_MS);return;
             }
             clearPlayFallback();
-            if(sameSession)sendPlay(controller);
         }
     };
     private MediaController onlineSwitchController;
@@ -147,9 +164,21 @@ public final class MediaAdapter {
     }
     public void setPreferredPackage(String value){preferred=value==null||value.isEmpty()?"auto":value;start();}
     private final MediaController.Callback callback=new MediaController.Callback(){
-        public void onMetadataChanged(MediaMetadata m){artworkDirty=true;steeringMetaDirty=true;noteMetadata(m);choose();changed.run();}
+        public void onMetadataChanged(MediaMetadata m){
+            artworkDirty=true;steeringMetaDirty=true;
+            // 只有「换了一首」或「这首的封面才到」才让原车那边重新取图：metadata 回调很频繁，
+            // 每次都失效会不停写新文件、原车跟着反复下载同一张图。
+            String key=coverKey(m);
+            boolean hasArt=m!=null&&(m.containsKey(MediaMetadata.METADATA_KEY_ALBUM_ART)||m.containsKey(MediaMetadata.METADATA_KEY_ART));
+            if(!key.equals(metaKey)||hasArt!=metaArt){metaKey=key;metaArt=hasArt;OfficialMediaBridge.invalidateArtwork();}
+            noteMetadata(m);choose();changed.run();
+        }
         // choose() already synchronizes the selected source, including switches.
-        public void onPlaybackStateChanged(PlaybackState s){choose();changed.run();}
+        public void onPlaybackStateChanged(PlaybackState s){
+            // 传输控制到底有没有落地，唯一的证据就在这条回调里。
+            if(effects.observe(fingerprint()))UniLog.i(LogTags.MEDIA,"传输控制已落地","source",controller==null?"":controller.getPackageName());
+            choose();changed.run();
+        }
         public void onExtrasChanged(Bundle extras){syncSteeringSession();changed.run();}
         public void onSessionDestroyed(){
             try{select(manager.getActiveSessions(listener));}catch(SecurityException e){authorized=false;select(null);}
@@ -164,7 +193,12 @@ public final class MediaAdapter {
         lastTrackPrefs=context.getSharedPreferences("uni_last_track",Context.MODE_PRIVATE);
         lastSource=lastTrackPrefs.getString("source", "");
         lyrics=new LyricsResolver(new File(context.getFilesDir(),"media-lyrics"),changed);
-        timeline=new LyricTimelineProvider(new File(context.getFilesDir(),"lyric-timeline"),changed);
+        // The catalogue answers on a worker thread a second or two later. Until now nothing
+        // re-ran the snapshot on arrival, so the card kept the empty state it painted while the
+        // request was in flight until some unrelated playback event happened — the "song is
+        // playing but no lyrics ever appear" report. Hop to the main thread and republish.
+        timeline=new LyricTimelineProvider(new File(context.getFilesDir(),"lyric-timeline"),
+                ()->handler.post(changed));
         listener=new ComponentName(context,MediaAccessService.class);
         officialBridge=new OfficialMediaBridge(context,(action,source)->{
             if("select-online".equals(action))return selectOnline(source);
@@ -190,7 +224,23 @@ public final class MediaAdapter {
             @Override public void onSkipToPrevious(){onSteeringAction("session","previous");}
             @Override public void onSeekTo(long position){command("seek",position);}
         },handler);
-        steeringKeys=new SteeringKeyBridge(context,(action,keyCode)->onSteeringAction("input",action));
+        steeringKeys=new SteeringKeyBridge(context,(action,keyCode)->{
+            // 中控那颗圆键（带指纹）由 VHAL 注入 KEYCODE_HOME，被原车输入派发层截住；
+            // 我们把它申请回来了，所以「回桌面」在这里落地，不进媒体动作。
+            if(SteeringKeyPolicy.isHome(action)){xyz.i4o.uni.launcher.MainActivity.requestHomeFirst("input");return;}
+            onSteeringAction("input",action);
+        });
+        dim=new DimMediaBridge(context,new DimMediaBridge.Sink(){
+            @Override public void onDimKey(String action){
+                // 仪表上按的播放键和方控是同一件事：走同一条外部通道，靠通道折叠去重。
+                onSteeringAction("dim",action);
+            }
+            @Override public void onDimSource(int sourceType){
+                // 仪表把音源切成在线音乐：把焦点要回当前播放器，仪表和桌面还是同一首。
+                if(sourceType==DimMediaBridge.SOURCE_ONLINE&&controller!=null)officialBridge.claimCurrent();
+                changed.run();
+            }
+        });
         injector=new SteeringKeyInjector(context);
         kugou=new KugouKeyRelay(context);
     }
@@ -204,8 +254,11 @@ public final class MediaAdapter {
             UniLog.fail(LogTags.MEDIA,"media/session","reason","media-access-not-authorized","error",e.getClass().getSimpleName());}
         officialBridge.start();
         steeringDedupe.reset();
+        effects.clear();
+        UniLog.d(LogTags.MEDIA,"媒体适配启动","steering",steeringEnabled,"dim",dimClusterEnabled);
         // 方控开关关着时不接原车输入通道：方向盘键原样留给原车，桌面完全不参与。
         if(steeringEnabled)steeringKeys.start();
+        if(dimClusterEnabled)dim.start();
     }
     /** 设置页「方向盘控制」：默认开。关掉即反注册原车输入，之后到达的键一律不处理。 */
     public void setSteeringEnabled(boolean enabled){
@@ -220,6 +273,18 @@ public final class MediaAdapter {
     public void setInstrumentEnabled(boolean enabled){
         instrumentEnabled=enabled;
         officialBridge.setEnabled(enabled);
+    }
+    /**
+     * 设置页「仪表媒体通道」：默认关。
+     *
+     * <p>关掉时一次都不往仪表写，仪表继续跟原车播放器；打开后接上
+     * {@code DimInteraction.getMediaInteraction()}，写播放状态与时长，并把仪表上按的
+     * 播放键收回桌面（这条路和原车媒体中心是两条链路，所以单独一个开关）。
+     */
+    public void setDimClusterEnabled(boolean enabled){
+        dimClusterEnabled=enabled;
+        if(enabled)dim.start();
+        else dim.stop();
     }
 
     /**
@@ -238,13 +303,48 @@ public final class MediaAdapter {
         observed.clear();
         activeSources=new JSONArray();
         if(list!=null)for(MediaController c:list)if(!context.getPackageName().equals(c.getPackageName()))observed.add(c);
+        preferControllable();
         UniLog.i(LogTags.MEDIA,"媒体会话列表已刷新","sessions",observed.size());
         choose();
         // Observe every session: a player's state can change without the
         // active-session list changing, including paused -> playing.
         for(MediaController c:observed)c.registerCallback(callback,handler);
     }
+
+    /**
+     * 同一个播放器可能同时挂多个会话，而系统给的顺序不保证哪个能控制。
+     *
+     * <p>LX Music 就是现成的例子：`TrackPlayer` 声明了 PLAY / PAUSE / SKIP
+     * （actions=311），旁边还挂着一个 `LXMusicMediaSession`（actions=0）的空壳。
+     * 两个会话都是 STATE_PLAYING、都有元数据，{@link MediaSourcePolicy#selectSessions}
+     * 在这两项上分不出差别，于是可能选中空壳 —— 底栏的上一首 / 暂停 / 下一首
+     * 全变灰，可播放器本身完全可控。
+     *
+     * <p>只在**同一个包内部**把可控的会话往前挪一格，跨包的优先级（哪个应用
+     * 在播就用哪个）一点不动。
+     */
+    private void preferControllable(){
+        for(int i=0;i<observed.size();i++){
+            MediaController first=observed.get(i);
+            if(controllable(first))continue;
+            for(int j=i+1;j<observed.size();j++){
+                MediaController other=observed.get(j);
+                if(other.getPackageName().equals(first.getPackageName())&&controllable(other)){
+                    observed.set(j,first);observed.set(i,other);break;
+                }
+            }
+        }
+    }
+
+    /** 会话是否声明了我们画在底栏上的任何一个传输动作；actions=0 的空壳返回 false。 */
+    private static boolean controllable(MediaController c){
+        PlaybackState p=c.getPlaybackState();
+        long actions=p==null?0:p.getActions();
+        return (actions&(PlaybackState.ACTION_PLAY|PlaybackState.ACTION_PAUSE|PlaybackState.ACTION_PLAY_PAUSE
+                |PlaybackState.ACTION_SKIP_TO_NEXT|PlaybackState.ACTION_SKIP_TO_PREVIOUS))!=0;
+    }
     private void choose(){
+            UniLog.d(LogTags.MEDIA,"选择音源","observed",observed.size());
             activeSources=new JSONArray();
             String[] packages=new String[observed.size()];boolean[] playing=new boolean[observed.size()];
             boolean[] metadata=new boolean[observed.size()],current=new boolean[observed.size()];
@@ -287,7 +387,7 @@ if(next!=null&&isOnlinePlayer(next.getPackageName())){
                 officialBridge.setOnlineSource(source);
             }
             noteSource(next==null?"":next.getPackageName(),observed.size());
-            if(next==null||controller==null||!next.getSessionToken().equals(controller.getSessionToken())){lastCover=null;coverData="";artworkDirty=true;steeringMetaDirty=true;}
+            if(next==null||controller==null||!next.getSessionToken().equals(controller.getSessionToken())){lastCover=null;lastCoverKey="";coverData="";artworkDirty=true;steeringMetaDirty=true;}
             controller=next;
             netease.setController(controller);
             syncSteeringSession();
@@ -306,7 +406,28 @@ if(next!=null&&isOnlinePlayer(next.getPackageName())){
         String title=m==null?"":nullToEmpty(m.getString(MediaMetadata.METADATA_KEY_TITLE));
         String artist=m==null?"":nullToEmpty(m.getString(MediaMetadata.METADATA_KEY_ARTIST));
         boolean artwork=m!=null&&(m.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)!=null||m.getBitmap(MediaMetadata.METADATA_KEY_ART)!=null);
-        UniLog.done(LogTags.MEDIA,"media/metadata","title",title,"artist",artist,"hasArtwork",artwork);
+        UniLog.done(LogTags.MEDIA,"media/metadata","title",title,"artist",artist,"hasArtwork",artwork,
+            "mediaId",m==null?"":nullToEmpty(m.getString(MediaMetadata.METADATA_KEY_MEDIA_ID)));
+        // 有的播放器（汽水这类）会把歌词塞进 metadata 的私有键里。键名不可枚举就先打出来，
+        // 命中 lyric/lrc 的连内容一起看，省得为每个播放器单独猜。
+        if(m!=null){
+            StringBuilder keys=new StringBuilder();
+            for(String key:m.keySet()){
+                if(keys.length()>0)keys.append(',');
+                keys.append(key);
+                String lower=key.toLowerCase(java.util.Locale.ROOT);
+                if(lower.contains("lyric")||lower.contains("lrc")){
+                    Object value=m.getText(key);
+                    if(value==null)value=m.getString(key);
+                    if(value!=null){
+                        String text=String.valueOf(value);
+                        UniLog.i(LogTags.MEDIA,"会话里带歌词","key",key,"chars",text.length(),
+                            "head",text.substring(0,Math.min(60,text.length())).replace('\n','|'));
+                    }
+                }
+            }
+            UniLog.d(LogTags.MEDIA,"会话 metadata 键","keys",keys.toString(),"size",m.size());
+        }
     }
     private static String nullToEmpty(String value){return value==null?"":value;}
     /** 外部按键/回调要求的播放方向：状态已经对了就不发命令，免得把「播放」执行成「暂停」。 */
@@ -322,7 +443,13 @@ if(next!=null&&isOnlinePlayer(next.getPackageName())){
      * 折叠成一步，然后立刻刷新桌面媒体控制的状态。
      */
     public boolean onSteeringAction(String channel,String action){
+        // 方控到底从哪个通道来的、被识别成什么动作：区分「按键」和「滑动」只能靠这条。
+        UniLog.d(LogTags.MEDIA,"方控动作","channel",channel,"action",action);
         if(!steeringEnabled)return false;
+        // 桌面这一轮没在观察会话（Flutter 侧一个监听都没有）：按键只计数不执行。
+        // 原车本来就会把这颗键路由给播放器，我们再动一次就成了双重动作；
+        // 而按键通道本身是常驻的，不跟着会话生命周期反注册，所以这里必须挡住。
+        if(!started){idleDrops++;return false;}
         if(injectedEcho(action))return true;
         if(!steeringDedupe.accept(channel,action,SystemClock.elapsedRealtime()))return false;
         boolean accepted="play".equals(action)||"pause".equals(action)?setPlaying("play".equals(action)):command(action);
@@ -399,7 +526,39 @@ if(next!=null&&isOnlinePlayer(next.getPackageName())){
     /** Mirror the selected source into a standard active MediaSession. The
      * steering-wheel dispatcher can now target transport callbacks and the
      * instrument cluster can consume the same title/artist/playback state. */
+    /** 当前曲目的歌词文本，供原车 getLyric/getLyricContent 使用。 */
+    private volatile String clusterLyric="";
+    /** 缓存封面属于哪一首：标题|歌手|mediaId，换了歌就不再复用。 */
+    private String lastCoverKey="";
+    /** 上一次 metadata 的曲目键 / 是否带封面，用来判断该不该让原车重新取图。 */
+    private String metaKey="";
+    private boolean metaArt;
+    private static String coverKey(MediaMetadata m){
+        if(m==null)return "";
+        CharSequence title=m.getText(MediaMetadata.METADATA_KEY_TITLE);
+        CharSequence artist=m.getText(MediaMetadata.METADATA_KEY_ARTIST);
+        String id=m.getString(MediaMetadata.METADATA_KEY_MEDIA_ID);
+        return (title==null?"":title)+"\u0000"+(artist==null?"":artist)+"\u0000"+(id==null?"":id);
+    }
     private void syncSteeringSession(){
+        // 原车 IMusicPlaybackInfo.getArtwork() 要 URI：把当前封面（没有就用占位图）
+        // 交给桥去落盘授权，原车来问的时候才拿得到图。
+        OfficialMediaBridge.artworkSource(()->{
+            MediaController current=controller;
+            MediaMetadata meta=current==null?null:current.getMetadata();
+            if(meta==null)return stubCover();
+            String key=coverKey(meta);
+            Bitmap fromMeta=meta.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART);
+            if(fromMeta==null)fromMeta=meta.getBitmap(MediaMetadata.METADATA_KEY_ART);
+            if(fromMeta!=null&&!fromMeta.isRecycled())return fromMeta;
+            // 缓存的那张只在「还属于当前这首」时才用，否则仪表会出现上一首的图。
+            if(lastCover!=null&&!lastCover.isRecycled()&&key.equals(lastCoverKey))return lastCover;
+            return stubCover();
+        },()->{
+            MediaController current=controller;
+            return current==null?"":coverKey(current.getMetadata());
+        });
+        OfficialMediaBridge.lyricSource(()->clusterLyric);
         // The platform's A2DP sink owns the Bluetooth transport. Mirroring it
         // creates a competing media-button session and can steal wheel keys
         // after the phone reconnects. Respect an actively playing Bluetooth
@@ -439,7 +598,19 @@ if(next!=null&&isOnlinePlayer(next.getPackageName())){
                     copyText(source,metadata,MediaMetadata.METADATA_KEY_MEDIA_ID);
                     long duration=source.getLong(MediaMetadata.METADATA_KEY_DURATION);if(duration>0)metadata.putLong(MediaMetadata.METADATA_KEY_DURATION,duration);
                     Bitmap art=source.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART);if(art==null)art=source.getBitmap(MediaMetadata.METADATA_KEY_ART);
+                    boolean fromPlayer=art!=null&&!art.isRecycled();
+                    // 缓存的那张只在还属于当前这首时才用，避免会话里挂着上一首的图。
+                    if(!fromPlayer&&lastCover!=null&&!lastCover.isRecycled()&&coverKey(source).equals(lastCoverKey)){art=lastCover;fromPlayer=true;}
+                    // 会话里不塞占位图：实测仪表不读这条会话，占位图只会污染系统媒体面板。
                     if(art!=null&&!art.isRecycled())metadata.putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART,art);
+                    if(coverTrace!=fromPlayer){coverTrace=fromPlayer;
+                        UniLog.i(LogTags.MEDIA,"方向盘媒体会话封面","fromPlayer",fromPlayer,"has",art!=null);}
+                    if(PROBE_MARKER){
+                        CharSequence probeTitle=source.getText(MediaMetadata.METADATA_KEY_TITLE);
+                        if(probeTitle!=null)metadata.putText(MediaMetadata.METADATA_KEY_TITLE,probeTitle+"·UNI");
+                        CharSequence probeDisplay=source.getText(MediaMetadata.METADATA_KEY_DISPLAY_TITLE);
+                        metadata.putText(MediaMetadata.METADATA_KEY_DISPLAY_TITLE,(probeDisplay!=null?probeDisplay:probeTitle)+"·UNI");
+                    }
                 }
                 steeringSession.setMetadata(metadata.build());
                 Intent launch=context.getPackageManager().getLaunchIntentForPackage(controller.getPackageName());
@@ -451,6 +622,15 @@ if(next!=null&&isOnlinePlayer(next.getPackageName())){
             if(NeteaseMediaAdapter.supports(controller))actions|=PlaybackState.ACTION_SKIP_TO_NEXT|PlaybackState.ACTION_SKIP_TO_PREVIOUS|PlaybackState.ACTION_SEEK_TO;
             steeringSession.setPlaybackState(new PlaybackState.Builder().setActions(actions)
                 .setState(p==null?PlaybackState.STATE_NONE:p.getState(),p==null?0:Math.max(0,p.getPosition()),p==null?0:p.getPlaybackSpeed(),SystemClock.elapsedRealtime()).build());
+            // 仪表那条链路只吃「播放状态 + 时长」，文案封面走原车媒体中心；开关关着时一次都不写。
+            // 状态/时长没变时 DimMediaBridge 自己会跳过，所以这里跟着状态回调走不会刷屏。
+            MediaMetadata clusterMeta=controller.getMetadata();
+            if(dimClusterEnabled)dim.push(p!=null&&p.getState()==PlaybackState.STATE_PLAYING,
+                clusterMeta==null?-1:clusterMeta.getLong(MediaMetadata.METADATA_KEY_DURATION),0,
+                clusterMeta==null?"":clusterMeta.getString(MediaMetadata.METADATA_KEY_TITLE),
+                clusterMeta==null?"":clusterMeta.getString(MediaMetadata.METADATA_KEY_ARTIST),
+                clusterMeta==null?"":clusterMeta.getString(MediaMetadata.METADATA_KEY_ALBUM),
+                clusterMeta==null?"":clusterMeta.getString(MediaMetadata.METADATA_KEY_MEDIA_ID));
             steeringSession.setActive(true);
             noteSteering(true);
         }catch(Exception|LinkageError e){UniLog.w(LogTags.MEDIA,"Unable to synchronize steering media session",e,"tag","UniMedia");steeringSession.setActive(false);noteSteering(false);}
@@ -469,6 +649,16 @@ if(next!=null&&isOnlinePlayer(next.getPackageName())){
     private float anchorSpeed;
     private long anchorPositionMs=-1,anchorSampledAtMs=-1;
 
+    /** 传输控制落地率：确认落地 / 超时没动 / 直接改注入 各多少次。 */
+    private JSONObject effectSnapshot(){
+        JSONObject out=new JSONObject();
+        try{
+            out.put("confirmed",effects.confirmed()).put("missed",effects.missed())
+                .put("escalated",effects.escalated()).put("pending",effects.armed())
+                .put("action",effects.action());
+        }catch(Exception ignored){}
+        return out;
+    }
     public JSONObject snapshot(){
         JSONObject j=new JSONObject();try{
             JSONObject official=officialBridge.snapshot();
@@ -477,6 +667,10 @@ if(next!=null&&isOnlinePlayer(next.getPackageName())){
                 .put("steeringEnabled",steeringEnabled)
                 .put("instrumentEnabled",instrumentEnabled)
                 .put("steeringKeys",steeringKeys.snapshot())
+                .put("steeringIdleDrops",idleDrops)
+                .put("dimClusterEnabled",dimClusterEnabled)
+                .put("dimCluster",dim.snapshot())
+                .put("transportEffect",effectSnapshot())
                 .put("steeringInject",injector.snapshot().put("kugou",kugou.snapshot()))
                 .put("instrumentMetadataReady",official.optBoolean("playbackAccepted"))
                 .put("officialMedia",official)
@@ -525,9 +719,32 @@ if(next!=null&&isOnlinePlayer(next.getPackageName())){
                     if(text.isEmpty())lyrics.request(title,artist,duration);
                 }
                 noteLyricSource(source,title,artist,duration);
+                // 原车 getLyric()/getLyricContent() 也吃这份歌词：仪表那边就不用自己找了。
+                clusterLyric=text;
                 LyricTimelineProvider.Result timed=timeline.resolve(title,artist,duration,
                         controller.getPackageName(),text,mediaId(m));
+                // Change-only diagnostic: the snapshot runs several times a second, and "the card
+                // says 当前音源未提供歌词" is the report this pipeline gets. One line per distinct
+                // answer is enough to tell "no document" apart from "document never reached Dart".
+                String lyricTrace=timed.key+"\u0000"+timed.isEmpty()+"\u0000"+timed.label
+                        +"\u0000"+timed.timeline.lineCount();
+                if(!lyricTrace.equals(lastLyricTrace)){
+                    lastLyricTrace=lyricTrace;
+                    UniLog.i(LogTags.MEDIA,"lyric/document","title",title,"textLen",text.length(),
+                        "mediaId",mediaId(m),"duration",duration,"docKey",timed.key,
+                        "words",timed.wordTimed,"lines",timed.timeline.lineCount(),
+                        "label",timed.label,"catalogFailures",LyricCatalog.describeFailures());
+                }
                 boolean casting=p!=null&&p.getState()==PlaybackState.STATE_PLAYING;
+                // The document must belong to the track being painted. Every cache on the way here
+                // is keyed by title|artist|seconds, but a single slip — a retained track, a
+                // catalog answer that lands after the user skipped — would put the previous
+                // song's words on the glass, which reads as a lyric engine that is one track
+                // behind. Refuse the mismatch and say so in the log instead.
+                String wantKey=LyricCatalog.key(title,artist,duration);
+                boolean docOwned=timed.key.isEmpty()||timed.key.equals(wantKey);
+                if(!docOwned)UniLog.fail(LogTags.LYRIC,"lyric/mismatch","want",wantKey,"got",timed.key,"title",title,"artist",artist);
+                LyricTimelineProvider.Result timed2=docOwned?timed:LyricTimelineProvider.Result.EMPTY;
                 // Same sample for the card and for the cast window on another display, so
                 // both fill edges come from one clock reading instead of two.
                 long castAt=System.currentTimeMillis();
@@ -535,7 +752,7 @@ if(next!=null&&isOnlinePlayer(next.getPackageName())){
                 // cast panel both read this position, so a correction applies to both.
                 long offsetMs=LyricOffset.forTrack(title,artist);
                 long castPosition=Math.max(0,position(p)+offsetMs);
-                LyricCast.publish(title,artist,timed.label,timed.timeline,casting,
+                LyricCast.publish(title,artist,timed2.label,timed2.timeline,casting,
                         castPosition,castAt,p==null?1f:p.getPlaybackSpeed());
                 boolean positionKnown=p!=null&&p.getPosition()>=0;
                 float speed=p==null?0f:p.getPlaybackSpeed();
@@ -555,12 +772,16 @@ if(next!=null&&isOnlinePlayer(next.getPackageName())){
                 }
                 j.put("lyrics",text).put("lyricsSource",source)
                     .put("durationMs",duration)
+                    // 发锚点，不发本次原始采样：两次快照之间 Dart 侧按 speed 外推，
+                    // 歌词与进度才不会每 80ms 跳一下。anchor* 就是上面刚算出来的那组。
                     .put("positionMs",anchorPositionMs).put("positionKnown",positionKnown)
                     .put("sampledAtMs",anchorSampledAtMs)
                     .put("speed",speed);
-                j.put("lyricTimeline",timed.isEmpty()?"":timed.json)
-                    .put("lyricTimelineLabel",timed.isEmpty()?"":timed.label)
-                    .put("lyricTimelineWords",!timed.isEmpty()&&timed.wordTimed);
+                // 一定要写这三项，哪怕空。以前是「有文档才 put」，Dart 侧读到的仍是上一首的
+                // JSON，换到一首没词源的歌就整首停在上一首的词上 —— 看起来像歌词全错。
+                j.put("lyricTimeline",timed2.isEmpty()?"":timed2.json)
+                    .put("lyricTimelineLabel",timed2.isEmpty()?"":timed2.label)
+                    .put("lyricTimelineWords",!timed2.isEmpty()&&timed2.wordTimed);
                 netease.augmentSnapshot(j);
                 if(!text.isEmpty())j.put("lyricsReason","");
             } else {
@@ -577,7 +798,17 @@ if(next!=null&&isOnlinePlayer(next.getPackageName())){
                         .put("reason","播放器未连接，显示上次播放");
                 }
             }
-        }catch(Exception ignored){}return j;
+        }catch(Exception failed){
+            // A snapshot that dies halfway is the worst kind: the UI keeps the title it already
+            // received and shows "当前音源未提供歌词" for a track whose lyrics were fine, with
+            // nothing in the log to say why. Name the failure and the stage it reached.
+            String trace=android.util.Log.getStackTraceString(failed);
+            if(trace.length()>700)trace=trace.substring(0,700);
+            UniLog.fail(LogTags.MEDIA,"media/snapshot fail","error",
+                failed.getClass().getSimpleName(),"title",j.optString("title"),
+                "hasLyrics",j.has("lyrics"),"hasTimeline",j.has("lyricTimeline"),
+                "trace",trace.replace('\n',' '));
+        }return j;
     }
     private void saveTrack(String source,MediaTextRetention.Track track,long position){
         String key=source+"\u0000"+track.title+"\u0000"+track.artist;
@@ -591,11 +822,11 @@ if(next!=null&&isOnlinePlayer(next.getPackageName())){
     }
     private String artwork(MediaMetadata m){
         if(!artworkDirty)return coverData;artworkDirty=false;
-        if(m==null){lastCover=null;coverData="";UniLog.skip(LogTags.MEDIA,"media/artwork","reason","no-metadata");return "";}
+        if(m==null){lastCover=null;lastCoverKey="";coverData="";UniLog.skip(LogTags.MEDIA,"media/artwork","reason","no-metadata");return "";}
         Bitmap bitmap=m.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART);
         if(bitmap==null)bitmap=m.getBitmap(MediaMetadata.METADATA_KEY_ART);
         if(bitmap==lastCover)return coverData;
-        lastCover=bitmap;coverData="";
+        lastCover=bitmap;lastCoverKey=coverKey(m);coverData="";
         if(bitmap!=null&&!bitmap.isRecycled())try{
             float scale=Math.min(1f,256f/Math.max(bitmap.getWidth(),bitmap.getHeight()));
             Bitmap small=Bitmap.createScaledBitmap(bitmap,Math.max(1,(int)(bitmap.getWidth()*scale)),Math.max(1,(int)(bitmap.getHeight()*scale)),true);
@@ -611,8 +842,37 @@ if(next!=null&&isOnlinePlayer(next.getPackageName())){
         else UniLog.done(LogTags.MEDIA,"media/artwork","bytes",coverData.length());
         return coverData;
     }
+    /** 播放器这首没给封面时的中性占位图（深色底 + 音符），不抢眼也不像报错。 */
+    private Bitmap stubCover(){
+        if(stub!=null&&!stub.isRecycled())return stub;
+        try{
+            int size=256;
+            Bitmap bitmap=Bitmap.createBitmap(size,size,Bitmap.Config.ARGB_8888);
+            android.graphics.Canvas canvas=new android.graphics.Canvas(bitmap);
+            android.graphics.Paint paint=new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+            paint.setShader(new android.graphics.LinearGradient(0,0,size,size,0xFF17222B,0xFF233543,android.graphics.Shader.TileMode.CLAMP));
+            canvas.drawRect(0,0,size,size,paint);
+            paint.setShader(null);
+            paint.setColor(0x3320D5C4);paint.setStyle(android.graphics.Paint.Style.STROKE);paint.setStrokeWidth(3);
+            canvas.drawCircle(size/2f,size/2f,size*0.32f,paint);
+            paint.setColor(0xFF20D5C4);paint.setStyle(android.graphics.Paint.Style.FILL);
+            paint.setTextAlign(android.graphics.Paint.Align.CENTER);
+            paint.setTextSize(size*0.42f);
+            paint.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+            android.graphics.Paint.FontMetrics metrics=paint.getFontMetrics();
+            canvas.drawText("♪",size/2f,size/2f-(metrics.ascent+metrics.descent)/2f,paint);
+            stub=bitmap;
+        }catch(Throwable e){UniLog.w(LogTags.MEDIA,"占位封面创建失败",e);}
+        return stub;
+    }
+    private Bitmap stub;
+    /** 临时探针：给方向盘的会话标题加后缀，用来判断仪表读的是不是我们这条会话。 */
+    /** 临时探针（已出结论：仪表不读我们这个会话，它读播放器自己的会话）。 */
+    private static final boolean PROBE_MARKER=false;
+    private boolean coverTrace=true;
     /** Logs the lyric source only when it changes: the snapshot runs on every
      *  tick, and the source itself does not change between ticks. */
+    private String lastLyricTrace="";
     private void noteLyricSource(String source,String title,String artist,long durationMs){
         String track=title+"|"+artist;
         if(source.equals(lastLyricSource)&&track.equals(lastLyricTrack))return;
@@ -636,7 +896,11 @@ if(next!=null&&isOnlinePlayer(next.getPackageName())){
      */
     private static String localLyrics(MediaMetadata metadata,Bundle extras){
         String path=audioPath(metadata,extras);
-        if(path.isEmpty())return "";
+        // audioPath answers null for every streamed track, and every netease/QQ/汽水 session is
+        // streamed. The null check used to be missing, so the snapshot died in here with an NPE
+        // the moment a player published no lyric text of its own — the catalogue was never asked,
+        // and the card fell back to "当前音源未提供歌词" for songs whose lyrics resolve fine.
+        if(path==null||path.isEmpty())return "";
         String cached=localTexts.get(path);
         if(cached!=null)return cached;
         String text="";
@@ -659,7 +923,7 @@ if(next!=null&&isOnlinePlayer(next.getPackageName())){
                 }
             }
         }catch(RuntimeException ignored){}
-        return "";
+        return null;
     }
     private static String readLyrics(MediaMetadata metadata,Bundle extras){
         String[] keys={"android.media.metadata.LYRICS","android.media.metadata.LYRIC","lyrics","lyric","lrc"};
@@ -685,6 +949,8 @@ if(next!=null&&isOnlinePlayer(next.getPackageName())){
     }
     public boolean command(String action,long positionMs){
         clearPlayFallback();
+        // 上一把同类指令超时没落地（传输控制回了没动）：这次直接换执行器，不再白按一遍。
+        if(escalate(action))return true;
         boolean wantsPlay="play".equals(action)||("toggle-play".equals(action)
                 &&(controller==null||controller.getPlaybackState()==null
                     ||controller.getPlaybackState().getState()!=PlaybackState.STATE_PLAYING));
@@ -694,8 +960,16 @@ if(next!=null&&isOnlinePlayer(next.getPackageName())){
             // restore the application; transport controls cannot target a
             // disconnected session.
             if("toggle-play".equals(action)||"play".equals(action)){
+                // 还有别的播放器会话在，媒体键落得到实处，就不必把界面翻上来。
+                // 一个会话都没有时（播放器自己把 session 撤了，只剩系统里那枚
+                // 残留的 MediaButtonReceiver）注入只是空响：没有人会起播。
+                // 这时拉起应用就是唯一能让用户听到声音的动作。
+                if(!observed.isEmpty()&&relayKey(action)){
+                    UniLog.done(LogTags.MEDIA,"media/transport","action",action,"route","media-key","reason","no-active-session");
+                    return true;
+                }
                 boolean launched=launchSavedSource();
-                if(launched)UniLog.done(LogTags.MEDIA,"media/transport","action",action,"route","launch-source");
+                if(launched)UniLog.done(LogTags.MEDIA,"media/transport","action",action,"route","launch-source","reason","no-active-session");
                 else UniLog.fail(LogTags.MEDIA,"media/transport","action",action,"route","launch-source","reason","no-launchable-source");
                 return launched;
             }
@@ -704,15 +978,49 @@ if(next!=null&&isOnlinePlayer(next.getPackageName())){
         }
         if(NeteaseMediaAdapter.supports(controller)){
             boolean accepted=netease.command(action,positionMs);
+            if(accepted)armEffect(action);
             if(accepted&&wantsPlay)schedulePlayFallback(controller);
             if(accepted)UniLog.done(LogTags.MEDIA,"media/transport","action",action,"route","netease","source",controller.getPackageName());
             else UniLog.fail(LogTags.MEDIA,"media/transport","action",action,"route","netease","reason","rejected");
             return accepted;
         }
-        if(transport(action,positionMs)){if(wantsPlay)schedulePlayFallback(controller);return true;}
+        if(transport(action,positionMs)){armEffect(action);if(wantsPlay)schedulePlayFallback(controller);return true;}
         // 播放器没有可用的传输控制，或者根本不暴露 SKIP_TO_NEXT（酷狗车机版）：
         // 先走它自己的广播，再退回按键注入。
         return relayKey(action);
+    }
+    /**
+     * 同一类指令上一把超时没动：这次直接换按键注入，不再走传输控制。
+     *
+     * <p>播放类、换歌类分开记账（{@link SteeringKeyPolicy#kind}），所以「上一首没动」
+     * 不会把「播放」也判成坏的。
+     */
+    private boolean escalate(String action){
+        String kind=SteeringKeyPolicy.kind(action);
+        if(kind.isEmpty())return false;
+        if(!effects.shouldEscalate(kind,SystemClock.elapsedRealtime()))return false;
+        if(!relayKey(action))return false;
+        effects.noteEscalated();
+        UniLog.i(LogTags.MEDIA,"上一把传输控制没落地，改走按键注入","action",action,"kind",kind);
+        return true;
+    }
+    /** 指令送出后记一笔：由播放状态回调，或下一次同类按键结账。 */
+    private void armEffect(String action){
+        String kind=SteeringKeyPolicy.kind(action);
+        if(kind.isEmpty())return;
+        effects.arm(kind,fingerprint(),SystemClock.elapsedRealtime());
+    }
+    /** 「真的动了」的证据：播放状态 + 两秒粒度位置 + 曲目 + 时长。 */
+    private String fingerprint(){
+        MediaController target=controller;
+        if(target==null)return"";
+        PlaybackState p=target.getPlaybackState();
+        MediaMetadata m=target.getMetadata();
+        return MediaEffectTracker.fingerprint(
+            p==null?0:p.getState(),
+            p==null?-1:position(p),
+            m==null?"":m.getString(MediaMetadata.METADATA_KEY_TITLE),
+            m==null?0:m.getLong(MediaMetadata.METADATA_KEY_DURATION));
     }
     /** 标准传输控制。拿不到对应能力时返回 false，由 {@link #relayKey} 接手。 */
     private boolean transport(String action,long positionMs){
@@ -802,6 +1110,19 @@ if(next!=null&&isOnlinePlayer(next.getPackageName())){
             return true;
         }catch(RuntimeException e){return false;}
     }
-    public void stop(){started=false;clearPlayFallback();try{manager.removeOnActiveSessionsChangedListener(sessions);}catch(Exception ignored){}steeringKeys.stop();officialBridge.stop();select(null);steeringSession.setActive(false);UniLog.done(LogTags.MEDIA,"media/session","action","unbind","authorized",authorized);}
+    /**
+     * 只撤「观察与上报」这一层，方控输入通道留在原地。
+     *
+     * <p>原车输入回调是原车给的授权，反注册以后要重新申请：中间那段窗口里按键是死的，
+     * 而且下一轮 {@link #start()} 还得重走一遍 {@code requestKeysInterception}。
+     * 桌面在后台、只剩底栏在跑的时候也会走到这里，那时候方向盘键照样该归桌面管，
+     * 所以通道常驻、动作由 {@link #onSteeringAction} 的 {@code started} 判断把关。
+     */
+    public void stop(){
+        started=false;clearPlayFallback();effects.clear();
+        try{manager.removeOnActiveSessionsChangedListener(sessions);}catch(Exception ignored){}
+        dim.stop();officialBridge.stop();select(null);steeringSession.setActive(false);
+        UniLog.done(LogTags.MEDIA,"media/session","action","unbind","authorized",authorized,"steeringKeys",steeringKeys.installed());
+    }
 }
 

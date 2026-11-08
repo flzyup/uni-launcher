@@ -20,6 +20,11 @@ abstract class NativeGateway {
       {String? value, String? zone, bool? enabled});
   Future<void> save(String value);
   void onHome(void Function() callback);
+
+  /// 车机 HOME：不管当前在设置页、应用抽屉页还是编辑态，都落回第一屏。
+  /// 和 [onHome] 分开是因为语义不同：[onHome] 是「桌面窗口被复用」（保留页码），
+  /// 这条是「用户明确按了 HOME」（回第一屏）。
+  void onHomeFirst(void Function() callback);
   Future<PickedWallpaper?> pickWallpaper() async => null;
   Future<void> setDesktopPage(int page) async {}
 }
@@ -27,7 +32,7 @@ abstract class NativeGateway {
 class AndroidGateway implements NativeGateway {
   static const methods = MethodChannel('xyz.i4o.uni.launcher/platform');
   static const eventChannel = EventChannel('xyz.i4o.uni.launcher/events');
-  void Function()? _home, _settings, _rebound;
+  void Function()? _home, _homeFirst, _settings, _rebound;
   void onOpenSettings(void Function() callback) {
     _settings = callback;
   }
@@ -94,8 +99,14 @@ class AndroidGateway implements NativeGateway {
     _home = callback;
     methods.setMethodCallHandler((call) async {
       if (call.method == 'home') _home?.call();
+      if (call.method == 'home-first') _homeFirst?.call();
       if (call.method == 'open-settings') _settings?.call();
       if (call.method == 'rehost') _rebound?.call();
     });
+  }
+
+  @override
+  void onHomeFirst(void Function() callback) {
+    _homeFirst = callback;
   }
 }

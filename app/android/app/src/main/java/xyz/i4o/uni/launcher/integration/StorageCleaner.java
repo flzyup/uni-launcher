@@ -571,6 +571,12 @@ public final class StorageCleaner {
                 lastCleanAt = System.currentTimeMillis();
                 lastCleanIds = done;
                 // 清理后重新统计，面板直接显示新数据（不依赖调用方再点一次扫描）。
+                // 换成独立阶段：这一步要重新走一遍 binder 统计和全盘遍历，若还挂在
+                // "clean" 里，面板就会在「清理中」定格几十秒。
+                phase = "refresh";
+                current = "重新统计已清理后的占用";
+                progress = 0.98;
+                bump();
                 try {
                     scanStartedAt = SystemClock.elapsedRealtime();
                     visited = 0;
@@ -622,22 +628,39 @@ public final class StorageCleaner {
         PackageManager pm = context.getPackageManager();
         UserHandle user = Process.myUserHandle();
         long before = sumCacheBytes(stats, uuid, pm, user, system);
-        int failed = 0, attempted = 0;
+        String label = system ? "系统应用缓存" : "应用缓存";
+        // 先筛出真有缓存的包。逐包 binder 是这里最贵的动作，不该为 0 字节的包排队，
+        // 也才有确定的包数可以当进度分母。
+        List<String> targets = new ArrayList<>();
         for (PackageInfo info : installedPackages(pm)) {
             if (cancel) break;
             ApplicationInfo app = info.applicationInfo;
             if (app == null) continue;
             boolean isSystem = (app.flags & ApplicationInfo.FLAG_SYSTEM) != 0;
             if (isSystem != system) continue;
-            long cache;
             try {
-                cache = stats.queryStatsForPackage(uuid, info.packageName, user).getCacheBytes();
-            } catch (Throwable t) {
-                continue;
+                if (stats.queryStatsForPackage(uuid, info.packageName, user).getCacheBytes() > 0) {
+                    targets.add(info.packageName);
+                }
+            } catch (Throwable ignored) {
             }
-            if (cache <= 0) continue;
+        }
+        int failed = 0, attempted = 0;
+        int total = targets.size();
+        // 应用缓存没有文件粒度，把「一个应用」也算进同一套计数，面板的数字才会动。
+        purgeTotal += total;
+        long lastPurgeBump = 0;
+        for (int i = 0; i < total; i++) {
+            if (cancel) break;
             attempted++;
-            if (!deleteApplicationCacheFiles(pm, info.packageName)) failed++;
+            current = label + " " + (i + 1) + "/" + total;
+            if (!deleteApplicationCacheFiles(pm, targets.get(i))) failed++;
+            purgeFiles++;
+            long nowMs = SystemClock.elapsedRealtime();
+            if (nowMs - lastPurgeBump > 200) {
+                lastPurgeBump = nowMs;
+                bump();
+            }
         }
         long after = sumCacheBytes(stats, uuid, pm, user, system);
         if (failed > 0 && attempted > 0) {
@@ -736,7 +759,9 @@ public final class StorageCleaner {
             Method method = PackageManager.class.getMethod(
                     "deleteApplicationCacheFiles", String.class, observerClass);
             method.invoke(pm, packageName, observer);
-            done.await(3, TimeUnit.SECONDS);
+            // 正常回调几十毫秒内就到；系统应用大多不回 onRemoveCompleted，
+            // 3 秒一包摊到 124 个系统应用上就是 6 分钟，面板看着像死机。
+            done.await(900, TimeUnit.MILLISECONDS);
             return ok[0];
         } catch (Throwable t) {
             return false;

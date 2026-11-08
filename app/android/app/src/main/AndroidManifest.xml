@@ -18,6 +18,10 @@
   <uses-permission android:name="android.car.permission.CAR_VENDOR_EXTENSION"/>
   <uses-permission android:name="ecarx.oem.permission.USER"/>
   <uses-permission android:name="ecarx.oem.permission.OPENAPI_MEDIACENTER_PERMISSION"/>
+  <!-- 领克 05（IP753）没有亿咖通媒体中心（ecarx.xsf.mediacenter 被禁用），仪表媒体走
+       se.cevt.dimsupportservice 的 DIM_MESSAGING（签名级）。本机对 UNI 的签名权限放行，
+       声明后实测 granted=true。 -->
+  <uses-permission android:name="android.cevt.dimsupportservice.permission.DIM_MESSAGING"/>
   <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
   <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
@@ -54,7 +58,12 @@
   <!-- 明文只放行「传文件」里用户自己填的下载地址：局域网 NAS、内网发布页和旧站点
        基本都是 http://，系统默认会直接拒连。应用自身不发起任何其他明文请求。 -->
   <application android:label="UNI 桌面" android:name="${applicationName}" android:icon="@drawable/uni_icon" android:allowBackup="false" android:usesCleartextTraffic="true">
-    <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleInstance" android:screenOrientation="landscape" android:theme="@style/LaunchTheme" android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode" android:hardwareAccelerated="true" android:windowSoftInputMode="adjustResize">
+    <!-- HOME 返回路径：resumeWhilePausing 让本窗口在上一个 Activity 还在 pausing
+         时就开始 resume（Android 7+ 给 launcher 的专用开关），省掉转场里的那段
+         等待；stateNotNeeded 避免系统为了恢复状态而重建 home；launchMode 用
+         singleTask（AOSP Launcher3 同款），singleInstance 会让某些 ROM 在 HOME
+         拉起时另起一个 task 再走转场，表现为「回来时闪一下」。 -->
+    <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTask" android:resumeWhilePausing="true" android:stateNotNeeded="true" android:screenOrientation="landscape" android:theme="@style/LaunchTheme" android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode" android:hardwareAccelerated="true" android:windowSoftInputMode="adjustResize">
       <meta-data android:name="io.flutter.embedding.android.NormalTheme" android:resource="@style/NormalTheme"/>
       <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
       <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.HOME"/><category android:name="android.intent.category.DEFAULT"/></intent-filter>
@@ -76,6 +85,8 @@
     </receiver>
     <provider android:name=".integration.OtaFileProvider" android:authorities="xyz.i4o.uni.launcher.ota" android:exported="false" android:grantUriPermissions="true"/>
     <provider android:name=".integration.TransferFileProvider" android:authorities="xyz.i4o.uni.launcher.transfer" android:exported="false" android:grantUriPermissions="true"/>
+    <!-- 原车 IMusicPlaybackInfo.getArtwork() 要的是 Uri，封面由此只读暴露。 -->
+    <provider android:name=".integration.ArtworkFileProvider" android:authorities="xyz.i4o.uni.launcher.artwork" android:exported="false" android:grantUriPermissions="true"/>
     <receiver android:name=".GlobalDockBootReceiver" android:exported="true" android:directBootAware="true">
       <intent-filter><action android:name="android.intent.action.LOCKED_BOOT_COMPLETED"/></intent-filter>
       <intent-filter><action android:name="android.intent.action.BOOT_COMPLETED"/></intent-filter>

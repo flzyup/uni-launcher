@@ -1,7 +1,7 @@
 name: uni_launcher
 description: Flutter launcher for Lynk & Co head units with native Android integrations.
 publish_to: none
-version: 0.7.10+2056
+version: 0.7.11+2057
 environment:
   sdk: '>=3.5.0 <4.0.0'
 dependencies:
@@ -10,12 +10,17 @@ dependencies:
   flutter_svg: ^2.3.0
   qr_flutter: ^4.1.0
   crypto: ^3.0.6
+  # integration_test 必须是普通依赖，不能放 dev_dependencies：
+  # Flutter 生成 GeneratedPluginRegistrant.java 时无条件写入这个插件，而 release 构建
+  # 会把 dev 依赖的插件从 Gradle 工程里排除，编译期直接报
+  # "程序包 dev.flutter.plugins.integration_test 不存在"。
+  # 两边一致后，`flutter clean` 之后也能直接出包，代价是 release 包大约 40 KB。
+  integration_test:
+    sdk: flutter
 dev_dependencies:
   flutter_driver:
     sdk: flutter
   flutter_test:
-    sdk: flutter
-  integration_test:
     sdk: flutter
 flutter:
   uses-material-design: true

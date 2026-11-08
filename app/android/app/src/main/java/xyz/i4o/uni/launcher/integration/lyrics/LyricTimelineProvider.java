@@ -55,14 +55,24 @@ public final class LyricTimelineProvider {
             };
     private final Map<String, Long> misses = new ConcurrentHashMap<>();
     private final Set<String> inFlight = ConcurrentHashMap.newKeySet();
+    /** Told once per background answer so the UI can repaint without waiting for a media event. */
+    private final Runnable arrived;
 
     public LyricTimelineProvider(File cacheDir) {
         this(cacheDir, null);
     }
 
-    public LyricTimelineProvider(File cacheDir, Runnable changed) {
+    /**
+     * @param arrived run after a background lookup has just put a document (or a known miss) into
+     *                the in-memory cache. Without it the caller has no reason to take a new
+     *                snapshot: the card kept the empty state it painted while the request was in
+     *                flight until the *next* playback event — a paused track, a skip, a toggle —
+     *                which is exactly the "歌在放，歌词一直不出来" report. Runs on the worker
+     *                thread; the caller hops to its own thread.
+     */
+    public LyricTimelineProvider(File cacheDir, Runnable arrived) {
         this.catalog = new LyricCatalog(cacheDir);
-        this.changed = changed;
+        this.arrived = arrived;
         this.worker = Executors.newSingleThreadExecutor(new ThreadFactory() {
             @Override
             public Thread newThread(Runnable runnable) {
@@ -73,8 +83,18 @@ public final class LyricTimelineProvider {
         });
     }
 
+    private void notifyArrived() {
+        Runnable callback = arrived;
+        if (callback == null) return;
+        try {
+            callback.run();
+        } catch (RuntimeException ignored) {
+            // The surface is being torn down; the next track asks again.
+        }
+    }
+
     public static final class Result {
-        public static final Result EMPTY = new Result("", "", false, false, LyricTimeline.EMPTY);
+        public static final Result EMPTY = new Result("", "", false, false, LyricTimeline.EMPTY, "");
 
         /** Serialised timeline, or "" while the lookup is still running. */
         public final String json;
@@ -88,14 +108,21 @@ public final class LyricTimelineProvider {
          * window on another display — so they never re-parse the JSON string.
          */
         public final LyricTimeline timeline;
+        /**
+         * The recording this document was resolved for ({@link LyricCatalog#key}). Callers compare
+         * it against the track they are painting: a document that belongs to another track must
+         * never reach the screen, whatever a cache or a late answer did.
+         */
+        public final String key;
 
         Result(String json, String label, boolean wordTimed, boolean embedded,
-               LyricTimeline timeline) {
+               LyricTimeline timeline, String key) {
             this.json = json;
             this.label = label;
             this.wordTimed = wordTimed;
             this.embedded = embedded;
             this.timeline = timeline == null ? LyricTimeline.EMPTY : timeline;
+            this.key = key == null ? "" : key;
         }
 
         public boolean isEmpty() {
@@ -127,17 +154,17 @@ public final class LyricTimelineProvider {
 
         CacheEntry cachedEntry = memoryGet(key);
         if (cachedEntry != null) {
-            if (cachedEntry.leadMerged) return cachedEntry.toResult();
+            if (cachedEntry.leadMerged) return cachedEntry.toResult(key);
             CacheEntry merged = CacheEntry.of(withLead(cachedEntry.timeline, embeddedLrc),
                     cachedEntry.label, cachedEntry.embedded, true);
             memoryPut(key, merged);
-            return merged.toResult();
+            return merged.toResult(key);
         }
 
         CacheEntry embedded = fromEmbedded(embeddedLrc);
         if (embedded != null) {
             memoryPut(key, embedded);
-            return embedded.toResult();
+            return embedded.toResult(key);
         }
         if (durationMs > 0 && durationMs < MIN_DURATION_MS) return Result.EMPTY;
 
@@ -151,7 +178,7 @@ public final class LyricTimelineProvider {
         if (!onDisk.isEmpty()) {
             CacheEntry entry = CacheEntry.of(withLead(onDisk, embeddedLrc), "", false, true);
             memoryPut(key, entry);
-            return entry.toResult();
+            return entry.toResult(key);
         }
 
         request(title, artist, durationMs, ownerPackage, key, mediaId);
@@ -175,7 +202,7 @@ public final class LyricTimelineProvider {
                                         // karaoke without the caller asking again.
                                         memoryPut(key, CacheEntry.of(better.timeline,
                                                 better.sourceLabel, false, true));
-                                        if (changed != null) main.post(changed);
+                                        notifyArrived();
                                     }
                                 });
                         if (result.isEmpty()) {
@@ -185,6 +212,7 @@ public final class LyricTimelineProvider {
                                     false, true));
                             if (changed != null) main.post(changed);
                         }
+                        notifyArrived();
                     } catch (RuntimeException unexpected) {
                         misses.put(key, System.currentTimeMillis());
                     } finally {
@@ -294,8 +322,8 @@ public final class LyricTimelineProvider {
                     embedded, timeline, leadMerged);
         }
 
-        Result toResult() {
-            return new Result(json, label, wordTimed, embedded, timeline);
+        Result toResult(String key) {
+            return new Result(json, label, wordTimed, embedded, timeline, key);
         }
     }
 
