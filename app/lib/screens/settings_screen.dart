@@ -244,7 +244,30 @@ class BootAndHomeSettings extends StatelessWidget {
               ? Map<String, dynamic>.from(native['integrationPreferences'])
               : const <String, dynamic>{};
           final bootAutostart = prefs['bootAutostart'] != false;
-          final homeKeyTarget = prefs['homeKeyTarget'] == 'oem' ? 'oem' : 'uni';
+          final rawApps = prefs['homeApps'] is List
+              ? (prefs['homeApps'] as List).whereType<Map>().toList()
+              : const <Map>[];
+          final homeApps = <Map<String, dynamic>>[
+            if (rawApps.isEmpty) ...[
+              const {'package': 'xyz.i4o.uni.launcher', 'label': 'UNI 桌面', 'isUni': true},
+              const {'package': 'ecarx.launcher3', 'label': '原车系统桌面', 'isUni': false},
+            ] else
+              for (final app in rawApps)
+                Map<String, dynamic>.from(app),
+          ];
+
+          final currentTarget = '${prefs['homeKeyTarget'] ?? 'uni'}';
+          final currentLabel = homeApps.firstWhere(
+            (a) =>
+                a['package'] == currentTarget ||
+                (a['isUni'] == true &&
+                    (currentTarget == 'uni' ||
+                        currentTarget == 'xyz.i4o.uni.launcher')) ||
+                (a['package'] == 'ecarx.launcher3' &&
+                    (currentTarget == 'oem' ||
+                        currentTarget == 'ecarx.launcher3')),
+            orElse: () => {'label': currentTarget},
+          )['label'] as String;
 
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -263,41 +286,49 @@ class BootAndHomeSettings extends StatelessWidget {
               ),
               SizedBox(height: Design.px(16)),
               SettingBlock(
-                title: 'HOME 键返回目标',
-                note: homeKeyTarget == 'oem' ? '原车系统桌面' : 'UNI 桌面',
+                title: '中控实体 HOME 键动作',
+                note: currentLabel,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     Text(
-                      '按下中控台圆形 HOME 键、方向盘 HOME 键或底栏主页键时的响应',
+                      '设置按下车机中控台圆形实体 HOME 键时打开的桌面应用。底栏上的 HOME 虚拟图标始终固定用于返回 UNI 桌面首页。当设置为其他桌面时，按实体按键将完全切换至该桌面，不保留 UNI 底栏。',
                       style: TextStyle(color: s.muted, fontSize: Design.px(18)),
                     ),
                     SizedBox(height: Design.px(16)),
-                    Row(
-                      children: [
-                        for (final (index, target) in [
-                          ('uni', 'UNI 桌面'),
-                          ('oem', '原车系统桌面'),
-                        ].indexed)
-                          Expanded(
-                            child: Padding(
-                              padding: EdgeInsets.only(
-                                right: index == 0 ? Design.px(14) : 0,
-                              ),
-                              child: SizedBox(
-                                height: Design.px(66),
-                                child: OutlinedButton(
-                                  key: ValueKey('home-target-${target.$1}'),
-                                  style: s.selectionStyle(
-                                      homeKeyTarget == target.$1),
-                                  onPressed: () =>
-                                      c.setHomeKeyTarget(target.$1),
-                                  child: Text(target.$2),
-                                ),
-                              ),
+                    Wrap(
+                      spacing: Design.px(14),
+                      runSpacing: Design.px(12),
+                      children: homeApps.map((app) {
+                        final isUni = app['isUni'] == true ||
+                            app['package'] == 'xyz.i4o.uni.launcher';
+                        final isOem = app['package'] == 'ecarx.launcher3';
+                        final isSelected = currentTarget == app['package'] ||
+                            (isUni &&
+                                (currentTarget == 'uni' ||
+                                    currentTarget ==
+                                        'xyz.i4o.uni.launcher')) ||
+                            (isOem &&
+                                (currentTarget == 'oem' ||
+                                    currentTarget == 'ecarx.launcher3'));
+                        final targetKey = isUni
+                            ? 'uni'
+                            : (isOem ? 'oem' : '${app['package']}');
+                        return SizedBox(
+                          height: Design.px(66),
+                          child: OutlinedButton(
+                            key: ValueKey('home-target-$targetKey'),
+                            style: s.selectionStyle(isSelected),
+                            onPressed: () => c.setHomeKeyTarget(isUni
+                                ? 'uni'
+                                : (isOem ? 'oem' : '${app['package']}')),
+                            child: Text(
+                              '${app['label']}',
+                              style: TextStyle(fontSize: Design.px(20)),
                             ),
                           ),
-                      ],
+                        );
+                      }).toList(),
                     ),
                   ],
                 ),

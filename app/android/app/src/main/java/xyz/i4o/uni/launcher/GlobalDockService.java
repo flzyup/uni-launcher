@@ -38,11 +38,44 @@ public final class GlobalDockService extends Service {
     private JSONArray recentTaskItems=new JSONArray();
     private boolean recentTasksReady;
     private int recentTasksRevision;
-    private boolean visible, cameraSuspended, nativeInsets;
+    private boolean visible, cameraSuspended, externalHomeSuspended, nativeInsets;
     private String panel="";
     private int panelRevision;
     private byte[] panelBackdrop;
     private boolean panelReady;
+
+    public static void suspendDockForExternalHome(){
+        GlobalDockService s=active;
+        if(s!=null){
+            s.dismissPanel();
+            s.externalHomeSuspended=true;
+            s.update();
+        }
+    }
+    public static void resumeDockForExternalHome(){
+        GlobalDockService s=active;
+        if(s!=null){
+            s.externalHomeSuspended=false;
+            s.update();
+        }
+    }
+    private final BroadcastReceiver closeDialogsReceiver=new BroadcastReceiver(){
+        @Override public void onReceive(Context context,Intent intent){
+            if(intent==null||!Intent.ACTION_CLOSE_SYSTEM_DIALOGS.equals(intent.getAction()))return;
+            String reason=intent.getStringExtra("reason");
+            if("homekey".equals(reason)||"recentapps".equals(reason)){
+                dismissPanel();
+                if("homekey".equals(reason)){
+                    SharedPreferences prefs=context.getSharedPreferences("launcher",Context.MODE_PRIVATE);
+                    String target=prefs.getString("homeKeyTarget",context.getPackageName());
+                    boolean isUni="uni".equals(target)||context.getPackageName().equals(target);
+                    if(!isUni){
+                        suspendDockForExternalHome();
+                    }
+                }
+            }
+        }
+    };
     private static final long PANEL_IDLE_MS=5000;
     private static final JSONArray NO_RECENTS=new JSONArray();
     private static final java.util.regex.Pattern SIGNATURE_TIMESTAMPS=
@@ -180,14 +213,7 @@ public final class GlobalDockService extends Service {
             if(active!=null&&"recents".equals(active.panel))active.handleRecentTask(a,r.optString("value"));return true;
         }
         if("show-home".equals(a)||"show-desktop-settings".equals(a)){
-            if(active!=null){active.dismissPanel();active.cameraSuspended=false;}
-            if("show-home".equals(a)){
-                SharedPreferences prefs=c.getSharedPreferences("launcher",Context.MODE_PRIVATE);
-                if("oem".equals(prefs.getString("homeKeyTarget","uni"))){
-                    MainActivity.launchOemHome(c);
-                    return true;
-                }
-            }
+            if(active!=null){active.dismissPanel();active.cameraSuspended=false;active.externalHomeSuspended=false;}
             c.startActivity(new Intent(c,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
                 .putExtra("uniSettings","show-desktop-settings".equals(a)));return true;
         }
@@ -235,6 +261,7 @@ public final class GlobalDockService extends Service {
         super.onCreate();active=this;runtime=LauncherRuntime.get(this);runtime.scheduleBootAutoPlay();runtime.scheduleBootLaunch();runtime.scheduleWirelessAdb();recentTasks=new RecentTasksRepository(this);
         if(!Settings.canDrawOverlays(this)||!runtime.prefs().getBoolean("globalDockEnabled",false)){stopSelf();return;}
         startForeground(753,notification());
+        try{registerReceiver(closeDialogsReceiver,new IntentFilter(Intent.ACTION_CLOSE_SYSTEM_DIALOGS));}catch(Throwable ignored){}
         windows=(WindowManager)getSystemService(WINDOW_SERVICE);
         NavigationInsets.prepare(this,()->{if(active==this)startWindows();});
     }
@@ -541,20 +568,47 @@ public final class GlobalDockService extends Service {
     private String topTaskPackage(){
         return xyz.i4o.uni.launcher.overlay.DisplayTasks.topPackage(this);
     }
+    private boolean isExternalHomePackage(String pkg){
+        if(pkg==null||pkg.isEmpty()||pkg.equals(getPackageName()))return false;
+        if("ecarx.launcher3".equals(pkg)||"com.android.car.carlauncher".equals(pkg))return true;
+        SharedPreferences prefs=getSharedPreferences("launcher",Context.MODE_PRIVATE);
+        String target=prefs.getString("homeKeyTarget","");
+        if(!target.isEmpty()&&!"uni".equals(target)&&pkg.equals(target))return true;
+        return false;
+    }
     private void onRuntimeChanged(){
         if(dockWindow==null)return;
-        if(cameraSuspended&&runtime.homeVisible()){
+        if((cameraSuspended||externalHomeSuspended)&&runtime.homeVisible()){
             cameraSuspended=false;
+            externalHomeSuspended=false;
             update();
             return;
+        }
+        if(!externalHomeSuspended&&!runtime.homeVisible()){
+            String top=topTaskPackage();
+            if(isExternalHomePackage(top)){
+                externalHomeSuspended=true;
+                update();
+                return;
+            }
         }
         publish();
     }
     private void update(){
         if(dockWindow==null)return;
         if(!Settings.canDrawOverlays(this)){stopSelf();return;}
-        if(runtime.homeVisible())cameraSuspended=false;
-        visible=!cameraSuspended;
+        if(runtime.homeVisible()){
+            cameraSuspended=false;
+            externalHomeSuspended=false;
+        }
+        visible=!cameraSuspended&&!externalHomeSuspended;
+        if(visible&&!runtime.homeVisible()){
+            String top=topTaskPackage();
+            if(isExternalHomePackage(top)){
+                externalHomeSuspended=true;
+                visible=false;
+            }
+        }
         dockWindow.updateBounds();dockWindow.show(visible);
         if(panelWindow!=null){panelWindow.updateBounds();panelWindow.show(visible&&!panel.isEmpty());}
         publish();
@@ -609,6 +663,7 @@ public final class GlobalDockService extends Service {
     @Override public void onConfigurationChanged(android.content.res.Configuration config){super.onConfigurationChanged(config);update();}
     @Override public void onDestroy(){
         UniLog.enter(LogTags.DOCK,"dock/detach","surface","dock");
+        try{unregisterReceiver(closeDialogsReceiver);}catch(Throwable ignored){}
         if(runtime!=null)runtime.removeListener(this);
         main.removeCallbacksAndMessages(null);
         if(workspace!=null)workspace.stopAndRestore();

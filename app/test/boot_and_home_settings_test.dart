@@ -77,4 +77,53 @@ void main() {
         gateway.commands.any((c) => c['action'] == 'open-home-settings'),
         isTrue);
   });
+
+  testWidgets('BootAndHomeSettings supports custom third-party launchers',
+      (tester) async {
+    tester.view.physicalSize = const Size(1920, 1080);
+    tester.view.devicePixelRatio = 1;
+    final gateway = FakeGateway();
+    gateway.state['integrationPreferences'] = {
+      'bootAutostart': true,
+      'homeKeyTarget': 'xyz.i4o.uni.launcher',
+      'homeApps': [
+        {'package': 'xyz.i4o.uni.launcher', 'label': 'UNI 桌面', 'isUni': true},
+        {'package': 'ecarx.launcher3', 'label': '原车系统桌面', 'isUni': false},
+        {'package': 'com.junjun.carlauncher', 'label': '君君桌面', 'isUni': false},
+      ],
+    };
+    final controller = LauncherController(gateway);
+    await controller.initialize();
+    await tester.pumpWidget(LauncherApp(controller: controller));
+    await tester.pumpAndSettle();
+    addTearDown(() async {
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+      await gateway.dispose();
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    controller.openSettings();
+    controller.tab('dock');
+    await tester.pumpAndSettle();
+
+    final dockScrollable = find.descendant(
+        of: find.byType(DockSettings), matching: find.byType(Scrollable));
+    final junjunFinder =
+        find.byKey(const ValueKey('home-target-com.junjun.carlauncher'));
+    await tester.scrollUntilVisible(junjunFinder, 300,
+        scrollable: dockScrollable);
+    await tester.drag(dockScrollable, const Offset(0, -150));
+    await tester.pumpAndSettle();
+    expect(junjunFinder, findsOneWidget);
+
+    await tester.tap(junjunFinder);
+    await tester.pumpAndSettle();
+    expect(
+        gateway.commands.any((c) =>
+            c['action'] == 'home-key-target' &&
+            c['value'] == 'com.junjun.carlauncher'),
+        isTrue);
+  });
 }

@@ -12,8 +12,9 @@ public final class GlobalDockBootReceiver extends BroadcastReceiver {
         if(!(lockedBoot||boot||unlocked))return;
         final SharedPreferences prefs=c.getSharedPreferences("launcher",Context.MODE_PRIVATE);
         final boolean bootAutostart=prefs.getBoolean("bootAutostart",true);
-        final String homeKeyTarget=prefs.getString("homeKeyTarget","uni");
-        if(bootAutostart&&!"oem".equals(homeKeyTarget)){
+        final String homeKeyTarget=prefs.getString("homeKeyTarget",c.getPackageName());
+        final boolean isUniTarget="uni".equals(homeKeyTarget)||c.getPackageName().equals(homeKeyTarget);
+        if(bootAutostart&&isUniTarget){
             scheduleDelayedChecks(c);
             runCheck(c,lockedBoot);
         }
