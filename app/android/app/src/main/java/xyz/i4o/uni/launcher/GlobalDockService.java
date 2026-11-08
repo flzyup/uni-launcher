@@ -29,6 +29,7 @@ import xyz.i4o.uni.launcher.overlay.RecentTasksRepository;
 public final class GlobalDockService extends Service {
     private static final String STOP="xyz.i4o.uni.launcher.STOP_DOCK", RESTORE="xyz.i4o.uni.launcher.RESTORE_NAV";
     private static GlobalDockService active;
+    public static GlobalDockService getActive(){return active;}
     private LauncherRuntime runtime;
     private WindowManager windows;
     private WorkspacePolicy workspace;
@@ -180,6 +181,13 @@ public final class GlobalDockService extends Service {
         }
         if("show-home".equals(a)||"show-desktop-settings".equals(a)){
             if(active!=null){active.dismissPanel();active.cameraSuspended=false;}
+            if("show-home".equals(a)){
+                SharedPreferences prefs=c.getSharedPreferences("launcher",Context.MODE_PRIVATE);
+                if("oem".equals(prefs.getString("homeKeyTarget","uni"))){
+                    MainActivity.launchOemHome(c);
+                    return true;
+                }
+            }
             c.startActivity(new Intent(c,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
                 .putExtra("uniSettings","show-desktop-settings".equals(a)));return true;
         }

@@ -17,6 +17,13 @@ public final class DefaultHomeGuard {
     private DefaultHomeGuard() {}
 
     static boolean restoreIfNeeded(Context context) {
+        final android.content.SharedPreferences prefs = context.getSharedPreferences("launcher", Context.MODE_PRIVATE);
+        final boolean bootAutostart = prefs.getBoolean("bootAutostart", true);
+        final String homeKeyTarget = prefs.getString("homeKeyTarget", "uni");
+        if (!bootAutostart || "oem".equals(homeKeyTarget)) {
+            UniLog.i(LogTags.SYS, "跳过恢复默认桌面 (bootAutostart=" + bootAutostart + ", homeKeyTarget=" + homeKeyTarget + ")", "tag", "UniHome");
+            return false;
+        }
         final ComponentName own = new ComponentName(context, MainActivity.class);
         final Intent home = new Intent(Intent.ACTION_MAIN)
             .addCategory(Intent.CATEGORY_HOME)

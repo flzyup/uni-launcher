@@ -1,11 +1,14 @@
 package xyz.i4o.uni.launcher;
 
+import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
 import android.app.Activity;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.net.Uri;
 import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.content.res.Configuration;
 import android.os.Bundle;
 import android.view.View;
@@ -20,6 +23,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import org.json.JSONObject;
 import xyz.i4o.uni.launcher.integration.NavigationChrome;
@@ -848,6 +852,12 @@ public final class MainActivity extends FlutterActivity {
     @Override public boolean dispatchKeyEvent(android.view.KeyEvent event){
         if(event!=null&&event.getAction()==android.view.KeyEvent.ACTION_DOWN&&event.getRepeatCount()==0){
             if(event.getKeyCode()==android.view.KeyEvent.KEYCODE_HOME){
+                android.content.SharedPreferences prefs=getSharedPreferences("launcher",0);
+                if("oem".equals(prefs.getString("homeKeyTarget","uni"))){
+                    GlobalDockService.dismissPanelNow("window");
+                    launchOemHome(this);
+                    return true;
+                }
                 dispatchHomeFirst("window");
                 return true;
             }
@@ -863,9 +873,63 @@ public final class MainActivity extends FlutterActivity {
      */
     public static void requestHomeFirst(String via){
         MainActivity host=active.get();
+        Context ctx=host;
+        if(ctx==null)ctx=GlobalDockService.getActive();
+        if(ctx!=null){
+            android.content.SharedPreferences prefs=ctx.getSharedPreferences("launcher",0);
+            if("oem".equals(prefs.getString("homeKeyTarget","uni"))){
+                GlobalDockService.dismissPanelNow(via);
+                launchOemHome(ctx);
+                return;
+            }
+        }
         if(host==null){GlobalDockService.dismissPanelNow(via);return;}
         host.bringSelfToFront();
         host.dispatchHomeFirst(via);
+    }
+
+    public static void launchOemHome(Context context){
+        if(context==null)return;
+        try{
+            PackageManager pm=context.getPackageManager();
+            Intent homeIntent=new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME);
+            List<ResolveInfo> resolves=pm.queryIntentActivities(homeIntent,PackageManager.MATCH_DEFAULT_ONLY);
+            ResolveInfo target=null;
+            for(ResolveInfo ri:resolves){
+                if(ri.activityInfo!=null&&!context.getPackageName().equals(ri.activityInfo.packageName)){
+                    target=ri;
+                    break;
+                }
+            }
+            if(target==null){
+                resolves=pm.queryIntentActivities(homeIntent,0);
+                for(ResolveInfo ri:resolves){
+                    if(ri.activityInfo!=null&&!context.getPackageName().equals(ri.activityInfo.packageName)){
+                        target=ri;
+                        break;
+                    }
+                }
+            }
+            if(target!=null){
+                Intent launch=new Intent(Intent.ACTION_MAIN)
+                    .addCategory(Intent.CATEGORY_HOME)
+                    .setClassName(target.activityInfo.packageName,target.activityInfo.name)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+                context.startActivity(launch);
+                UniLog.i(LogTags.APP,"拉起原车桌面: "+target.activityInfo.packageName+"/"+target.activityInfo.name);
+                return;
+            }
+            Intent fallback=pm.getLaunchIntentForPackage("ecarx.launcher3");
+            if(fallback!=null){
+                fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                context.startActivity(fallback);
+                UniLog.i(LogTags.APP,"拉起原车桌面 fallback: ecarx.launcher3");
+                return;
+            }
+            Toast.makeText(context,"未找到原车桌面",Toast.LENGTH_SHORT).show();
+        }catch(Throwable e){
+            UniLog.w(LogTags.APP,"拉起原车桌面失败",e);
+        }
     }
     /**
      * 把桌面窗口拉回前台。
@@ -1040,6 +1104,11 @@ public final class MainActivity extends FlutterActivity {
         if(settings){
             if(channel!=null)channel.invokeMethod("open-settings",null);
         }else{
+            android.content.SharedPreferences prefs=getSharedPreferences("launcher",0);
+            if("oem".equals(prefs.getString("homeKeyTarget","uni"))&&intent!=null&&Intent.ACTION_MAIN.equals(intent.getAction())&&intent.hasCategory(Intent.CATEGORY_HOME)){
+                launchOemHome(this);
+                return;
+            }
             dispatchHomeFirst("intent");
         }
     }

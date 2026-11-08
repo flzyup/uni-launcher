@@ -339,7 +339,9 @@ public final class LauncherRuntime {
                 .put("navigationCardTitleHidden",prefs.getBoolean("navigationCardTitleHidden",true))
                 .put("autoPlayMusic",prefs.getBoolean("autoPlayMusic",false))
                 .put("steeringKeysEnabled",prefs.getBoolean("steeringKeysEnabled",true))
-                .put("instrumentSyncEnabled",prefs.getBoolean("instrumentSyncEnabled",true));
+                .put("instrumentSyncEnabled",prefs.getBoolean("instrumentSyncEnabled",true))
+                .put("bootAutostart",prefs.getBoolean("bootAutostart",true))
+                .put("homeKeyTarget",prefs.getString("homeKeyTarget","uni"));
             t.debugBridge=debugBridge.snapshot();
             JSONObject memory=new JSONObject();
             try{
@@ -629,6 +631,44 @@ public final class LauncherRuntime {
             publish();return true;
         }
         // 开机自启动计划：只记录计划；真正启动由开机落点窗口里的排程执行。
+        if("boot-autostart".equals(action)){
+            boolean enabled=request.optBoolean("enabled",true);
+            prefs.edit().putBoolean("bootAutostart",enabled).apply();
+            if(!enabled){
+                try{context.getPackageManager().clearPackagePreferredActivities(context.getPackageName());}catch(Throwable ignored){}
+            }else if(!"oem".equals(prefs.getString("homeKeyTarget","uni"))){
+                try{DefaultHomeGuard.restoreIfNeeded(context);}catch(Throwable ignored){}
+            }
+            publish();return true;
+        }
+        if("home-key-target".equals(action)){
+            String target="oem".equals(value)?"oem":"uni";
+            prefs.edit().putString("homeKeyTarget",target).apply();
+            if("oem".equals(target)){
+                try{context.getPackageManager().clearPackagePreferredActivities(context.getPackageName());}catch(Throwable ignored){}
+            }else if(prefs.getBoolean("bootAutostart",true)){
+                try{DefaultHomeGuard.restoreIfNeeded(context);}catch(Throwable ignored){}
+            }
+            publish();return true;
+        }
+        if("open-home-settings".equals(action)){
+            try{
+                Intent intent=new Intent(android.provider.Settings.ACTION_HOME_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                if(intent.resolveActivity(context.getPackageManager())!=null){
+                    context.startActivity(intent);
+                }else{
+                    intent=new Intent(android.provider.Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    if(intent.resolveActivity(context.getPackageManager())!=null){
+                        context.startActivity(intent);
+                    }else{
+                        context.startActivity(new Intent(android.provider.Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                    }
+                }
+            }catch(Exception e){
+                toast("系统没有提供桌面设置入口");
+            }
+            return true;
+        }
         if("boot-launch-enabled".equals(action)){
             bootLaunch.setEnabled(request.optBoolean("enabled",false));publish();return true;
         }

@@ -10,8 +10,13 @@ public final class GlobalDockBootReceiver extends BroadcastReceiver {
         final boolean boot=Intent.ACTION_BOOT_COMPLETED.equals(action);
         final boolean unlocked=Intent.ACTION_USER_UNLOCKED.equals(action);
         if(!(lockedBoot||boot||unlocked))return;
-        scheduleDelayedChecks(c);
-        runCheck(c,lockedBoot);
+        final SharedPreferences prefs=c.getSharedPreferences("launcher",Context.MODE_PRIVATE);
+        final boolean bootAutostart=prefs.getBoolean("bootAutostart",true);
+        final String homeKeyTarget=prefs.getString("homeKeyTarget","uni");
+        if(bootAutostart&&!"oem".equals(homeKeyTarget)){
+            scheduleDelayedChecks(c);
+            runCheck(c,lockedBoot);
+        }
         if(boot)GlobalDockService.ensureStarted(c);
     }
     private static void scheduleDelayedChecks(Context c){
