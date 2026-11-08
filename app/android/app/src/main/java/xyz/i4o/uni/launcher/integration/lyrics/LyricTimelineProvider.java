@@ -1,5 +1,7 @@
 package xyz.i4o.uni.launcher.integration.lyrics;
 
+import android.os.Handler;
+import android.os.Looper;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -42,6 +44,8 @@ public final class LyricTimelineProvider {
 
     private final LyricCatalog catalog;
     private final ExecutorService worker;
+    private final Runnable changed;
+    private final Handler main = new Handler(Looper.getMainLooper());
     private final Map<String, CacheEntry> memory =
             new LinkedHashMap<String, CacheEntry>(MEMORY_ENTRIES, 0.75f, true) {
                 @Override
@@ -206,6 +210,7 @@ public final class LyricTimelineProvider {
                         } else {
                             memoryPut(key, CacheEntry.of(result.timeline, result.sourceLabel,
                                     false, true));
+                            if (changed != null) main.post(changed);
                         }
                         notifyArrived();
                     } catch (RuntimeException unexpected) {

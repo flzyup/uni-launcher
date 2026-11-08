@@ -360,6 +360,46 @@ void main() {
     await t.pumpWidget(const SizedBox.shrink());
     expect(disposed, containsAll([0, 1]));
   });
+
+  testWidgets(
+      'switching tracks immediately clears previous lyrics and prioritizes realtime lyricLine',
+      (t) async {
+    Future<void> show(Map<String, dynamic> media) async {
+      await t.pumpWidget(MaterialApp(
+          theme: launcherTheme(SurfaceStyle.from(const Appearance(), true)),
+          home: Scaffold(
+              body: SizedBox(
+                  width: 400,
+                  height: 300,
+                  child: LyricsView(media: media)))));
+      await t.pumpAndSettle();
+    }
+
+    // Track 1 has full LRC lyrics.
+    await show({
+      'title': 'Track 1',
+      'artist': 'Artist 1',
+      'lyrics': '[00:00]Track 1 First Line\n[00:05]Track 1 Second Line',
+      'playing': true,
+      'positionMs': 1000,
+      'positionKnown': true,
+    });
+    expect(find.text('Track 1 First Line'), findsOneWidget);
+
+    // Track 2 starts, no catalog lyrics yet, but NetEase publishes real-time liveLine.
+    await show({
+      'title': 'Track 2',
+      'artist': 'Artist 2',
+      'lyrics': '',
+      'lyricTimeline': '',
+      'lyricLine': 'Track 2 Live Lyric',
+      'playing': true,
+      'positionMs': 500,
+      'positionKnown': true,
+    });
+    expect(find.text('Track 1 First Line'), findsNothing);
+    expect(find.text('Track 2 Live Lyric'), findsOneWidget);
+  });
 }
 
 class _LifetimeProbe extends StatefulWidget {

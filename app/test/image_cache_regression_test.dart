@@ -189,12 +189,12 @@ void main() {
     // Android sends icons, artwork, lyrics, names and design once, then streams
     // telemetry without them; the retained copy must survive untouched.
     gateway.stream
-        .add({'partial': true, 'demo': true, 'media': {'title': 'B'}});
+        .add({'partial': true, 'demo': true, 'media': {'title': 'A', 'positionMs': 1000}});
     final state = controller.native.value;
     expect((state['apps'] as List).single['iconBytes'], same(icon));
     expect((state['recentTasks'] as List).single['snapshotBytes'],
         base64Decode(pixel));
-    expect((state['media'] as Map)['title'], 'B');
+    expect((state['media'] as Map)['title'], 'A');
     expect((state['media'] as Map)['artwork'], pixel);
     expect((state['media'] as Map)['lyrics'], '[00:01.00]one');
     expect(state['appNames'], {'app': 'My player'});
@@ -204,6 +204,14 @@ void main() {
         reason: 'a packet without icons must not evict the visible ones');
     expect(controller.imageCacheStats['recentCount'], 1);
     expect(controller.appName({'package': 'app'}), 'My player');
+    // When the track changes to a new recording, lyrics and artwork from the
+    // previous track must not bleed into the new one.
+    gateway.stream
+        .add({'partial': true, 'demo': true, 'media': {'title': 'B'}});
+    final switched = controller.native.value;
+    expect((switched['media'] as Map)['title'], 'B');
+    expect((switched['media'] as Map).containsKey('artwork'), false);
+    expect((switched['media'] as Map).containsKey('lyrics'), false);
     // A full packet still replaces everything, including retiring old images.
     gateway.stream.add({
       'apps': [

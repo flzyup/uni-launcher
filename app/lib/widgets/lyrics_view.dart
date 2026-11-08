@@ -61,7 +61,9 @@ class _LyricsViewState extends State<LyricsView> {
   @override
   void didUpdateWidget(LyricsView old) {
     super.didUpdateWidget(old);
-    refresh();
+    final trackChanged = widget.media['title'] != old.media['title'] ||
+        widget.media['artist'] != old.media['artist'];
+    refresh(reset: trackChanged);
   }
 
   void refresh({bool reset = false}) {
@@ -74,6 +76,7 @@ class _LyricsViewState extends State<LyricsView> {
         : '';
     var changed = false;
     if (!_hasParsedSource ||
+        reset ||
         (!identical(rawTimeline, _rawTimeline) &&
             rawTimeline != _rawTimeline) ||
         raw != _rawLyrics) {
