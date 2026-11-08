@@ -435,6 +435,10 @@ public final class MainActivity extends FlutterActivity {
 
     /** 窗口还完整可见时抓帧；失败就当作没有快照，切回走原来的路径。 */
     private void captureResumeSnapshot(){
+        // 车机 Android 9（API 28）在含有 VirtualDisplay 地图与 Flutter 纹理合成的窗口上，
+        // PixelCopy 会触发底层 OpenGL 的 glReadPixels 报错 GL_INVALID_OPERATION (0x502)，
+        // 进而引发 libhwui assert 抛出 SIGABRT 崩溃。车机环境下跳过截图，回切依靠 Flutter 热引擎自然恢复。
+        if(android.os.Build.VERSION.SDK_INT<=28)return;
         if(resumeSnapshot==null)return;
         final android.view.View root=getWindow().getDecorView();
         final int w=root.getWidth(),h=root.getHeight();
