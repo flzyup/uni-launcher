@@ -12,6 +12,7 @@ import android.os.HandlerThread;
 import android.os.Looper;
 import android.os.Process;
 import android.os.SystemClock;
+import android.view.Display;
 import android.view.InputDevice;
 import android.view.InputEvent;
 import android.view.MotionEvent;
@@ -361,10 +362,34 @@ public final class LiveNavigationHost {
             if(disposed)return;cancelTouch();disposed=true;generation++;main.removeCallbacks(timeout);channel.setMethodCallHandler(null);
             MotionEvent stale=pendingMove.getAndSet(null);
             if(stale!=null)stale.recycle();
-            if(display!=null){display.release();display=null;}
-            if(surface!=null){surface.release();surface=null;}
-            if(texture!=null){texture.setOnFrameConsumedListener(null);texture.release();texture=null;}
+            int displayId=display!=null&&display.getDisplay()!=null?display.getDisplay().getDisplayId():Display.DEFAULT_DISPLAY;
+            if(displayId!=Display.DEFAULT_DISPLAY)clearDisplayTasks(displayId);
+            if(display!=null){try{display.release();}catch(Throwable ignored){}display=null;}
+            if(surface!=null){try{surface.release();}catch(Throwable ignored){}surface=null;}
+            if(texture!=null){try{texture.setOnFrameConsumedListener(null);texture.release();texture=null;}catch(Throwable ignored){}texture=null;}
             inputForwarder=null;forwardEvent=null;
         }
+    }
+
+    private static void clearDisplayTasks(int displayId){
+        if(displayId==Display.DEFAULT_DISPLAY)return;
+        try{
+            Object manager=Class.forName("android.app.ActivityManager").getMethod("getService").invoke(null);
+            java.lang.reflect.Method all=manager.getClass().getMethod("getAllStackInfos");all.setAccessible(true);
+            List<?> stacks=(List<?>)all.invoke(manager);
+            if(stacks==null)return;
+            java.lang.reflect.Method removeTask=Class.forName("android.app.IActivityManager").getMethod("removeTask",int.class);
+            removeTask.setAccessible(true);
+            for(Object stack:stacks){
+                Class<?> type=stack.getClass();
+                if(type.getField("displayId").getInt(stack)!=displayId)continue;
+                int[] taskIds=(int[])type.getField("taskIds").get(stack);
+                if(taskIds!=null){
+                    for(int taskId:taskIds){
+                        try{removeTask.invoke(manager,taskId);}catch(Throwable ignored){}
+                    }
+                }
+            }
+        }catch(Throwable ignored){}
     }
 }
