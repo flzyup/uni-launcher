@@ -487,7 +487,10 @@ public final class LauncherRuntime {
         if(!fingerprint.equals(designFingerprint)){designFingerprint=fingerprint;designRevision++;}
     }
     private void trackMedia(JSONObject media){
-        String fingerprint=media.optString("artwork","").hashCode()+":"
+        String fingerprint=media.optString("title","")+"\u0000"
+            +media.optString("artist","")+"\u0000"
+            +media.optString("source","")+"\u0000"
+            +media.optString("artwork","").hashCode()+":"
             +media.optString("lyrics","").hashCode()+":"
             +media.optString("lyricTimeline","").hashCode()+":"
             +media.optString("lyricTimelineLabel","");

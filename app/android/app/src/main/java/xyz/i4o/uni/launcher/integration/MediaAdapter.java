@@ -706,8 +706,15 @@ if(next!=null&&isOnlinePlayer(next.getPackageName())){
                 // Android has no universal lyrics contract. Take an explicit text payload
                 // when the source publishes one; otherwise identify the recording from the
                 // session metadata. An unmatched track stays empty, it is never guessed.
-                String text=readLyrics(m,controller.getExtras());
-                String source=text.isEmpty()?"":"media-session";
+                String text;
+                String source;
+                if(NeteaseMediaAdapter.supports(controller)){
+                    text=netease.getLyrics();
+                    source=netease.getLyricsSource();
+                }else{
+                    text=readLyrics(m,controller.getExtras());
+                    source=text.isEmpty()?"":"media-session";
+                }
                 if(text.isEmpty()){
                     // A local audio file carries its own lyrics; that beats every catalogue.
                     text=localLyrics(m,controller.getExtras());

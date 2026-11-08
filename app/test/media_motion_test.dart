@@ -399,6 +399,27 @@ void main() {
     });
     expect(find.text('Track 1 First Line'), findsNothing);
     expect(find.text('Track 2 Live Lyric'), findsOneWidget);
+
+    // Track 2 with full timeline and realtime lyricLine snaps to matching line
+    final timelineJson = jsonEncode({
+      'v': 1,
+      'lines': [
+        {'t': 0, 'd': 5000, 'x': 'Track 2 Line 1'},
+        {'t': 5000, 'd': 5000, 'x': 'Track 2 Line 2'},
+        {'t': 10000, 'd': 5000, 'x': 'Track 2 Line 3'},
+      ]
+    });
+    await show({
+      'title': 'Track 2',
+      'artist': 'Artist 2',
+      'lyrics': '',
+      'lyricTimeline': timelineJson,
+      'lyricLine': 'Track 2 Line 3',
+      'playing': true,
+      'positionMs': 1000, // clock says line 1, but liveLine snaps to line 3
+      'positionKnown': true,
+    });
+    expect(find.byKey(const ValueKey('lyric-line-2-active')), findsOneWidget);
   });
 }
 
