@@ -820,29 +820,6 @@ class _VehicleFrameState extends State<_VehicleFrame> {
         VehicleCardReading.fromNative(widget.native, key, nowMs: now)
     ];
     timer?.cancel();
-    final vehicle = widget.native['vehicle'];
-    final fields = vehicle is Map ? vehicle['fields'] : null;
-    final statusDeadlines = fields is Map
-        ? [
-            for (final key in ['driveMode', 'energyFlow'])
-              if (fields[key] is Map &&
-                  fields[key]['valid'] == true &&
-                  fields[key]['updatedAtMs'] is num &&
-                  (fields[key]['updatedAtMs'] as num).isFinite)
-                (fields[key]['updatedAtMs'] as num).toInt() + 5001 - now,
-          ]
-        : <int>[];
-    final deadlines = [
-      ...readings
-          .where((r) => r.available)
-          .map((r) => r.updatedAtMs + 5001 - now),
-      ...statusDeadlines
-    ].where((ms) => ms > 0);
-    if (deadlines.isNotEmpty) {
-      timer = Timer(Duration(milliseconds: deadlines.reduce(math.min)), () {
-        if (mounted) setState(() {});
-      });
-    }
     return LayoutBuilder(builder: (context, box) {
       final compact =
           box.maxHeight < Design.px(300) || box.maxWidth < Design.px(370);

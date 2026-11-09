@@ -42,7 +42,7 @@ String vehicleStatusLabel(Map<String, dynamic> native, String key,
   if (stamp is! num || !stamp.isFinite || stamp <= 0 || field['valid'] != true)
     return '待同步';
   final age = (nowMs ?? DateTime.now().millisecondsSinceEpoch) - stamp;
-  if (age < -1000 || age > 5000) return '等待更新';
+  if (age < -1000) return '等待更新';
   final value = field['value'];
   if (key == 'driveMode') return vehicleModeLabels[value] ?? '待同步';
   if (key == 'energyFlow') return vehicleEnergyLabels[value] ?? '待同步';
@@ -106,7 +106,8 @@ class VehicleCardReading {
       return missing(VehicleReadingState.disconnected);
     }
     final age = (nowMs ?? DateTime.now().millisecondsSinceEpoch) - updated;
-    if (updated > 0 && age > 5000) return missing(VehicleReadingState.stale);
+    if (field['stale'] == true) return missing(VehicleReadingState.stale);
+    if (age < -1000) return missing(VehicleReadingState.unavailable);
     final unit = '${field['unit'] ?? ''}'.replaceAll('μ', 'µ');
     final allowed = switch (key) {
       'batteryPercent' || 'fuelPercent' => const ['%'],
@@ -187,7 +188,7 @@ bool _isFieldUsable(Map fields, String key, int? nowMs) {
   if (stamp is! num || !stamp.isFinite || stamp <= 0) return false;
   if (nowMs != null) {
     final age = nowMs - stamp;
-    if (age < -1000 || age > 5000) return false;
+    if (age < -1000) return false;
   }
   return true;
 }

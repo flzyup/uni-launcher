@@ -224,8 +224,153 @@ class DockSettings extends StatelessWidget {
           DockSizeSettings(controller: c),
           SizedBox(height: Design.px(16)),
           DockRuntimeSettings(controller: c),
+          SizedBox(height: Design.px(16)),
+          BootAndHomeSettings(controller: c),
         ]);
   }
+}
+
+class BootAndHomeSettings extends StatelessWidget {
+  final LauncherController controller;
+  const BootAndHomeSettings({super.key, required this.controller});
+
+  @override
+  Widget build(BuildContext context) =>
+      ValueListenableBuilder<Map<String, dynamic>>(
+        valueListenable: controller.native,
+        builder: (context, native, _) {
+          final c = controller, s = SurfaceStyle.of(context);
+          final prefs = native['integrationPreferences'] is Map
+              ? Map<String, dynamic>.from(native['integrationPreferences'])
+              : const <String, dynamic>{};
+          final bootAutostart = prefs['bootAutostart'] != false;
+          final rawApps = prefs['homeApps'] is List
+              ? (prefs['homeApps'] as List).whereType<Map>().toList()
+              : const <Map>[];
+          final homeApps = <Map<String, dynamic>>[
+            if (rawApps.isEmpty) ...[
+              const {'package': 'xyz.i4o.uni.launcher', 'label': 'UNI 桌面', 'isUni': true},
+              const {'package': 'ecarx.launcher3', 'label': '原车系统桌面', 'isUni': false},
+            ] else
+              for (final app in rawApps)
+                Map<String, dynamic>.from(app),
+          ];
+
+          final currentTarget = '${prefs['homeKeyTarget'] ?? 'uni'}';
+          final currentLabel = homeApps.firstWhere(
+            (a) =>
+                a['package'] == currentTarget ||
+                (a['isUni'] == true &&
+                    (currentTarget == 'uni' ||
+                        currentTarget == 'xyz.i4o.uni.launcher')) ||
+                (a['package'] == 'ecarx.launcher3' &&
+                    (currentTarget == 'oem' ||
+                        currentTarget == 'ecarx.launcher3')),
+            orElse: () => {'label': currentTarget},
+          )['label'] as String;
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SettingBlock(
+                title: '开机自启动',
+                note: bootAutostart ? '开机自动进入 UNI 桌面' : '开机保留在原车桌面',
+                child: DesignSwitchTile(
+                  key: const ValueKey('boot-autostart-switch'),
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('开机自启动 UNI 桌面'),
+                  subtitle: const Text('车机通电开机完成后自动进入 UNI 桌面；关闭后保留在原车系统桌面'),
+                  value: bootAutostart,
+                  onChanged: (v) => c.setBootAutostart(v),
+                ),
+              ),
+              SizedBox(height: Design.px(16)),
+              SettingBlock(
+                title: '中控实体 HOME 键动作',
+                note: currentLabel,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      '设置按下车机中控台圆形实体 HOME 键时打开的桌面应用。底栏上的 HOME 虚拟图标始终固定用于返回 UNI 桌面首页。当设置为其他桌面时，按实体按键将完全切换至该桌面，不保留 UNI 底栏。',
+                      style: TextStyle(color: s.muted, fontSize: Design.px(18)),
+                    ),
+                    SizedBox(height: Design.px(16)),
+                    Wrap(
+                      spacing: Design.px(14),
+                      runSpacing: Design.px(12),
+                      children: homeApps.map((app) {
+                        final isUni = app['isUni'] == true ||
+                            app['package'] == 'xyz.i4o.uni.launcher';
+                        final isOem = app['package'] == 'ecarx.launcher3';
+                        final isSelected = currentTarget == app['package'] ||
+                            (isUni &&
+                                (currentTarget == 'uni' ||
+                                    currentTarget ==
+                                        'xyz.i4o.uni.launcher')) ||
+                            (isOem &&
+                                (currentTarget == 'oem' ||
+                                    currentTarget == 'ecarx.launcher3'));
+                        final targetKey = isUni
+                            ? 'uni'
+                            : (isOem ? 'oem' : '${app['package']}');
+                        return SizedBox(
+                          height: Design.px(66),
+                          child: OutlinedButton(
+                            key: ValueKey('home-target-$targetKey'),
+                            style: s.selectionStyle(isSelected),
+                            onPressed: () => c.setHomeKeyTarget(isUni
+                                ? 'uni'
+                                : (isOem ? 'oem' : '${app['package']}')),
+                            child: Text(
+                              '${app['label']}',
+                              style: TextStyle(fontSize: Design.px(20)),
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ],
+                ),
+              ),
+              SizedBox(height: Design.px(16)),
+              SettingBlock(
+                title: '系统默认桌面设置',
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('由 Android 系统管理默认桌面',
+                              style: TextStyle(fontSize: Design.px(22))),
+                          SizedBox(height: Design.px(6)),
+                          Text(
+                            '打开系统应用设置页面，可在此直接切换或恢复官方默认桌面',
+                            style: TextStyle(
+                                color: s.muted, fontSize: Design.px(18)),
+                          ),
+                        ],
+                      ),
+                    ),
+                    SizedBox(width: Design.px(16)),
+                    SizedBox(
+                      height: Design.px(66),
+                      child: OutlinedButton.icon(
+                        key: const ValueKey('open-home-settings-button'),
+                        style: s.selectionStyle(false),
+                        onPressed: () => c.openHomeSettings(),
+                        icon: const Icon(Icons.settings_outlined),
+                        label: const Text('打开系统设置'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          );
+        },
+      );
 }
 
 class ConnectionSettings extends StatelessWidget {
