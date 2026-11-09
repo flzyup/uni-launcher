@@ -273,7 +273,7 @@ public final class GlobalDockService extends Service {
         enableBarModifications(this,runtime.prefs());nativeInsets=NavigationInsets.applied(this);
         workspace=new WorkspacePolicy(this,runtime.prefs());
         if(nativeInsets)workspace.stopAndRestore();
-        workspace.start();
+        else workspace.start();
         UniLog.enter(LogTags.DOCK,"dock/attach","surface","dock");
         try{dockWindow=new OverlayWindow(false);}catch(RuntimeException e){
             UniLog.fail(LogTags.DOCK,"dock/engine","surface","dock","error",String.valueOf(e.getMessage()));

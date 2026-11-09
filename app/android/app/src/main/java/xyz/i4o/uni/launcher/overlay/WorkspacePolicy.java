@@ -1,14 +1,18 @@
 package xyz.i4o.uni.launcher.overlay;
 
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.ResolveInfo;
 import android.graphics.Rect;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.DisplayMetrics;
 import android.view.WindowManager;
 import java.lang.reflect.Method;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import org.json.JSONObject;
 import xyz.i4o.uni.launcher.log.LogTags;
 import xyz.i4o.uni.launcher.log.UniLog;
@@ -36,6 +40,58 @@ public final class WorkspacePolicy {
     private int loggedResized=-1;
     /** 记录已向系统请求过调整的栈与目标尺寸，防止不支持缩放的全屏栈每秒重复触发 resizeStack。 */
     private final java.util.Map<Integer,String> attempted=new java.util.HashMap<>();
+    private final Set<String> cachedHomePackages=new HashSet<>();
+    private long lastHomeCheckAt=0;
+
+    private boolean isHomePackage(String pkg){
+        if(pkg==null||pkg.isEmpty()||context.getPackageName().equals(pkg))return false;
+        long now=System.currentTimeMillis();
+        if(now-lastHomeCheckAt>10000||cachedHomePackages.isEmpty()){
+            cachedHomePackages.clear();
+            try{
+                Intent home=new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME);
+                List<ResolveInfo> homes=context.getPackageManager().queryIntentActivities(home,0);
+                if(homes!=null){
+                    for(ResolveInfo ri:homes){
+                        if(ri.activityInfo!=null&&ri.activityInfo.packageName!=null){
+                            String p=ri.activityInfo.packageName;
+                            if(!context.getPackageName().equals(p)
+                                &&!"com.android.settings".equals(p)
+                                &&!p.endsWith(".fallbackhome")){
+                                cachedHomePackages.add(p);
+                            }
+                        }
+                    }
+                }
+                lastHomeCheckAt=now;
+            }catch(Throwable ignored){}
+        }
+        return cachedHomePackages.contains(pkg);
+    }
+
+    private boolean isNativeSizeTask(String name,String ownPrefix){
+        if(name==null||name.isEmpty())return false;
+        if(name.startsWith(ownPrefix)
+            ||name.startsWith("com.ecarx.parking/")
+            ||name.startsWith("com.ecarx.recents/")
+            ||name.startsWith("ecarx.launcher3/")
+            ||name.startsWith("com.android.car.carlauncher/")
+            ||name.startsWith("com.android.launcher3/")){
+            return true;
+        }
+        int slash=name.indexOf('/');
+        String pkg=slash>0?name.substring(0,slash):name;
+        if("ecarx.launcher3".equals(pkg)
+            ||"com.android.car.carlauncher".equals(pkg)
+            ||"com.android.launcher3".equals(pkg)){
+            return true;
+        }
+        String target=prefs.getString("homeKeyTarget","");
+        if(!target.isEmpty()&&!"uni".equals(target)&&(pkg.equals(target)||name.startsWith(target+"/"))){
+            return true;
+        }
+        return isHomePackage(pkg);
+    }
     private final Runnable check=new Runnable(){public void run(){
         if(!running)return;
         update();if(available)handler.postDelayed(this,POLL_MS);
@@ -87,16 +143,15 @@ public final class WorkspacePolicy {
                 String[] names=(String[])t.getField("taskNames").get(info);
                 int id=t.getField("stackId").getInt(info);if(id==0)continue;Rect bounds=(Rect)t.getField("bounds").get(info);
                 if(compatibilityOnly&&!WorkspaceCompatibilityPolicy.shouldResize(visible,names)){
-                    restoreOne(id,bounds);continue;
+                    restoreOne(id,bounds,real);continue;
                 }
                 if(!visible||names==null||names.length==0){attempted.remove(id);continue;}
-                // OEM recents crashes in a delayed HomePresenter callback when
-                // stack resize recreates its Activity. Its task cards already
-                // fit above the bottom strip; retain its native fullscreen size.
+                // OEM recents, OEM launcher, AppPane and home apps must retain native size.
+                // stack resize recreates activities or squashes grids, dropping labels.
                 // UNI's own MainActivity already reserves dockTop via viewportHeightPx.
-                boolean nativeSize=false;for(String name:names)if(name!=null
-                    &&(name.startsWith("com.ecarx.parking/")||name.startsWith("com.ecarx.recents/")||name.startsWith(ownPrefix)))nativeSize=true;
-                if(nativeSize){restoreOne(id,bounds);continue;}
+                boolean nativeSize=false;
+                for(String name:names)if(isNativeSizeTask(name,ownPrefix))nativeSize=true;
+                if(nativeSize){restoreOne(id,bounds,real);continue;}
                 // Preserve floating, split-screen or PIP tasks; never resize a
                 // map's virtual display, SystemUI window or unrelated small task.
                 if(bounds==null||bounds.left!=0||bounds.top!=0||bounds.width()!=real.widthPixels
@@ -117,21 +172,28 @@ public final class WorkspacePolicy {
             if(resized!=loggedResized){loggedResized=resized;UniLog.i(LogTags.SYS,"工作区已预留","tasks",resized);}
         }catch(Exception e){available=false;UniLog.w(LogTags.SYS,"Unable to reserve task workspace",e,"tag","UniWorkspace");UniLog.fail(LogTags.SYS,"sys/workspace","reason","resize-failed","error",e.getClass().getSimpleName());}
     }
-    private void restoreOne(int id,Rect current)throws Exception{
+    private void restoreOne(int id,Rect current,DisplayMetrics real)throws Exception{
         attempted.remove(id);
-        String key=""+id;if(!originals.has(key))return;
-        Rect original=Rect.unflattenFromString(originals.optString(key));
+        String key=""+id;
+        Rect original=null;
+        if(originals.has(key)){
+            original=Rect.unflattenFromString(originals.optString(key));
+            originals.remove(key);prefs.edit().putString(SAVED,originals.toString()).apply();
+        }
+        if(original==null&&real!=null){
+            original=new Rect(0,0,real.widthPixels,real.heightPixels);
+        }
         if(original!=null&&!original.equals(current))resize(id,original);
-        originals.remove(key);prefs.edit().putString(SAVED,originals.toString()).apply();
     }
     public void stopAndRestore(){
         running=false;handler.removeCallbacks(check);
         UniLog.enter(LogTags.SYS,"sys/workspace","action","stop","resized",resized);
         if(available)try{
+            DisplayMetrics real=new DisplayMetrics();((WindowManager)context.getSystemService(Context.WINDOW_SERVICE)).getDefaultDisplay().getRealMetrics(real);
             for(Object info:(List<?>)stacks.invoke(manager)){
                 Class<?> t=info.getClass();
                 if(t.getField("displayId").getInt(info)==0)
-                    restoreOne(t.getField("stackId").getInt(info),(Rect)t.getField("bounds").get(info));
+                    restoreOne(t.getField("stackId").getInt(info),(Rect)t.getField("bounds").get(info),real);
             }
         }catch(Exception e){UniLog.w(LogTags.SYS,"Unable to restore task workspace",e,"tag","UniWorkspace");UniLog.fail(LogTags.SYS,"sys/workspace","action","stop","error",e.getClass().getSimpleName());return;}
         if(originals.length()==0)prefs.edit().remove(SAVED).apply();
