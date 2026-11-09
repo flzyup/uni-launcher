@@ -160,7 +160,7 @@ void main() {
     final texture =
         find.byKey(const ValueKey('map-live-texture'), skipOffstage: false);
     final original = t.element(texture);
-    for (final theme in ['classic', 'blueGlass', 'classic']) {
+    for (final theme in ['classic', 'blueGlass', 'nocturne', 'classic']) {
       h.controller.openSettings();
       await h.flush();
       expect(h.disposed, isEmpty,

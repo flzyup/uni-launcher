@@ -5,13 +5,18 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.content.res.Configuration;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.widget.Toast;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.FutureTask;
@@ -245,6 +250,69 @@ public final class LauncherRuntime {
         try{return current.describeAdapters();}
         catch(Throwable t){return "(读取子系统状态失败: "+t.getMessage()+")\n";}
     }
+    public static JSONArray installedHomeApps(Context context){
+        JSONArray array=new JSONArray();
+        if(context==null)return array;
+        try{
+            PackageManager pm=context.getPackageManager();
+            Intent homeIntent=new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME);
+            List<ResolveInfo> resolves=pm.queryIntentActivities(homeIntent,PackageManager.MATCH_ALL);
+            if(resolves==null||resolves.isEmpty()){
+                resolves=pm.queryIntentActivities(homeIntent,PackageManager.MATCH_DEFAULT_ONLY);
+            }
+            if(resolves==null||resolves.isEmpty()){
+                resolves=pm.queryIntentActivities(homeIntent,0);
+            }
+            Set<String> seen=new HashSet<>();
+            boolean hasEcarx=false, hasUni=false;
+            String myPkg=context.getPackageName();
+            if(resolves!=null){
+                for(ResolveInfo ri:resolves){
+                    if(ri.activityInfo!=null&&ri.activityInfo.packageName!=null){
+                        if(ri.priority<0)continue;
+                        String pkg=ri.activityInfo.packageName;
+                        if("com.android.settings".equals(pkg)||pkg.endsWith(".fallbackhome"))continue;
+                        if(ri.activityInfo.name!=null&&ri.activityInfo.name.endsWith(".FallbackHome"))continue;
+                        if(!seen.add(pkg))continue;
+                        if("ecarx.launcher3".equals(pkg))hasEcarx=true;
+                        if(myPkg.equals(pkg))hasUni=true;
+                        CharSequence labelSeq=ri.loadLabel(pm);
+                        String label=labelSeq!=null?labelSeq.toString().trim():"";
+                        if(label.isEmpty())label=pkg;
+                        if("ecarx.launcher3".equals(pkg)&&!label.contains("原车")){
+                            label="原车系统桌面 ("+label+")";
+                        }
+                        JSONObject item=new JSONObject();
+                        item.put("package",pkg);
+                        item.put("label",myPkg.equals(pkg)?label+" (当前应用)":label);
+                        item.put("isUni",myPkg.equals(pkg));
+                        array.put(item);
+                    }
+                }
+            }
+            if(!hasUni){
+                JSONObject item=new JSONObject();
+                item.put("package",myPkg);
+                item.put("label","UNI 桌面 (当前应用)");
+                item.put("isUni",true);
+                array.put(item);
+            }
+            if(!hasEcarx){
+                try{
+                    pm.getPackageInfo("ecarx.launcher3",0);
+                    JSONObject item=new JSONObject();
+                    item.put("package","ecarx.launcher3");
+                    item.put("label","原车系统桌面");
+                    item.put("isUni",false);
+                    array.put(item);
+                }catch(Throwable ignored){}
+            }
+        }catch(Throwable e){
+            UniLog.w(LogTags.APP,"获取已安装桌面失败",e);
+        }
+        return array;
+    }
+
     /** 普通快照：按游标只补发变化的分组，不携带设置目录（Dock/面板用）。 */
     public JSONObject snapshot(StaticCursor cursor){return onMain(()->buildSnapshot(cursor,false,false));}
 
@@ -333,13 +401,19 @@ public final class LauncherRuntime {
             t.weather=weather.snapshot();
             t.calendar=calendar.snapshot();
             t.navigation=navigation.snapshot();
+            String homeTarget=prefs.getString("homeKeyTarget",context.getPackageName());
+            if("uni".equals(homeTarget))homeTarget=context.getPackageName();
+            else if("oem".equals(homeTarget))homeTarget="ecarx.launcher3";
             t.integrationPreferences=new JSONObject()
                 .put("mediaPackage",prefs.getString("mediaPackage","auto"))
                 .put("mapTextureScale",prefs.getBoolean("mapTextureScale",false))
                 .put("navigationCardTitleHidden",prefs.getBoolean("navigationCardTitleHidden",true))
                 .put("autoPlayMusic",prefs.getBoolean("autoPlayMusic",false))
                 .put("steeringKeysEnabled",prefs.getBoolean("steeringKeysEnabled",true))
-                .put("instrumentSyncEnabled",prefs.getBoolean("instrumentSyncEnabled",true));
+                .put("instrumentSyncEnabled",prefs.getBoolean("instrumentSyncEnabled",true))
+                .put("bootAutostart",prefs.getBoolean("bootAutostart",true))
+                .put("homeKeyTarget",homeTarget)
+                .put("homeApps",installedHomeApps(context));
             t.debugBridge=debugBridge.snapshot();
             JSONObject memory=new JSONObject();
             try{
@@ -629,6 +703,40 @@ public final class LauncherRuntime {
             publish();return true;
         }
         // 开机自启动计划：只记录计划；真正启动由开机落点窗口里的排程执行。
+        if("boot-autostart".equals(action)){
+            boolean enabled=request.optBoolean("enabled",true);
+            prefs.edit().putBoolean("bootAutostart",enabled).apply();
+            publish();return true;
+        }
+        if("home-key-target".equals(action)){
+            String target=value!=null?value.trim():"";
+            if(target.isEmpty()||"uni".equals(target)){
+                target=context.getPackageName();
+            }else if("oem".equals(target)){
+                target="ecarx.launcher3";
+            }
+            prefs.edit().putString("homeKeyTarget",target).apply();
+            try{DefaultHomeGuard.restoreIfNeeded(context);}catch(Throwable ignored){}
+            publish();return true;
+        }
+        if("open-home-settings".equals(action)){
+            try{
+                Intent intent=new Intent(android.provider.Settings.ACTION_HOME_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                if(intent.resolveActivity(context.getPackageManager())!=null){
+                    context.startActivity(intent);
+                }else{
+                    intent=new Intent(android.provider.Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    if(intent.resolveActivity(context.getPackageManager())!=null){
+                        context.startActivity(intent);
+                    }else{
+                        context.startActivity(new Intent(android.provider.Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                    }
+                }
+            }catch(Exception e){
+                toast("系统没有提供桌面设置入口");
+            }
+            return true;
+        }
         if("boot-launch-enabled".equals(action)){
             bootLaunch.setEnabled(request.optBoolean("enabled",false));publish();return true;
         }

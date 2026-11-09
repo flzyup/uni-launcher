@@ -12,7 +12,7 @@ import xyz.i4o.uni.launcher.log.UniLog;
  * looper.
  */
 public final class LauncherVisibility {
-    private static volatile boolean visible=true;
+    private static volatile boolean visible=false;
     private LauncherVisibility(){}
     public static void set(boolean value){
         // 只在状态变化时记一条：可见性被高频轮询，逐次落盘会淹没日志文件。

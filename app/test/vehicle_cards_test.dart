@@ -56,7 +56,7 @@ void main() {
     expect(label('charging'), '待同步');
     field(native, 'driveMode')['value'] = 'UNKNOWN';
     expect(label('driveMode'), '待同步');
-    field(native, 'driveMode')['updatedAtMs'] = vehicleGalleryNow - 6000;
+    field(native, 'driveMode')['updatedAtMs'] = vehicleGalleryNow + 2000;
     expect(label('driveMode'), '等待更新');
     field(native, 'energyFlow')['updatedAtMs'] = 'bad';
     expect(label('energyFlow'), '待同步');
@@ -148,12 +148,15 @@ void main() {
   });
 
   test(
-      'freshness is per field with the existing five second and clock tolerance',
+      'freshness retains live readings while connected and respects clock skew and disconnects',
       () {
     final native = vehicleGalleryFixture();
     field(native, 'batteryPercent')['updatedAtMs'] = vehicleGalleryNow - 5000;
     expect(reading(native, 'batteryPercent').available, isTrue);
     expect(reading(native, 'batteryPercent', now: vehicleGalleryNow + 1).state,
+        VehicleReadingState.live);
+    field(native, 'batteryPercent')['stale'] = true;
+    expect(reading(native, 'batteryPercent').state,
         VehicleReadingState.stale);
     expect(reading(native, 'pm25').available, isTrue);
     field(native, 'speed')['updatedAtMs'] = vehicleGalleryNow + 1000;
@@ -242,7 +245,7 @@ void main() {
   });
 
   testWidgets(
-      'readings expire without a new event and recover on a fresh snapshot',
+      'readings remain steady across idle ticks and disconnect on signal loss',
       (t) async {
     var now = vehicleGalleryNow;
     final native = vehicleGalleryFixture();
@@ -255,9 +258,15 @@ void main() {
     await t.pump(const Duration(milliseconds: 101));
     expect(
         t.widget<Text>(find.byKey(const ValueKey('vehicle-value-pm25'))).data,
-        '—');
+        '12');
     expect(find.text('等待更新'), findsNothing);
     expect(find.text('28'), findsOneWidget);
+    native['vehicle']['connected'] = false;
+    await t.pumpWidget(surface(AirQualityCard(native: native, nowMs: () => now)));
+    await t.pumpAndSettle();
+    expect(
+        t.widget<Text>(find.byKey(const ValueKey('vehicle-value-pm25'))).data,
+        '—');
     final next = vehicleGalleryFixture();
     field(next, 'pm25').addAll({'value': 7, 'updatedAtMs': now});
     await t.pumpWidget(surface(AirQualityCard(native: next, nowMs: () => now)));

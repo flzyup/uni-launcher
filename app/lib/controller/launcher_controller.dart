@@ -595,6 +595,30 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
     unawaited(service.refreshStatus());
   }
 
+  bool get bootAutostart =>
+      (native.value['integrationPreferences'] is Map &&
+          native.value['integrationPreferences']['bootAutostart'] != null)
+          ? native.value['integrationPreferences']['bootAutostart'] == true
+          : true;
+
+  String get homeKeyTarget =>
+      (native.value['integrationPreferences'] is Map &&
+          native.value['integrationPreferences']['homeKeyTarget'] != null)
+          ? '${native.value['integrationPreferences']['homeKeyTarget']}'
+          : 'uni';
+
+  void setBootAutostart(bool enabled) {
+    command('boot-autostart', enabled: enabled);
+  }
+
+  void setHomeKeyTarget(String target) {
+    command('home-key-target', value: target);
+  }
+
+  void openHomeSettings() {
+    command('open-home-settings');
+  }
+
   /// 外部回桌面（HOME intent、桌面入口、全局底栏）。
   ///
   /// [resetPage] 默认 false：Android 桌面的语义是「回到你离开时的那一页」。

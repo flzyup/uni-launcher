@@ -52,7 +52,13 @@ class GlassSurface extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = SurfaceStyle.of(context),
         shape = BorderRadius.circular(radius ?? s.radius);
-    if (s.nocturne) return _nocturne(s, shape);
+    final effectiveRadius = radius ?? s.radius;
+    final body = Material(
+        key: const ValueKey('glass-surface-body'),
+        type: MaterialType.transparency,
+        child: Padding(padding: padding, child: child));
+
+    if (s.nocturne) return _nocturne(s, shape, body);
     final color = dock && s.technicalFrame
         ? s.dock
         : switch (tone) {
@@ -60,7 +66,7 @@ class GlassSurface extends StatelessWidget {
             SurfaceTone.strong => s.strong,
             SurfaceTone.soft => s.soft,
           };
-    final content = DecoratedBox(
+    final bgBox = DecoratedBox(
         decoration: BoxDecoration(
             color: color,
             gradient: s.technicalFrame && s.glass
@@ -79,11 +85,8 @@ class GlassSurface extends StatelessWidget {
                 ? (dock && !dockFramed
                     ? Border(top: BorderSide(color: s.edge))
                     : null)
-                : Border.all(color: borderColor ?? s.edge)),
-        child: Material(
-            type: MaterialType.transparency,
-            child: Padding(padding: padding, child: child)));
-    final framed = s.technicalFrame && (!dock || dockFramed)
+                : Border.all(color: borderColor ?? s.edge)));
+    final framedBg = s.technicalFrame && (!dock || dockFramed)
         ? DecoratedBox(
             position: DecorationPosition.foreground,
             decoration: ShapeDecoration(
@@ -95,19 +98,21 @@ class GlassSurface extends StatelessWidget {
                             ? s.edge
                             : Color.lerp(s.edge, borderColor, .24)!),
                     cornerColor: borderColor ?? s.corner)),
-            child: content)
-        : content;
-    final effectiveRadius = radius ?? s.radius;
-    final clipped = s.liveBlur
-        ? ClipRRect(
-            borderRadius: shape,
-            child: BackdropFilter.grouped(
-                key: const ValueKey('glass-filter'),
-                filter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                child: framed))
-        : (effectiveRadius > 0
-            ? ClipRRect(borderRadius: shape, child: framed)
-            : framed);
+            child: bgBox)
+        : bgBox;
+    final stack = Stack(fit: StackFit.passthrough, children: [
+      Positioned.fill(
+          child: s.liveBlur
+              ? BackdropFilter.grouped(
+                  key: const ValueKey('glass-filter'),
+                  filter: ui.ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                  child: framedBg)
+              : framedBg),
+      body,
+    ]);
+    final clipped = effectiveRadius > 0
+        ? ClipRRect(borderRadius: shape, child: stack)
+        : stack;
     return DecoratedBox(
         decoration: BoxDecoration(
             borderRadius: shape,
@@ -128,23 +133,24 @@ class GlassSurface extends StatelessWidget {
   /// Nocturne surface: a hairline white-alpha gradient over the near-black
   /// canvas, an optional bottom glow, and no blur at all (the design is built
   /// for the 820A GPU — no backdrop-filter, no floating lights).
-  Widget _nocturne(SurfaceStyle s, BorderRadius shape) {
+  Widget _nocturne(SurfaceStyle s, BorderRadius shape, Widget body) {
     if (flat) {
       // 底栏音乐块：只给一层平整的淡底和细边，不叠玻璃高光与底部压暗
       // （那两样铺在 72 高的胶囊里会糊成一块黑）。底色是必须的——没有它，
       // 播放进度染在近黑画布上就只剩一根孤立的色块，四角也不随圆角走。
       return ClipRRect(
           borderRadius: shape,
-          child: DecoratedBox(
-              decoration: BoxDecoration(
-                  // 和经典主题底栏音乐块的 soft 底色同一个值：暗夜要的是
-                  // 「显示方式跟经典一样」，不是另立一套。
-                  color: const Color(0x1AB3D9D9),
-                  borderRadius: shape,
-                  border: Border.all(color: const Color(0x2BFFFFFF))),
-              child: Material(
-                  type: MaterialType.transparency,
-                  child: Padding(padding: padding, child: child))));
+          child: Stack(fit: StackFit.passthrough, children: [
+            Positioned.fill(
+                child: DecoratedBox(
+                    decoration: BoxDecoration(
+                        // 和经典主题底栏音乐块的 soft 底色同一个值：暗夜要的是
+                        // 「显示方式跟经典一样」，不是另立一套。
+                        color: const Color(0x1AB3D9D9),
+                        borderRadius: shape,
+                        border: Border.all(color: const Color(0x2BFFFFFF))))),
+            body,
+          ]));
     }
     final isCard = !dock && !sheet;
     // 卡片和浮层面板共用同一套玻璃，区别只有两处：面板背后是内容而不是
@@ -237,9 +243,7 @@ class GlassSurface extends StatelessWidget {
                           Colors.white.withValues(alpha: .16),
                           const Color(0x00FFFFFF)
                         ])))),
-              Material(
-                  type: MaterialType.transparency,
-                  child: Padding(padding: padding, child: child)),
+              body,
             ])));
   }
 

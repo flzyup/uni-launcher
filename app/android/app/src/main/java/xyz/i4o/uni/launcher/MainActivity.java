@@ -1,11 +1,14 @@
 package xyz.i4o.uni.launcher;
 
+import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
 import android.app.Activity;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.net.Uri;
 import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.content.res.Configuration;
 import android.os.Bundle;
 import android.view.View;
@@ -20,6 +23,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import org.json.JSONObject;
 import xyz.i4o.uni.launcher.integration.NavigationChrome;
@@ -31,6 +35,7 @@ import xyz.i4o.uni.launcher.platform.LiveNavigationHost;
 /** Home window and Flutter bridge; shared integrations live in LauncherRuntime. */
 public final class MainActivity extends FlutterActivity {
     private static java.lang.ref.WeakReference<MainActivity> active=new java.lang.ref.WeakReference<>(null);
+    private static boolean bootRedirectEvaluated = false;
     /** 切走时抓下的最后一帧；切回时先贴上去，Flutter 画好再撤（见 installResumeSnapshot）。 */
     private android.widget.ImageView resumeSnapshot;
     private android.graphics.Bitmap snapshotBitmap;
@@ -392,6 +397,17 @@ public final class MainActivity extends FlutterActivity {
             ||launchIntent.getBooleanExtra("uniSpectrumPermission",false))
             dispatchIntent(launchIntent);
         publish();
+        if(!initialSettings && !bootRedirectEvaluated && android.os.SystemClock.elapsedRealtime() < 60000L){
+            bootRedirectEvaluated = true;
+            boolean autostart = rt.prefs().getBoolean("bootAutostart", true);
+            String target = rt.prefs().getString("homeKeyTarget", getPackageName());
+            boolean isUni = "uni".equals(target) || getPackageName().equals(target);
+            if(!autostart && isUni){
+                UniLog.i(LogTags.SYS, "开机自启已关闭，开机冷启动自动退回原车桌面", "tag", "UniHome");
+                launchHomeTarget(this, "oem");
+                moveTaskToBack(true);
+            }
+        }
         StartupTrace.mark("window");
         final android.view.View traceRoot=getWindow().getDecorView();
         traceRoot.getViewTreeObserver().addOnPreDrawListener(new android.view.ViewTreeObserver.OnPreDrawListener(){
@@ -788,6 +804,7 @@ public final class MainActivity extends FlutterActivity {
         // dock is off; both switches keep their own persisted state.
         SystemNavigationPolicy.setHidden(this,rt.prefs(),rt.prefs().getBoolean("systemNavigationHidden",false));
         if(chrome!=null)chrome.apply();
+        GlobalDockService.resumeDockForExternalHome();
         rt.setHomeVisible(true);rt.addListener(this,this::publish);
         if(mapHost!=null)mapHost.setVisible(true);
         // 这里不再显式 publish()：addListener / setHomeVisible 已经在同一轮主线程
@@ -796,13 +813,14 @@ public final class MainActivity extends FlutterActivity {
     }
 
     @Override protected void onPause(){
-        // 窗口还在最上层时抓这一帧；等到 onStop 就已经被下一个应用盖住了。
         captureResumeSnapshot();
+        LauncherVisibility.set(false);
         super.onPause();
     }
 
     @Override protected void onResume(){
         LauncherVisibility.set(true);
+        GlobalDockService.resumeDockForExternalHome();
         // 从别的应用回桌面时窗口/权限/坞状态可能已经变了，投影缓存先作废。
         invalidateWindowCaches();
         super.onResume();if(chrome!=null)chrome.apply();
@@ -848,6 +866,14 @@ public final class MainActivity extends FlutterActivity {
     @Override public boolean dispatchKeyEvent(android.view.KeyEvent event){
         if(event!=null&&event.getAction()==android.view.KeyEvent.ACTION_DOWN&&event.getRepeatCount()==0){
             if(event.getKeyCode()==android.view.KeyEvent.KEYCODE_HOME){
+                android.content.SharedPreferences prefs=getSharedPreferences("launcher",0);
+                String target=prefs.getString("homeKeyTarget",getPackageName());
+                boolean isUni="uni".equals(target)||getPackageName().equals(target);
+                if(!isUni){
+                    GlobalDockService.dismissPanelNow("window");
+                    launchHomeTarget(this,target);
+                    return true;
+                }
                 dispatchHomeFirst("window");
                 return true;
             }
@@ -863,9 +889,106 @@ public final class MainActivity extends FlutterActivity {
      */
     public static void requestHomeFirst(String via){
         MainActivity host=active.get();
+        Context ctx=host;
+        if(ctx==null)ctx=GlobalDockService.getActive();
+        if(ctx!=null){
+            android.content.SharedPreferences prefs=ctx.getSharedPreferences("launcher",0);
+            String target=prefs.getString("homeKeyTarget",ctx.getPackageName());
+            boolean isUni="uni".equals(target)||ctx.getPackageName().equals(target);
+            if(!isUni && ("input".equals(via) || "window".equals(via))){
+                GlobalDockService.dismissPanelNow(via);
+                launchHomeTarget(ctx,target);
+                return;
+            }
+        }
         if(host==null){GlobalDockService.dismissPanelNow(via);return;}
         host.bringSelfToFront();
         host.dispatchHomeFirst(via);
+    }
+
+    public static void launchHomeTarget(Context context, String targetPackage){
+        if(context==null)return;
+        try{
+            GlobalDockService.suspendDockForExternalHome();
+            PackageManager pm=context.getPackageManager();
+            Intent homeIntent=new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME);
+            List<ResolveInfo> resolves=pm.queryIntentActivities(homeIntent,PackageManager.MATCH_DEFAULT_ONLY);
+            ResolveInfo target=null;
+            if(targetPackage!=null&&!targetPackage.isEmpty()&&!"oem".equals(targetPackage)){
+                if(resolves!=null){
+                    for(ResolveInfo ri:resolves){
+                        if(ri.activityInfo!=null&&targetPackage.equals(ri.activityInfo.packageName)){
+                            target=ri;
+                            break;
+                        }
+                    }
+                }
+                if(target==null){
+                    resolves=pm.queryIntentActivities(homeIntent,0);
+                    if(resolves!=null){
+                        for(ResolveInfo ri:resolves){
+                            if(ri.activityInfo!=null&&targetPackage.equals(ri.activityInfo.packageName)){
+                                target=ri;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }else{
+                if(resolves!=null){
+                    for(ResolveInfo ri:resolves){
+                        if(ri.activityInfo!=null&&!context.getPackageName().equals(ri.activityInfo.packageName)){
+                            target=ri;
+                            break;
+                        }
+                    }
+                }
+                if(target==null){
+                    resolves=pm.queryIntentActivities(homeIntent,0);
+                    if(resolves!=null){
+                        for(ResolveInfo ri:resolves){
+                            if(ri.activityInfo!=null&&!context.getPackageName().equals(ri.activityInfo.packageName)){
+                                target=ri;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            if(target!=null){
+                Intent launch=new Intent(Intent.ACTION_MAIN)
+                    .addCategory(Intent.CATEGORY_HOME)
+                    .setClassName(target.activityInfo.packageName,target.activityInfo.name)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED);
+                context.startActivity(launch);
+                UniLog.i(LogTags.APP,"拉起目标桌面: "+target.activityInfo.packageName+"/"+target.activityInfo.name);
+                MainActivity host=active.get();
+                if(host!=null){
+                    try{host.moveTaskToBack(true);}catch(Throwable ignored){}
+                }
+                return;
+            }
+            String pkgToLaunch=targetPackage!=null&&!targetPackage.isEmpty()&&!"oem".equals(targetPackage)?targetPackage:"ecarx.launcher3";
+            Intent fallback=pm.getLaunchIntentForPackage(pkgToLaunch);
+            if(fallback!=null){
+                fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                context.startActivity(fallback);
+                UniLog.i(LogTags.APP,"拉起桌面 fallback: "+pkgToLaunch);
+                MainActivity host=active.get();
+                if(host!=null){
+                    try{host.moveTaskToBack(true);}catch(Throwable ignored){}
+                }
+                return;
+            }
+            Toast.makeText(context,"未找到所选桌面应用",Toast.LENGTH_SHORT).show();
+        }catch(Throwable e){
+            UniLog.w(LogTags.APP,"拉起目标桌面失败",e);
+            Toast.makeText(context,"打开桌面失败: "+e.getMessage(),Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    public static void launchOemHome(Context context){
+        launchHomeTarget(context,"ecarx.launcher3");
     }
     /**
      * 把桌面窗口拉回前台。
@@ -1040,6 +1163,13 @@ public final class MainActivity extends FlutterActivity {
         if(settings){
             if(channel!=null)channel.invokeMethod("open-settings",null);
         }else{
+            android.content.SharedPreferences prefs=getSharedPreferences("launcher",0);
+            String target=prefs.getString("homeKeyTarget",getPackageName());
+            boolean isUni="uni".equals(target)||getPackageName().equals(target);
+            if(!isUni&&intent!=null&&Intent.ACTION_MAIN.equals(intent.getAction())&&intent.hasCategory(Intent.CATEGORY_HOME)){
+                launchHomeTarget(this,target);
+                return;
+            }
             dispatchHomeFirst("intent");
         }
     }
