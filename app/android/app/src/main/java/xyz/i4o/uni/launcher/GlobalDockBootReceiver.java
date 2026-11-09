@@ -14,11 +14,21 @@ public final class GlobalDockBootReceiver extends BroadcastReceiver {
         final boolean bootAutostart=prefs.getBoolean("bootAutostart",true);
         final String homeKeyTarget=prefs.getString("homeKeyTarget",c.getPackageName());
         final boolean isUniTarget="uni".equals(homeKeyTarget)||c.getPackageName().equals(homeKeyTarget);
-        if(bootAutostart&&isUniTarget){
-            scheduleDelayedChecks(c);
-            runCheck(c,lockedBoot);
+        scheduleDelayedChecks(c);
+        runCheck(c,lockedBoot);
+        if(boot){
+            if(bootAutostart && !isUniTarget){
+                try{
+                    c.startActivity(new Intent(c,MainActivity.class)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                }catch(Throwable ignored){}
+            }else if(!bootAutostart && isUniTarget){
+                try{
+                    MainActivity.launchHomeTarget(c,"oem");
+                }catch(Throwable ignored){}
+            }
+            GlobalDockService.ensureStarted(c);
         }
-        if(boot)GlobalDockService.ensureStarted(c);
     }
     private static void scheduleDelayedChecks(Context c){
         android.app.AlarmManager alarms=(android.app.AlarmManager)

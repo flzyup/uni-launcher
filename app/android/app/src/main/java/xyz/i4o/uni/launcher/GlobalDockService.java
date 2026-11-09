@@ -49,7 +49,10 @@ public final class GlobalDockService extends Service {
         if(s!=null){
             s.dismissPanel();
             s.externalHomeSuspended=true;
-            s.update();
+            s.visible=false;
+            if(s.dockWindow!=null){
+                s.dockWindow.show(false);
+            }
         }
     }
     public static void resumeDockForExternalHome(){
@@ -280,7 +283,9 @@ public final class GlobalDockService extends Service {
         }
         UniLog.done(LogTags.DOCK,"dock/attach","surface","dock");
         UniLog.i(LogTags.DOCK,"底栏窗口已创建","nativeInsets",nativeInsets,"workspace",workspace.available());
+        externalHomeSuspended=isExternalHomeVisible();
         runtime.addListener(this,this::onRuntimeChanged);update();
+        main.postDelayed(externalHomeCheck,1000);
         main.postDelayed(this::prewarmPanel,1800);
     }
     private void prewarmPanel(){
@@ -565,50 +570,84 @@ public final class GlobalDockService extends Service {
         }
         main.postDelayed(foregroundCheck,500);
     }
+    private final Runnable externalHomeCheck=new Runnable(){
+        @Override public void run(){
+            if(dockWindow!=null){
+                boolean ext=isExternalHomeVisible();
+                if(ext!=externalHomeSuspended){
+                    externalHomeSuspended=ext;
+                    update();
+                }
+            }
+            main.postDelayed(this,500);
+        }
+    };
     private String topTaskPackage(){
         return xyz.i4o.uni.launcher.overlay.DisplayTasks.topPackage(this);
     }
     private boolean isExternalHomePackage(String pkg){
         if(pkg==null||pkg.isEmpty()||pkg.equals(getPackageName()))return false;
-        if("ecarx.launcher3".equals(pkg)||"com.android.car.carlauncher".equals(pkg))return true;
+        if("ecarx.launcher3".equals(pkg)||"com.android.car.carlauncher".equals(pkg)||"com.android.launcher3".equals(pkg))return true;
         SharedPreferences prefs=getSharedPreferences("launcher",Context.MODE_PRIVATE);
         String target=prefs.getString("homeKeyTarget","");
         if(!target.isEmpty()&&!"uni".equals(target)&&pkg.equals(target))return true;
+        try{
+            Intent home=new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME);
+            java.util.List<android.content.pm.ResolveInfo> homes=getPackageManager().queryIntentActivities(home,0);
+            if(homes!=null){
+                for(android.content.pm.ResolveInfo ri:homes){
+                    if(ri.activityInfo!=null&&pkg.equals(ri.activityInfo.packageName)){
+                        if(!getPackageName().equals(ri.activityInfo.packageName)
+                            &&!"com.android.settings".equals(ri.activityInfo.packageName)
+                            &&!ri.activityInfo.packageName.endsWith(".fallbackhome")){
+                            return true;
+                        }
+                    }
+                }
+            }
+        }catch(Throwable ignored){}
+        return false;
+    }
+    private boolean isExternalHomeVisible(){
+        if(LauncherVisibility.visible()){
+            return false;
+        }
+        try{
+            java.util.List<xyz.i4o.uni.launcher.overlay.DisplayTasks.Task> tasks=xyz.i4o.uni.launcher.overlay.DisplayTasks.visible(this);
+            if(tasks!=null&&!tasks.isEmpty()){
+                for(xyz.i4o.uni.launcher.overlay.DisplayTasks.Task t:tasks){
+                    if(getPackageName().equals(t.packageName)){
+                        return false;
+                    }
+                    if(isExternalHomePackage(t.packageName))return true;
+                }
+            }
+        }catch(Throwable ignored){}
+        try{
+            String top=topTaskPackage();
+            if(getPackageName().equals(top)){
+                return false;
+            }
+            if(isExternalHomePackage(top))return true;
+        }catch(Throwable ignored){}
         return false;
     }
     private void onRuntimeChanged(){
         if(dockWindow==null)return;
-        if((cameraSuspended||externalHomeSuspended)&&runtime.homeVisible()){
-            cameraSuspended=false;
-            externalHomeSuspended=false;
+        if(isExternalHomeVisible()){
+            externalHomeSuspended=true;
             update();
             return;
-        }
-        if(!externalHomeSuspended&&!runtime.homeVisible()){
-            String top=topTaskPackage();
-            if(isExternalHomePackage(top)){
-                externalHomeSuspended=true;
-                update();
-                return;
-            }
         }
         publish();
     }
     private void update(){
         if(dockWindow==null)return;
         if(!Settings.canDrawOverlays(this)){stopSelf();return;}
-        if(runtime.homeVisible()){
-            cameraSuspended=false;
-            externalHomeSuspended=false;
+        if(isExternalHomeVisible()){
+            externalHomeSuspended=true;
         }
         visible=!cameraSuspended&&!externalHomeSuspended;
-        if(visible&&!runtime.homeVisible()){
-            String top=topTaskPackage();
-            if(isExternalHomePackage(top)){
-                externalHomeSuspended=true;
-                visible=false;
-            }
-        }
         dockWindow.updateBounds();dockWindow.show(visible);
         if(panelWindow!=null){panelWindow.updateBounds();panelWindow.show(visible&&!panel.isEmpty());}
         publish();

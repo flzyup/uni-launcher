@@ -35,6 +35,7 @@ import xyz.i4o.uni.launcher.platform.LiveNavigationHost;
 /** Home window and Flutter bridge; shared integrations live in LauncherRuntime. */
 public final class MainActivity extends FlutterActivity {
     private static java.lang.ref.WeakReference<MainActivity> active=new java.lang.ref.WeakReference<>(null);
+    private static boolean bootRedirectEvaluated = false;
     /** 切走时抓下的最后一帧；切回时先贴上去，Flutter 画好再撤（见 installResumeSnapshot）。 */
     private android.widget.ImageView resumeSnapshot;
     private android.graphics.Bitmap snapshotBitmap;
@@ -396,6 +397,17 @@ public final class MainActivity extends FlutterActivity {
             ||launchIntent.getBooleanExtra("uniSpectrumPermission",false))
             dispatchIntent(launchIntent);
         publish();
+        if(!initialSettings && !bootRedirectEvaluated && android.os.SystemClock.elapsedRealtime() < 60000L){
+            bootRedirectEvaluated = true;
+            boolean autostart = rt.prefs().getBoolean("bootAutostart", true);
+            String target = rt.prefs().getString("homeKeyTarget", getPackageName());
+            boolean isUni = "uni".equals(target) || getPackageName().equals(target);
+            if(!autostart && isUni){
+                UniLog.i(LogTags.SYS, "开机自启已关闭，开机冷启动自动退回原车桌面", "tag", "UniHome");
+                launchHomeTarget(this, "oem");
+                moveTaskToBack(true);
+            }
+        }
         StartupTrace.mark("window");
         final android.view.View traceRoot=getWindow().getDecorView();
         traceRoot.getViewTreeObserver().addOnPreDrawListener(new android.view.ViewTreeObserver.OnPreDrawListener(){
@@ -801,13 +813,14 @@ public final class MainActivity extends FlutterActivity {
     }
 
     @Override protected void onPause(){
-        // 窗口还在最上层时抓这一帧；等到 onStop 就已经被下一个应用盖住了。
         captureResumeSnapshot();
+        LauncherVisibility.set(false);
         super.onPause();
     }
 
     @Override protected void onResume(){
         LauncherVisibility.set(true);
+        GlobalDockService.resumeDockForExternalHome();
         // 从别的应用回桌面时窗口/权限/坞状态可能已经变了，投影缓存先作废。
         invalidateWindowCaches();
         super.onResume();if(chrome!=null)chrome.apply();
@@ -882,7 +895,7 @@ public final class MainActivity extends FlutterActivity {
             android.content.SharedPreferences prefs=ctx.getSharedPreferences("launcher",0);
             String target=prefs.getString("homeKeyTarget",ctx.getPackageName());
             boolean isUni="uni".equals(target)||ctx.getPackageName().equals(target);
-            if(!isUni){
+            if(!isUni && ("input".equals(via) || "window".equals(via))){
                 GlobalDockService.dismissPanelNow(via);
                 launchHomeTarget(ctx,target);
                 return;

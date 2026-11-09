@@ -706,13 +706,6 @@ public final class LauncherRuntime {
         if("boot-autostart".equals(action)){
             boolean enabled=request.optBoolean("enabled",true);
             prefs.edit().putBoolean("bootAutostart",enabled).apply();
-            String homeKeyTarget=prefs.getString("homeKeyTarget",context.getPackageName());
-            boolean isUni="uni".equals(homeKeyTarget)||context.getPackageName().equals(homeKeyTarget);
-            if(!enabled||!isUni){
-                try{context.getPackageManager().clearPackagePreferredActivities(context.getPackageName());}catch(Throwable ignored){}
-            }else{
-                try{DefaultHomeGuard.restoreIfNeeded(context);}catch(Throwable ignored){}
-            }
             publish();return true;
         }
         if("home-key-target".equals(action)){
@@ -723,12 +716,7 @@ public final class LauncherRuntime {
                 target="ecarx.launcher3";
             }
             prefs.edit().putString("homeKeyTarget",target).apply();
-            boolean isUni=context.getPackageName().equals(target);
-            if(!isUni){
-                try{context.getPackageManager().clearPackagePreferredActivities(context.getPackageName());}catch(Throwable ignored){}
-            }else if(prefs.getBoolean("bootAutostart",true)){
-                try{DefaultHomeGuard.restoreIfNeeded(context);}catch(Throwable ignored){}
-            }
+            try{DefaultHomeGuard.restoreIfNeeded(context);}catch(Throwable ignored){}
             publish();return true;
         }
         if("open-home-settings".equals(action)){
