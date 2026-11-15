@@ -270,6 +270,19 @@ public final class UniLog {
         return current == null ? 0L : current.totalBytes();
     }
 
+    /**
+     * 当前日志目录里的文件份数。
+     *
+     * 份数上限 {@code FileLogSink.MAX_FILES} 是常量，而「现在有几份」是运行时
+     * 事实——设置页「系统与调试」把两者并排显示（顶部「日志文件 3 份」、
+     * 下面「512 KB · 8 份」），所以需要这个转发。`files()` 是包级方法、只列
+     * 目录不触发截断，取它没有副作用。
+     */
+    public static int fileCount() {
+        FileLogSink current = sink;
+        return current == null ? 0 : current.files().size();
+    }
+
     /** 末尾若干行（预览用）。 */
     public static String tail(int lines) {
         FileLogSink current = sink;

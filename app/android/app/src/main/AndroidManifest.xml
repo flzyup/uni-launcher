@@ -58,6 +58,19 @@
   <!-- 明文只放行「传文件」里用户自己填的下载地址：局域网 NAS、内网发布页和旧站点
        基本都是 http://，系统默认会直接拒连。应用自身不发起任何其他明文请求。 -->
   <application android:label="UNI 桌面" android:name="${applicationName}" android:icon="@drawable/uni_icon" android:allowBackup="false" android:usesCleartextTraffic="true">
+    <!-- 渲染后端 A/B 开关：默认两条都注释掉 = Flutter 3.47 的默认值（Impeller + Vulkan）。
+         820A 的 Adreno 530 是 2016 年的芯片，Vulkan 驱动很老，Impeller 可能掉进慢路径。
+         换一档只需取消对应一条注释，一次只开一条：
+
+           ② Impeller 跑 GLES3（绕开老 Vulkan 驱动，优先试这条）：
+           <meta-data android:name="io.flutter.embedding.android.ImpellerBackend" android:value="opengles" />
+
+           ③ 退回 Skia/GLES：
+           <meta-data android:name="io.flutter.embedding.android.EnableImpeller" android:value="false" />
+
+         怎么比：同一首歌、同一页面，看每次启动的基线日志
+         `UniQuality baseline avg=XX.Xms worst=XX.Xms`（adaptive_quality.dart 打的），
+         同时重点看底栏流体与卡片阴影边缘——这两处最容易出现后端差异。 -->
     <!-- HOME 返回路径：resumeWhilePausing 让本窗口在上一个 Activity 还在 pausing
          时就开始 resume（Android 7+ 给 launcher 的专用开关），省掉转场里的那段
          等待；stateNotNeeded 避免系统为了恢复状态而重建 home；launchMode 用

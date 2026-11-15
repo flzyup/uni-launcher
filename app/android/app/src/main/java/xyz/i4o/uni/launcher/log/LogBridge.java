@@ -183,6 +183,15 @@ public final class LogBridge {
                 xyz.i4o.uni.launcher.MainActivity.storageWritable(context));
         status.put("storageReadable",
                 xyz.i4o.uni.launcher.MainActivity.storageReadable(context));
+        // 落盘策略。前四个是 FileLogSink 的编译期常量（同包可直接读），
+        // 最后一个是运行时事实。设置页「磁盘余量」那四行与顶上的「日志文件
+        // N 份」全靠它们；不报出去界面只能显示「—」，而用户报问题时恰恰要
+        // 靠这一栏判断日志有没有被截断过。只加字段，不动任何既有键。
+        status.put("maxFileBytes", FileLogSink.MAX_FILE_BYTES);
+        status.put("maxFiles", FileLogSink.MAX_FILES);
+        status.put("maxTotalBytes", FileLogSink.MAX_TOTAL_BYTES);
+        status.put("minFreeBytes", FileLogSink.MIN_FREE_BYTES);
+        status.put("files", UniLog.fileCount());
         return status;
     }
 
