@@ -102,9 +102,12 @@ void main() {
     final music = t.getRect(find.byKey(const ValueKey('dock-music-frame'))),
         climate = t.getRect(find.byKey(const ValueKey('dock-climate-frame'))),
         uni = t.getRect(find.byKey(const ValueKey('uni-menu')));
-    expect(music.width, closeTo(722.051, .1));
+    // 692.66 = 上游 flex 5:8 的口径：空调胶囊定宽 459（画布值），
+    // 分隔线右侧留 13.33，两者吃掉的空间全从媒体区来（2026-11-15 方案 C）。
+    expect(music.width, closeTo(692.66, .5));
     await t.pumpWidget(dockAt(1420));
-    await t.pumpAndSettle();
+    // 媒体区收窄后歌名进入跑马灯滚动（持续动画），不能用 pumpAndSettle。
+    await t.pump(const Duration(milliseconds: 300));
     final narrowMusic =
             t.getRect(find.byKey(const ValueKey('dock-music-frame'))),
         narrowClimate =
@@ -112,7 +115,9 @@ void main() {
         narrowUni = t.getRect(find.byKey(const ValueKey('uni-menu')));
     expect(narrowMusic.width, lessThan(music.width));
     expect(narrowUni.width, closeTo(uni.width, .1));
-    expect(climate.width - narrowClimate.width, closeTo(69.231, .1));
+    // 设计稿体系：空调胶囊**定宽**（551 美术口径 = 画布 459），
+    // 宿主收窄时宽度不变，媒体胶囊吸收差值。
+    expect(climate.width - narrowClimate.width, closeTo(0, .1));
 
     await t.pumpWidget(dockAt(1600));
     await t.pumpAndSettle();
@@ -126,8 +131,11 @@ void main() {
         t.getRect(find.byKey(const ValueKey('dock-music-frame')));
     final expandedClimate =
         t.getRect(find.byKey(const ValueKey('dock-climate-frame')));
-    expect(compactMusic.width, lessThan(music.width));
-    expect(expandedClimate.width, greaterThan(climate.width));
+    // 关掉字幕/频谱后音乐条**不许缩短**：开关只影响内容，不改变这一块的宽度
+    // （2026-11-13 用户反馈）。
+    expect(compactMusic.width, closeTo(music.width, .1));
+    // 频谱开关只影响媒体区内部，空调胶囊定宽不变。
+    expect(expandedClimate.width, closeTo(climate.width, .1));
     expect(Appearance.fromJson(controller.appearance.toJson()).dockMusicVisual,
         isFalse);
     expect(t.takeException(), isNull);

@@ -34,21 +34,36 @@ void main() {
     final music = t.getRect(find.byKey(const ValueKey('dock-music-frame')));
     final climateFrame =
         t.getRect(find.byKey(const ValueKey('dock-climate-frame')));
-    expect(home.width, closeTo(music.height, .1));
-    expect(home.height, closeTo(music.height, .1));
     expect(climateFrame.height, closeTo(music.height, .1));
-    for (final finder in [
+    // 设计稿尺寸体系：导航键 64，空调 cb 格 72（比导航键大一号），胶囊高 72。
+    expect(home.width, closeTo(64, .1));
+    expect(home.height, closeTo(64, .1));
+    expect(climateFrame.height, closeTo(72, .1));
+    // 六格不再各占 72 方格（2026-11-15 方案 C）：宽度跟内容走、高度撑满胶囊，
+    // 间距由 `Row(spaceBetween)` 平分——所以「相邻间隙」必须彼此相等，
+    // 左右留白也必须对称。
+    final items = [
       ac,
-      find.byKey(const ValueKey('climate')),
       left,
-      right,
+      fan,
       circulation,
+      right,
       find.byKey(const ValueKey('climate-power'))
-    ]) {
-      final rect = t.getRect(finder);
-      expect(rect.width, closeTo(home.width, .1), reason: '$finder');
-      expect(rect.height, closeTo(home.height, .1), reason: '$finder');
+    ];
+    final rects = [for (final finder in items) t.getRect(finder)];
+    for (var i = 0; i < rects.length; i++) {
+      expect(rects[i].height, closeTo(72, .1), reason: '${items[i]}');
+      expect(rects[i].width, greaterThan(0), reason: '${items[i]}');
     }
+    final gaps = [
+      for (var i = 1; i < rects.length; i++)
+        rects[i].left - rects[i - 1].right
+    ];
+    for (final gap in gaps) {
+      expect(gap, closeTo(gaps.first, .6), reason: '六格间距应完全相等：$gaps');
+    }
+    expect(rects.first.left - climateFrame.left, closeTo(20, .6));
+    expect(climateFrame.right - rects.last.right, closeTo(20, .6));
     final pressColors = <Color>{
       for (final key in [
         'system-back',
