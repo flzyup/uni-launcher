@@ -31,7 +31,10 @@ public final class NavigationInsets {
         return Class.forName("android.content.om.IOverlayManager").getMethod(name,types).invoke(manager,args);
     }
     public static boolean activate(Context c,SharedPreferences p){
-        if(c.checkSelfPermission("android.permission.CHANGE_OVERLAY_PACKAGES")!=PackageManager.PERMISSION_GRANTED)return false;
+        if(c.checkSelfPermission("android.permission.CHANGE_OVERLAY_PACKAGES")!=PackageManager.PERMISSION_GRANTED){
+            // 以前这里静默返回：日志里既没有 enter 也没有 done/skip，于是「系统为什么
+            // 没预留 96px」完全无从判断。现在留一条，能直接看出是权限被拒。
+            UniLog.skip(LogTags.SYS,"sys/insets","action","activate","reason","no-change-overlay-permission");return false;}
         UniLog.enter(LogTags.SYS,"sys/insets","action","activate");
         try{
             Object manager=manager();int user=android.os.Process.myUid()/100000;

@@ -189,6 +189,10 @@ public final class GlobalDockService extends Service {
         if("show-dock-panel".equals(a)){
             if(active!=null)active.showPanel(r.optString("value"));return true;
         }
+        if("focus-music-card".equals(a)){
+            // 底栏引擎自己没有桌面：请主窗口把音乐卡铺满（不弹旧的面板窗口）。
+            MainActivity.requestMusicCard();return true;
+        }
         if("panel-ready".equals(a)){
             if(active!=null&&!active.panel.isEmpty()&&r.optString("value").equals(""+active.panelRevision)){
                 active.panelReady=true;active.publish();
@@ -218,7 +222,8 @@ public final class GlobalDockService extends Service {
         if("show-home".equals(a)||"show-desktop-settings".equals(a)){
             if(active!=null){active.dismissPanel();active.cameraSuspended=false;active.externalHomeSuspended=false;}
             c.startActivity(new Intent(c,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
-                .putExtra("uniSettings","show-desktop-settings".equals(a)));return true;
+                .putExtra("uniSettings","show-desktop-settings".equals(a))
+                .putExtra("uniSettingsTab",r.optString("value","")));return true;
         }
         if("open-official".equals(a)&&"camera".equals(r.optString("value"))&&active!=null){active.dismissPanel();active.cameraSuspended=true;active.update();}
         // Launching an external app must always collapse the glass panel first.
@@ -268,11 +273,22 @@ public final class GlobalDockService extends Service {
         windows=(WindowManager)getSystemService(WINDOW_SERVICE);
         NavigationInsets.prepare(this,()->{if(active==this)startWindows();});
     }
+    /** 全屏沉浸规则会把导航栏 inset 归零；读不到时按「会清零」处理，宁可多预留。 */
+    private static boolean immersiveFull(Context c){
+        try{
+            String policy=android.provider.Settings.Global.getString(c.getContentResolver(),"policy_control");
+            return policy==null||policy.contains("immersive.full");
+        }catch(RuntimeException e){return true;}
+    }
     private void startWindows(){
         if(dockWindow!=null)return;
         enableBarModifications(this,runtime.prefs());nativeInsets=NavigationInsets.applied(this);
         workspace=new WorkspacePolicy(this,runtime.prefs());
-        if(nativeInsets)workspace.stopAndRestore();
+        // insets 资源包生效 ≠ 系统真的在底部留了 96px：`policy_control` 里只要还有
+        // `immersive.full`，原厂导航栏就连 inset 一起被清掉，任务照样铺满 1080，
+        // 底栏会压住它最后一条。所以按「策略有没有清零 inset」决定要不要缩放任务，
+        // 而不是只看资源包是否启用（用户 2026-11-15 反馈应用底部被底栏遮挡）。
+        if(nativeInsets&&!immersiveFull(this))workspace.stopAndRestore();
         else workspace.start();
         UniLog.enter(LogTags.DOCK,"dock/attach","surface","dock");
         try{dockWindow=new OverlayWindow(false);}catch(RuntimeException e){
@@ -454,6 +470,9 @@ public final class GlobalDockService extends Service {
         if(!panel.isEmpty())UniLog.done(LogTags.DOCK,"dock/attach","surface","panel","panel",kind);
         if(!panel.isEmpty())startForegroundCheck();
         update();
+        // 桌面整块被 globalDock.expanded 门控（面板展开时关 TickerMode），而它不在
+        // 本服务的 publish 链路里 —— 不显式叫它补一份，桌面就停在「面板还开着」。
+        if(!panel.isEmpty())MainActivity.requestPublish();
     }
     /** Ephemeral, in-memory backdrop only while a glass panel is open. Flutter
      * cannot blur another process's Surface; the platform build can capture it.
@@ -482,6 +501,9 @@ public final class GlobalDockService extends Service {
     private void dismissPanel(){
         if(panel.isEmpty())return;
         panel="";panelReady=false;panelBackdrop=null;panelRevision++;main.removeCallbacks(foregroundCheck);update();
+        // 同上：关面板这一步必须让桌面立刻收到 expanded=false，否则 TickerMode 一直关着，
+        // 翻页不落位、卡片动画全停 —— 用户感受就是「弹窗关掉以后整个桌面卡住」。
+        MainActivity.requestPublish();
         resetRecentItems();
         final OverlayWindow closing=panelWindow;
         if(closing!=null)main.postDelayed(()->{
