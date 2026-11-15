@@ -25,8 +25,8 @@ class FakeGateway implements NativeGateway {
       'power': true
     },
     'media': {
-      'title': '向海而行',
-      'artist': 'Coastline',
+      'title': '午夜立交',
+      'artist': '昼夜电台',
       'available': true,
       'playing': true
     },
@@ -42,6 +42,7 @@ class FakeGateway implements NativeGateway {
   Future<Map<String, dynamic>?> prelude() async => {
         'savedDesign': state['savedDesign'],
         'appNames': state['appNames'],
+        'lastDesktopPage': state['lastDesktopPage'],
         'dark': state['dark']
       };
   @override
@@ -61,6 +62,62 @@ class FakeGateway implements NativeGateway {
         'globalDock': {'enabled': enabled, 'allowed': true}
       };
     if (action == 'demo-mode') state = {...state, 'demo': enabled};
+    // 开机自启与 HOME 键目标：原生落 prefs 后再 publish，这里照做——
+    // 少这一句，设置页点完按钮选中态不动，看起来就是「按钮按了没反应」。
+    if (action == 'boot-autostart')
+      state = {
+        ...state,
+        'integrationPreferences': {
+          ...Map<String, dynamic>.from(
+              state['integrationPreferences'] as Map? ?? const {}),
+          'bootAutostart': enabled != false
+        }
+      };
+    if (action == 'home-key-target') {
+      // 和 LauncherRuntime 一样把别名归一成包名：uni → 自己，oem → 原车桌面。
+      final raw = (value ?? '').trim();
+      final target = raw.isEmpty || raw == 'uni'
+          ? 'xyz.i4o.uni.launcher'
+          : (raw == 'oem' ? 'ecarx.launcher3' : raw);
+      state = {
+        ...state,
+        'integrationPreferences': {
+          ...Map<String, dynamic>.from(
+              state['integrationPreferences'] as Map? ?? const {}),
+          'homeKeyTarget': target
+        }
+      };
+    }
+    // 集成偏好（导航与媒体那批开关）：原生落 prefs 后 publish 全量快照，
+    // 假网关也照做，否则点一下就被下一次快照弹回去。
+    const prefsFields = {
+      'map-texture-scale': 'mapTextureScale',
+      'navigation-card-title-hidden': 'navigationCardTitleHidden',
+      'steering-keys': 'steeringKeysEnabled',
+      'instrument-sync': 'instrumentSyncEnabled',
+      'dim-cluster': 'dimClusterEnabled',
+      'auto-play-music': 'autoPlayMusic',
+    };
+    final prefsField = prefsFields[action];
+    if (prefsField != null) {
+      state = {
+        ...state,
+        'integrationPreferences': {
+          ...Map<String, dynamic>.from(
+              state['integrationPreferences'] as Map? ?? const {}),
+          prefsField: enabled == true
+        }
+      };
+    }
+    if (action == 'embed-navigation') {
+      state = {
+        ...state,
+        'navigation': {
+          ...Map<String, dynamic>.from(state['navigation'] as Map? ?? const {}),
+          'enabled': enabled != false
+        }
+      };
+    }
     if (action == 'rename-app' && zone != null) {
       final names = Map<String, dynamic>.from(state['appNames'] as Map? ?? {});
       if (value == null || value.isEmpty) {
