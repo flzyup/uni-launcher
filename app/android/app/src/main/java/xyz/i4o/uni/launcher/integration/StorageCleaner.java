@@ -573,11 +573,18 @@ public final class StorageCleaner {
                 // 清理后重新统计，面板直接显示新数据（不依赖调用方再点一次扫描）。
                 // 换成独立阶段：这一步要重新走一遍 binder 统计和全盘遍历，若还挂在
                 // "clean" 里，面板就会在「清理中」定格几十秒。
+                // `cancel` 也必须复位：中途按过「停止」的话它还是 true，
+                // 这轮统计会被自己打断，面板直接显示成「已清理干净」。
                 phase = "refresh";
                 current = "重新统计已清理后的占用";
                 progress = 0.98;
                 bump();
                 try {
+                    cancel = false;
+                    phase = "scan";
+                    progress = 0;
+                    current = "";
+                    bump();
                     scanStartedAt = SystemClock.elapsedRealtime();
                     visited = 0;
                     apkChecks = 0;
