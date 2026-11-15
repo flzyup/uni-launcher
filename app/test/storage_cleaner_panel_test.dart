@@ -43,6 +43,7 @@ void main() {
           String rulesIssue = '',
           bool storageGranted = true,
           int lastCleanBytes = 0,
+          int lastCleanAt = 1793000000000,
           int purgeFiles = 0,
           int purgeTotal = 0,
           int scanned = 0,
@@ -57,7 +58,7 @@ void main() {
         'total': 64 << 30,
         'storageGranted': storageGranted,
         'categories': categories,
-        'lastClean': {'bytes': lastCleanBytes, 'at': 1793000000000, 'ids': []},
+        'lastClean': {'bytes': lastCleanBytes, 'at': lastCleanAt, 'ids': []},
         'error': error,
         'rulesIssue': rulesIssue,
         'purgeFiles': purgeFiles,
@@ -194,14 +195,63 @@ void main() {
             progress: 0.4,
             current: '日志与临时文件'));
 
-    expect(find.text('扫描中 40%'), findsWidgets);
+    expect(find.textContaining('扫描中 40%'), findsWidgets);
     expect(find.textContaining('日志与临时文件'), findsWidgets);
-    await t.tap(find.text('停止'));
+    // f35 的雷达环不做，但大字位要临时让给百分比：不这样的话扫描十几秒
+    // 里这一页看着就是「3.92 GB 一动不动」。
+    expect(find.byKey(const ValueKey('cleaner-headline')), findsOneWidget);
+    expect(find.text('40'), findsOneWidget);
+    expect(find.text('已扫描'), findsOneWidget);
+    await t.tap(find.text('停止扫描'));
     await t.pumpAndSettle();
     expect(
         g.commands,
         contains(predicate(
             (Map<String, dynamic> m) => m['action'] == 'cleaner-cancel')));
+  });
+
+  testWidgets('空闲时能重新扫描，扫描中不给重复下发', (t) async {
+    final (_, g) = await openPanel(
+        t,
+        cleanerPacket([
+          category('self-cache', '桌面缓存', 2 << 20, group: 'cache'),
+        ], scanned: 460, scanMs: 1240));
+
+    await t.tap(find.text('重新扫描'));
+    await t.pumpAndSettle();
+    expect(
+        g.commands
+            .where((m) => m['action'] == 'cleaner-scan')
+            .length,
+        greaterThanOrEqualTo(2));
+  });
+
+  testWidgets('清理结束后用一句话交代释放了多少（f36 的替代）', (t) async {
+    final (c, g) = await openPanel(
+        t,
+        cleanerPacket([
+          category('self-cache', '桌面缓存', 2 << 20, group: 'cache'),
+        ], running: true, phase: 'clean', progress: 0.5, current: '桌面缓存',
+            purgeFiles: 120, purgeTotal: 400));
+
+    // 原生清完会在同一条快照里给出新的 lastClean（时间戳比上一次新），
+    // running 落回 false。
+    g.state = {
+      ...g.state,
+      'cleaner': cleanerPacket([
+        category('self-cache', '桌面缓存', 0,
+            group: 'cache', defaultSelected: false),
+      ], lastCleanBytes: 2 << 20, lastCleanAt: 1793000060000)
+    };
+    g.stream.add(Map.of(g.state));
+    c.native.value = Map.of(g.state);
+    await t.pumpAndSettle();
+
+    expect(find.textContaining('清理完成'), findsOneWidget);
+    expect(find.textContaining('2.0 MB'), findsWidgets);
+    // toast 2 秒后自己消失，别把定时器留到测试结束。
+    await t.pump(const Duration(seconds: 3));
+    await t.pumpAndSettle();
   });
 
   testWidgets('没有存储权限时自动申请，不跳设置页也不重复扫描', (t) async {
@@ -268,7 +318,8 @@ void main() {
             purgeTotal: 13762));
 
     expect(find.textContaining('正在清理 3200 / 13762 个文件'), findsWidgets);
-    await t.tap(find.text('停止'));
+    // 清理阶段按钮不能还写「停止扫描」：语义完全不同。
+    await t.tap(find.text('停止清理'));
     await t.pumpAndSettle();
     expect(
         g.commands,

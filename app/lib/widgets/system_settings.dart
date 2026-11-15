@@ -2,12 +2,15 @@ import 'package:flutter/material.dart';
 import '../controller/launcher_controller.dart';
 import '../theme/design_tokens.dart';
 import '../theme/launcher_theme.dart';
+import 'choice_button.dart';
 import 'diagnostics_settings.dart';
-import 'glass_surface.dart';
 import 'native_slice_builder.dart';
+import 'setting_block.dart';
 
-/// System-owned labels come from the native adapter.
-/// Never invent an enabled setting when this device cannot provide it.
+/// sim f14 · 系统与调试：左边诊断日志，右边原车/安卓设置入口。
+///
+/// 两栏各自滚动：两边内容都可能很长（日志预览、系统入口数量），
+/// 共用一个滚动条会把左边顶到看不见。
 class SystemSettingsPanel extends StatelessWidget {
   final LauncherController controller;
   const SystemSettingsPanel({super.key, required this.controller});
@@ -32,7 +35,7 @@ class SystemSettingsPanel extends StatelessWidget {
               .putIfAbsent('${entry['source'] ?? '系统设置'}', () => [])
               .add(entry);
         }
-        final orderedGroups = groups.entries.toList()
+        final ordered = groups.entries.toList()
           ..sort((a, b) {
             int rank(String source) => source == '原车设置'
                 ? 0
@@ -42,88 +45,122 @@ class SystemSettingsPanel extends StatelessWidget {
             final order = rank(a.key).compareTo(rank(b.key));
             return order == 0 ? a.key.compareTo(b.key) : order;
           });
-        final rows = <Map<String, dynamic>>[
-          {'officialRoot': true},
-          for (final group in orderedGroups) ...[
-            {'group': group.key},
-            ...group.value,
-          ]
-        ];
-        return ListView.builder(
-            key: const PageStorageKey('system-settings-scroll'),
-            itemCount: rows.length + 2,
-            itemBuilder: (context, index) {
-              if (index == 0) {
-                // 诊断日志放在最前面：车机上出问题时，先导一份诊断包
-                // 是最有效的取证手段，不应该藏在设置页最底部。
-                return Padding(
-                    padding: EdgeInsets.only(bottom: Design.px(18)),
-                    child: const DiagnosticsSettings());
-              }
-              if (index > 1) {
-                final entry = rows[index - 2];
-                if (entry['officialRoot'] == true) {
-                  return Padding(
-                      padding: EdgeInsets.only(bottom: Design.px(6)),
-                      child: GlassSurface(
-                          padding:
-                              EdgeInsets.symmetric(horizontal: Design.px(8)),
-                          child: ListTile(
-                              key: const ValueKey(
-                                  'system-setting-official-root'),
-                              leading: const Icon(Icons.settings_outlined),
-                              title: const Text('原车系统设置'),
-                              trailing: const Icon(Icons.chevron_right),
-                              onTap: () => controller.command('open-official',
-                                  value: 'settings'))));
-                }
-                if (entry.containsKey('group')) {
-                  return Padding(
-                      padding: EdgeInsets.symmetric(vertical: Design.px(14)),
-                      child: Text('${entry['group']}',
-                          style: TextStyle(color: s.muted)));
-                }
-                return Padding(
-                    padding: EdgeInsets.only(bottom: Design.px(6)),
-                    child: GlassSurface(
-                        padding: EdgeInsets.symmetric(horizontal: Design.px(8)),
-                        child: ListTile(
-                            key: ValueKey('system-setting-${entry['id']}'),
-                            shape: RoundedRectangleBorder(
-                                borderRadius:
-                                    BorderRadius.circular(s.controlRadius)),
-                            leading: const Icon(Icons.tune_outlined),
-                            title: Text('${entry['label']}'),
-                            trailing: const Icon(Icons.chevron_right),
-                            onTap: () => controller.command(
-                                'open-system-setting',
-                                value: '${entry['id']}'))));
-              }
-              return Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    SizedBox(height: Design.px(4)),
-                    Row(children: [
-                      Text('原车系统设置&安卓设置',
-                          style: TextStyle(fontSize: Design.px(26))),
-                      const Spacer(),
-                      TextButton.icon(
+        // sim f14：左栏定宽 660（诊断日志一列），右栏吃掉剩余宽度。
+        // 两块都撑到页面高度——设计稿里它们是两条通高的栏，不是两张随内容
+        // 缩小的卡片，否则右边短的时候左边会「悬」出一截。
+        return LayoutBuilder(
+            builder: (context, box) => Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  SizedBox(
+                      width: Design.dz(660),
+                      child: SingleChildScrollView(
+                          key: const PageStorageKey('diagnostics-scroll'),
+                          child: ConstrainedBox(
+                              constraints:
+                                  BoxConstraints(minHeight: box.maxHeight),
+                              child: const DiagnosticsSettings()))),
+                  SizedBox(width: Design.dz(11.67)),
+                  Expanded(
+                      child: SingleChildScrollView(
+                          key: const PageStorageKey('system-settings-scroll'),
+                          child: ConstrainedBox(
+                              constraints:
+                                  BoxConstraints(minHeight: box.maxHeight),
+                              child: SettingBlock(
+                      title: '原车系统设置&安卓设置',
+                      note: '按系统应用提供的名称列出设置入口。',
+                      trailing: DesignTextAction('重新检索',
                           key: const ValueKey('refresh-system-settings'),
-                          onPressed: () =>
-                              controller.command('refresh-system-settings'),
-                          icon: const Icon(Icons.refresh),
-                          label: const Text('重新检索'))
-                    ]),
-                    Padding(
-                        padding: EdgeInsets.only(bottom: Design.px(18)),
-                        child: Text('按系统应用提供的名称列出设置入口。',
-                            style: TextStyle(
-                                color: s.muted, fontSize: Design.px(19)))),
-                    if (groups.isEmpty)
-                      const Padding(
-                          padding: EdgeInsets.all(24),
-                          child: Text('未找到可直接打开的系统设置入口')),
-                  ]);
-            });
+                          chevron: false,
+                          onPressed: () => controller
+                              .command('refresh-system-settings')),
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            // 原车系统设置是唯一的「大入口」，给一块主题色淡底。
+                            Material(
+                                color: Colors.transparent,
+                                child: InkWell(
+                                    key: const ValueKey(
+                                        'system-setting-official-root'),
+                                    onTap: () => controller.command(
+                                        'open-official',
+                                        value: 'settings'),
+                                    borderRadius:
+                                        BorderRadius.circular(Design.dz(14)),
+                                    child: Container(
+                                        height: Design.dz(46),
+                                        padding: EdgeInsets.symmetric(
+                                            horizontal: Design.dz(14)),
+                                        decoration: BoxDecoration(
+                                            color: s.accent
+                                                .withValues(alpha: .07),
+                                            borderRadius:
+                                                BorderRadius.circular(
+                                                    Design.dz(14)),
+                                            border: Border.all(
+                                                color: s.accent.withValues(
+                                                    alpha: .26))),
+                                        child: Row(children: [
+                                          Icon(Icons.settings_outlined,
+                                              size: Design.dz(20),
+                                              color: s.accent),
+                                          SizedBox(width: Design.dz(11)),
+                                          Text('原车系统设置',
+                                              style: TextStyle(
+                                                  fontSize: Design.dz(15.5),
+                                                  color: s.accent)),
+                                          const Spacer(),
+                                          Icon(Icons.chevron_right,
+                                              size: Design.dz(18),
+                                              color: s.accent.withValues(
+                                                  alpha: .7))
+                                        ])))),
+                            SizedBox(height: Design.dz(10)),
+                            if (groups.isEmpty)
+                              Padding(
+                                  padding:
+                                      EdgeInsets.symmetric(vertical: Design.dz(16)),
+                                  child: Text('未找到可直接打开的系统设置入口',
+                                      style: TextStyle(
+                                          fontSize: Design.dz(13.5),
+                                          color:
+                                              s.text.withValues(alpha: .42)))),
+                            for (final group in ordered) ...[
+                              Padding(
+                                  padding: EdgeInsets.only(
+                                      top: Design.dz(6), bottom: Design.dz(4)),
+                                  child: Text(group.key,
+                                      style: TextStyle(
+                                          fontSize: Design.dz(11),
+                                          letterSpacing: Design.dz(1.2),
+                                          color: s.text
+                                              .withValues(alpha: .32)))),
+                              for (final entry in group.value)
+                                SettingRow(
+                                    key: ValueKey(
+                                        'system-setting-${entry['id']}'),
+                                    tile: true,
+                                    height: 46,
+                                    label: '${entry['label']}',
+                                    leading: Icon(Icons.tune_outlined,
+                                        size: Design.dz(18),
+                                        color:
+                                            s.text.withValues(alpha: .34)),
+                                    trailing: Icon(Icons.chevron_right,
+                                        size: Design.dz(16),
+                                        color: s.text.withValues(alpha: .3)),
+                                    onTap: () => controller.command(
+                                        'open-system-setting',
+                                        value: '${entry['id']}')),
+                            ],
+                            SizedBox(height: Design.dz(8)),
+                            Text('系统应用提供的入口不会随时都在，缺失时「重新检索」。',
+                                style: TextStyle(
+                                    fontSize: Design.dz(11.5),
+                                    color: s.text.withValues(alpha: .34)))
+                          ]))))),
+                ]));
       });
 }
