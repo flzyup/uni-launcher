@@ -29,19 +29,26 @@ class DesktopPageStack extends StatefulWidget {
   final List<Widget> children;
   final ValueNotifier<double>? position;
   final ValueChanged<int>? onPageRequested;
+
+  /// 首尾环回（用户 2026-11-14 要求）：在最后一页继续向左、或第一页继续向右时，
+  /// 允许**越过边界跟手一小段**（阻尼，最多 [_overscrollLimit] 个页宽），松手后把
+  /// 另一端那一页**原地淡入**——不做位移动画，避免"往回翻一屏"的错觉。
+  /// 编辑态 / 铺满 / 设置页不传，保持线性翻页。
+  final bool wrap;
   const DesktopPageStack(
       {super.key,
       required this.page,
       required this.effect,
       required this.children,
       this.position,
-      this.onPageRequested});
+      this.onPageRequested,
+      this.wrap = false});
   @override
   State<DesktopPageStack> createState() => DesktopPageStackState();
 }
 
 class DesktopPageStackState extends State<DesktopPageStack>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   late final AnimationController _animation;
   late final ValueNotifier<double> _ownPosition;
   ValueNotifier<double> get _position => widget.position ?? _ownPosition;
@@ -50,6 +57,25 @@ class DesktopPageStackState extends State<DesktopPageStack>
   bool _moving = false, _dragging = false;
   double _width = 1, _dragStart = 0, _dragDistance = 0;
   int _anchor = 0;
+
+  /// 环回目标页（**真实索引**：0 或最后一页）。不在环回时为 null。
+  int? _wrapTo;
+
+  /// 环回起点页（真实索引），决定"进来的那一页"挂在左边还是右边。
+  int? _wrapFromReal;
+  bool get _wrapping => _wrapTo != null;
+
+  /// 环回时"进来的那一页"用哪个**虚拟序号**参与平移：
+  /// 向前环回（最后一页 → 第一页）挂在 `children.length`，于是它从**右侧**
+  /// 跟着手指滑进来；向后环回挂在 -1，从**左侧**滑进来。
+  /// 这样位移方向和手指一致，就是设置里那个「平移」效果。
+  /// 注意方向要按"从哪绕到哪"判，不能比大小：向前环回是 last → 0，索引更小。
+  int get _wrapVirtual {
+    if (_wrapTo == null || _wrapFromReal == null) return -1;
+    final forward =
+        _wrapTo == 0 && _wrapFromReal == widget.children.length - 1;
+    return forward ? widget.children.length : -1;
+  }
   int _bounded(int page) =>
       widget.children.isEmpty ? 0 : page.clamp(0, widget.children.length - 1);
   bool get _motionDisabled =>
@@ -87,13 +113,17 @@ class DesktopPageStackState extends State<DesktopPageStack>
   }
 
   void _status(AnimationStatus status) {
-    if (status == AnimationStatus.completed && !_dragging && mounted) {
-      setState(() {
-        _moving = false;
-        _fromPage = _toPage;
-        _painted = {_toPage};
-      });
+    if (status != AnimationStatus.completed || _dragging || !mounted) return;
+    // 环回动画的终点是"虚拟位置"（last+1 或 -1），落位要换算成真实页。
+    if (_wrapping) {
+      _finishWrap();
+      return;
     }
+    setState(() {
+      _moving = false;
+      _fromPage = _toPage;
+      _painted = {_toPage};
+    });
   }
 
   @override
@@ -161,15 +191,41 @@ class DesktopPageStackState extends State<DesktopPageStack>
     if (!_dragging) return;
     _dragDistance += delta;
     if (_motionDisabled) return;
-    final next = (_dragStart - _dragDistance / _width).clamp(
-        math.max(0, _anchor - 1).toDouble(),
-        math.min(widget.children.length - 1, _anchor + 1).toDouble());
+    final last = widget.children.length - 1;
+    final low = math.max(0, _anchor - 1).toDouble();
+    final high = math.min(last, _anchor + 1).toDouble();
+    var next = _dragStart - _dragDistance / _width;
+    // 环回：页尾继续向左 → 第一页从右边滑进来；页首继续向右 → 最后一页
+    // 从左滑进来。两者都按**平移**处理，位移方向跟手指一致。
+    final forwardWrap = widget.wrap && _anchor == last && next > high;
+    final backwardWrap = widget.wrap && _anchor == 0 && next < low;
+    int? wrapTarget;
+    if (forwardWrap) {
+      wrapTarget = 0;
+      next = math.min(last + 1.0, next);
+    } else if (backwardWrap) {
+      wrapTarget = last;
+      next = math.max(-1.0, next);
+    } else {
+      next = next.clamp(low, high);
+    }
     final neighbour = _bounded(next > _anchor ? _anchor + 1 : _anchor - 1);
-    final painted = {_anchor, neighbour};
-    if (!_moving || !setEquals(painted, _painted)) {
+    final painted = wrapTarget != null
+        ? {_anchor, wrapTarget}
+        : {_anchor, neighbour};
+    if (!_moving ||
+        !setEquals(painted, _painted) ||
+        wrapTarget != _wrapTo) {
       setState(() {
+        _wrapTo = wrapTarget;
+        _wrapFromReal = wrapTarget == null ? null : _anchor;
         _fromPage = _anchor;
-        _toPage = neighbour;
+        // 位移公式按 `|to - from|` 归一化：环回时目标页的真实索引可能离得很远
+        // （最后一页 → 0，三页时差 2），直接拿它当 to 会把位移砍成一半，
+        // 手指才动一点另一页就窜进来半屏。这里给一个**相邻的虚拟 to**。
+        _toPage = wrapTarget == null
+            ? neighbour
+            : _anchor + (_anchor == widget.children.length - 1 ? 1 : -1);
         _painted = painted;
         _moving = true;
       });
@@ -184,6 +240,19 @@ class DesktopPageStackState extends State<DesktopPageStack>
     final fling = velocity.abs() >= 450 && _dragDistance.abs() >= 18;
     final direction =
         fling ? (velocity < 0 ? 1 : -1) : (travelled >= 0 ? 1 : -1);
+    final last = widget.children.length - 1;
+    // 已经在环回状态（越界时挂着另一端那一页）：够远或带速度就滑完，否则回弹。
+    if (_wrapping) {
+      final from = _wrapFromReal ?? _anchor;
+      final forward = _wrapTo == 0 && from == last;
+      final beyond = forward
+          ? _position.value - last
+          : (from == 0 ? -_position.value : 0);
+      final complete = beyond >= .28 ||
+          (fling && (forward ? direction > 0 : direction < 0));
+      _completeWrap(complete: complete);
+      return;
+    }
     final target =
         _bounded(_anchor + (fling || travelled.abs() >= .28 ? direction : 0));
     _settle(target);
@@ -191,7 +260,57 @@ class DesktopPageStackState extends State<DesktopPageStack>
   }
 
   void dragCancel() {
-    if (_dragging) _settle(_bounded(widget.page));
+    if (!_dragging) return;
+    if (_wrapping) {
+      _completeWrap(complete: false);
+      return;
+    }
+    _settle(_bounded(widget.page));
+  }
+
+  /// 环回收尾：`complete` 为真是"滑完换页"，否则回弹到当前页。
+  ///
+  /// 两者都是**平移**动画：滑完时把位置推到虚拟终点（last+1 或 -1），
+  /// 动画结束后再换成真实页；回弹时把越界那段滑回 0。
+  void _completeWrap({required bool complete}) {
+    _dragging = false;
+    final target = _wrapTo;
+    final from = _wrapFromReal;
+    if (target == null || from == null) {
+      _settle(_bounded(widget.page));
+      return;
+    }
+    if (!complete) {
+      // 回弹：撤掉"另一端那一页"，只留当前页滑回原位。
+      _wrapTo = null;
+      _wrapFromReal = null;
+      _painted = {from};
+      _toPage = from;
+      _settle(from);
+      return;
+    }
+    if (_motionDisabled) {
+      _finishWrap();
+      return;
+    }
+    final end = target == 0 && from == widget.children.length - 1
+        ? widget.children.length.toDouble()
+        : -1.0;
+    _moving = true;
+    setState(() {});
+    _animation.animateTo(end,
+        duration: const Duration(milliseconds: 150),
+        curve: Curves.easeOutCubic);
+  }
+
+  void _finishWrap() {
+    final target = _wrapTo;
+    if (target == null) return;
+    _wrapTo = null;
+    _wrapFromReal = null;
+    if (!mounted) return;
+    setState(() => _jump(target));
+    if (target != widget.page) widget.onPageRequested?.call(target);
   }
 
   @override
@@ -208,47 +327,65 @@ class DesktopPageStackState extends State<DesktopPageStack>
     return LayoutBuilder(builder: (context, constraints) {
       _width = constraints.maxWidth;
       final order = [for (var i = 0; i < widget.children.length; i++) i];
-      if (widget.effect == 'depth') {
+      if (!_wrapping && widget.effect == 'depth') {
         // The incoming page covers the receding page in either direction.
         order.remove(_toPage);
         order.add(_toPage);
       }
+      // 环回淡入：进来的那一页必须画在最上层，否则被当前页整个盖住，
+      // 淡入看不出任何变化（测试里就是这么发现的第一版问题）。
+      if (_wrapping) {
+        order.remove(_wrapTo!);
+        order.add(_wrapTo!);
+      }
       return ClipRect(
           child: Stack(fit: StackFit.expand, children: [
-        for (final i in order)
-          Positioned.fill(
-              key: ValueKey('desktop-motion-page-$i'),
-              child: _RetainedPage(
-                  offstage: !_painted.contains(i),
-                  child: IgnorePointer(
-                      ignoring: _moving || i != _bounded(widget.page),
-                      child: ExcludeSemantics(
-                          excluding: _moving || i != _bounded(widget.page),
-                          child: TickerMode(
-                              enabled: parentTicker &&
-                                  !_moving &&
-                                  i == _bounded(widget.page),
-                              child: DesktopMotionScope(
-                                  moving: _moving && _painted.contains(i),
-                                  child: _PageTransform(
-                                      position: _painted.contains(i)
-                                          ? _position
-                                          : AlwaysStoppedAnimation(
-                                              i.toDouble()),
-                                      index: i,
-                                      effect: _motionDisabled
-                                          ? 'none'
-                                          : widget.effect,
-                                      from: _fromPage,
-                                      to: _toPage,
-                                      child: RepaintBoundary(
-                                          child: ClipRect(
-                                              key: ValueKey(
-                                                  'desktop-motion-frame-$i'),
-                                              child:
-                                                  widget.children[i]))))))))),
+        for (final i in order) _motionPage(i, parentTicker),
       ]));
     });
+  }
+
+  /// 一页的运动外壳。
+  ///
+  /// 环回期间两页都钉在原位（`position = i`，不做位移），只让「进来的那一页」
+  /// 从 0 淡到 1 盖上来 —— 否则沿用位置动画会出现「往回翻一屏」的错觉。
+  Widget _motionPage(int i, bool parentTicker) {
+    // 环回时"进来的那一页"用虚拟序号参与平移（挂在当前页的右边或左边），
+    // 效果就是设置里的「平移」：跟手滑动，方向与手指一致。
+    final wrapping = _wrapping;
+    final index = wrapping && i == _wrapTo ? _wrapVirtual : i;
+    final page = _PageTransform(
+        position: _painted.contains(i)
+            ? _position
+            : AlwaysStoppedAnimation(i.toDouble()),
+        index: index,
+        // 环回固定用平移，不跟 depth / zoom 那套（那两套是"翻页"语义，
+        // 套在环回上会出现方向错乱）。
+        effect: wrapping
+            ? 'slide'
+            : (_motionDisabled ? 'none' : widget.effect),
+        clip: !wrapping,
+        from: _fromPage,
+        to: _toPage,
+        child: RepaintBoundary(
+            child: ClipRect(
+                key: ValueKey('desktop-motion-frame-$i'),
+                child: widget.children[i])));
+    return Positioned.fill(
+        key: ValueKey('desktop-motion-page-$i'),
+        child: _RetainedPage(
+            offstage: !_painted.contains(i),
+            child: IgnorePointer(
+                ignoring: _moving || i != _bounded(widget.page),
+                child: ExcludeSemantics(
+                    excluding: _moving || i != _bounded(widget.page),
+                    child: TickerMode(
+                        enabled: parentTicker &&
+                            !_moving &&
+                            i == _bounded(widget.page),
+                        child: DesktopMotionScope(
+                            moving: _moving && _painted.contains(i),
+                            child: page))))));
   }
 }
 
@@ -258,8 +395,13 @@ class _PageTransform extends AnimatedWidget {
   final int index, from, to;
   final String effect;
   final Widget child;
+
+  /// 普通相邻翻页才用「未覆盖裁剪」省绘制；环回时两页都可能是满宽可见，
+  /// 裁掉会看着像页面被切了一块。
+  final bool clip;
   const _PageTransform(
       {required ValueListenable<double> position,
+      this.clip = true,
       required this.index,
       required this.effect,
       required this.from,
@@ -292,7 +434,8 @@ class _PageTransform extends AnimatedWidget {
         // Avoid a full-screen alpha buffer and overdraw in layered motion. Slide
         // and depth only differ in how far the outgoing page travels, so the same
         // uncovered-region clip removes the invisible half of its raster work.
-        clipper: from != to &&
+        clipper: clip &&
+                from != to &&
                 index == from &&
                 (effect == 'depth' || effect == 'slide')
             ? _UncoveredPageClipper(

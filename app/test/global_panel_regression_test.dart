@@ -14,13 +14,13 @@ import 'package:uni_launcher/widgets/launcher_dialog.dart';
 import 'package:uni_launcher/widgets/glass_surface.dart';
 import 'package:uni_launcher/widgets/audio_spectrum.dart';
 import 'package:uni_launcher/widgets/card_content.dart';
+import 'package:uni_launcher/widgets/dock_nav_icons.dart';
 import 'package:uni_launcher/widgets/media_artwork.dart';
 import 'package:uni_launcher/widgets/integration_settings.dart';
 import 'package:uni_launcher/model/card_layout.dart';
 import 'package:uni_launcher/widgets/lyrics_view.dart';
 import 'fake_gateway.dart';
 import 'package:uni_launcher/widgets/recent_tasks_panel.dart';
-import 'package:uni_launcher/widgets/uni_icon.dart';
 import 'package:uni_launcher/widgets/desktop.dart';
 import 'package:uni_launcher/widgets/editable_card.dart';
 
@@ -237,14 +237,21 @@ void main() {
     }
     await t.tap(find.byKey(const ValueKey('recents')));
     expect(g.commands.last['action'], 'show-recents');
-    final cameraIcon = t.widget<UniIcon>(find.descendant(
-        of: find.byKey(const ValueKey('camera')),
-        matching: find.byType(UniIcon)));
-    expect(cameraIcon.name, 'camera-360');
+    // 设计稿复刻图标（circle + 360 字样）替代原 UniIcon 资产。
+    expect(
+        find.descendant(
+            of: find.byKey(const ValueKey('camera')),
+            matching: find.byType(NavCamera360Icon)),
+        findsOneWidget);
     final title = t.getCenter(find.byKey(const ValueKey('dock-track-title')));
     expect(find.byKey(const ValueKey('dock-lyrics')).hitTestable(),
         findsOneWidget);
-    expect(find.text('当前句').hitTestable(), findsOneWidget);
+    // 底栏元数据槽也显示当前一句歌词，歌词页内的断言收窄到该子树。
+    expect(
+        find.descendant(
+            of: find.byKey(const ValueKey('dock-lyrics')),
+            matching: find.text('当前句')),
+        findsOneWidget);
     final lyrics = t.widget<LyricsView>(find.byType(LyricsView));
     expect(lyrics.visibleLines, 1);
     expect(lyrics.currentLineMaxLines, 2);
@@ -272,8 +279,21 @@ void main() {
     await t.tap(find.byKey(const ValueKey('uni-menu')));
     await t.pumpAndSettle();
     expect(find.byKey(const ValueKey('uni-popup-panel')), findsOneWidget);
-    expect(find.text('车辆信息'), findsOneWidget);
-    expect(find.text('UNI桌面设置'), findsOneWidget);
+    // 设计稿 sim 的四行是「标题 + 说明」两行；实车菜单把说明整行去掉了，标题
+    // 从 17.6 抬到 20（行高仍是稿子的 58.5，不随 dock 档位缩放）。文案和副标题
+    // 以前全跑偏过，所以两边都钉住。
+    for (final title in ['车辆信息', '传文件 / 通网盘', '垃圾清理', 'UNI 桌面设置']) {
+      expect(find.text(title), findsOneWidget, reason: '$title 标题文案');
+    }
+    expect(find.text('只读 · 胎压 / 座舱 / 能量'), findsNothing,
+        reason: '说明行已去掉，不该再渲染副标题');
+    expect(find.text('扫码上传 · 夸克网盘'), findsNothing, reason: '说明行已去掉');
+    expect(find.text('缓存 · 日志 · 残留'), findsNothing, reason: '说明行已去掉');
+    expect(find.text('外观 · 应用 · 动画'), findsNothing, reason: '说明行已去掉');
+    expect(
+        t.getRect(find.byKey(const ValueKey('uni-menu-vehicle'))).height,
+        closeTo(58.5, .5),
+        reason: '行高应为设计稿的 58.5 画布，不随 dock 档位缩放');
     await t.tap(find.byKey(const ValueKey('uni-menu-vehicle')));
     await t.pumpAndSettle();
     expect(find.byTooltip('关闭车辆信息'), findsOneWidget);
@@ -284,6 +304,29 @@ void main() {
     await t.tap(find.byKey(const ValueKey('uni-menu-settings')));
     await t.pumpAndSettle();
     expect(c.settings, isTrue);
+    expect(g.commands, isEmpty);
+    expect(t.takeException(), isNull);
+  });
+
+  testWidgets('UNI menu cleaner jumps into the settings cleaner tab',
+      (t) async {
+    final (c, g) = await setup(t);
+    await t.pumpWidget(MaterialApp(
+        theme: launcherTheme(SurfaceStyle.from(const Appearance(), true)),
+        home: Scaffold(
+            body: Align(
+                alignment: Alignment.bottomCenter,
+                child: BottomDock(controller: c)))));
+    await t.pumpAndSettle();
+    await t.tap(find.byKey(const ValueKey('uni-menu')));
+    await t.pumpAndSettle();
+    await t.tap(find.byKey(const ValueKey('uni-menu-cleaner')));
+    await t.pumpAndSettle();
+    // 不再弹独立的清理窗口，而是打开设置并落在「垃圾清理」那一栏。
+    expect(c.settings, isTrue);
+    expect(c.settingsTab, 'cleaner');
+    expect(find.text('扫全机缓存、临时文件与残留；照片、导航离线地图和行车记录不动'),
+        findsNothing);
     expect(g.commands, isEmpty);
     expect(t.takeException(), isNull);
   });
@@ -434,33 +477,57 @@ void main() {
                   height: size.$4,
                   child: CardContent(card: card, controller: c)))));
       await t.pumpAndSettle();
-      expect(find.text('测试播放器'), findsOneWidget);
-      expect(find.text('正在播放'), findsOneWidget);
+      final draft = size.$1 == 4 && size.$2 >= 4;
+      // 「正在播放」是卡片头上来源标识的副标题；稿子尺寸没有卡片头。
+      expect(find.text('正在播放'), draft ? findsNothing : findsOneWidget);
       if (size.$2 <= 3) {
+        // 矮卡只放封面 + 曲名，没有歌词位；来源标识仍在卡片头上。
         expect(find.byType(LyricsView), findsNothing);
         if (size.$2 == 2) expect(find.byType(AudioSpectrum), findsNothing);
+        expect(find.text('测试播放器'), findsOneWidget);
         await t.tap(find.byKey(const ValueKey('media-source-entry')));
         expect(c.gateway, isA<FakeGateway>());
         expect((c.gateway as FakeGateway).commands.last['action'],
             'launch-player');
       } else {
         expect(find.byKey(const ValueKey('music-card-lyrics')), findsOneWidget);
-        final lyricView = t.widget<LyricsView>(find.byType(LyricsView));
-        expect(lyricView.lineHeight, 44);
-        expect(lyricView.fontSize, 26);
-        expect(lyricView.textAlign, TextAlign.center);
-        expect(lyricView.visibleLines!.isOdd, isTrue);
         expect(find.byKey(const ValueKey('music-card-lyrics-fade')),
             findsOneWidget);
         expect(find.byType(AudioSpectrum), findsOneWidget);
+        final lyricView = t.widget<LyricsView>(find.byType(LyricsView));
+        if (draft) {
+          // 稿子 f1：卡片头整个省掉（来源与换音源都在播放器弹层里），歌词是
+          // 迷你窗——当前行放大 + 左对齐 + 不滚动。
+          expect(find.byKey(const ValueKey('media-source-entry')), findsNothing);
+          expect(lyricView.mini, isTrue);
+          expect(lyricView.textAlign, TextAlign.start);
+          expect(lyricView.visibleLines, inInclusiveRange(3, 7));
+          expect(lyricView.activeFontSize,
+              greaterThan(lyricView.fontSize!));
+          // 三颗音质标签是稿子的静态装饰（原车没有音质字段），位置在标题下面。
+          for (final tag in ['VIP', 'SQ', 'Hi-Res']) {
+            expect(find.byKey(ValueKey('music-quality-$tag')), findsOneWidget,
+                reason: '$size $tag');
+          }
+          expect(
+              t.getRect(find.byKey(const ValueKey('music-quality-VIP'))).top,
+              greaterThan(
+                  t.getRect(find.byKey(const ValueKey('music-card-artist')))
+                      .top));
+        } else {
+          expect(lyricView.mini, isFalse);
+          expect(lyricView.lineHeight, 44);
+          expect(lyricView.fontSize, 26);
+          expect(lyricView.textAlign, TextAlign.center);
+        }
         final lyrics =
             t.getCenter(find.byKey(const ValueKey('music-card-lyrics')));
-        final metadata =
-            t.getCenter(find.byKey(const ValueKey('music-card-metadata')));
-        if (size.$1 == 4 && size.$2 >= 5) {
-          expect(lyrics.dy, greaterThan(metadata.dy));
+        final cover = t.getRect(find.byType(MediaArtwork).first);
+        // 稿子版式：封面在上、歌词在下；8×6 宽卡仍是左右两列。
+        if (draft) {
+          expect(cover.bottom, lessThan(lyrics.dy));
         } else {
-          expect(lyrics.dx, greaterThan(metadata.dx));
+          expect(lyrics.dx, greaterThan(cover.right));
         }
         expect(
             t.getCenter(find.byType(AudioSpectrum)).dy, greaterThan(lyrics.dy));
@@ -469,12 +536,13 @@ void main() {
     }
   });
 
-  testWidgets('4x4 music metadata stays left under the cover', (t) async {
+  testWidgets('4x4 music title sits beside the cover, lyrics below it',
+      (t) async {
     final (c, g) = await setup(t);
     g.state['media'] = {
       ...(g.state['media'] as Map<String, dynamic>),
-      'title': '这是一首特别长的歌曲名称用来验证左侧区域跑马灯布局',
-      'collection': '这是一张特别长的专辑名称用来验证左侧区域跑马灯布局'
+      'title': '这是一首特别长的歌曲名称用来验证右侧区域跑马灯布局',
+      'collection': '这是一张特别长的专辑名称用来验证右侧区域跑马灯布局'
     };
     g.stream.add(Map.of(g.state));
     await t.pumpWidget(MaterialApp(
@@ -489,33 +557,114 @@ void main() {
                     controller: c)))));
     await t.pump(const Duration(milliseconds: 100));
 
-    final metadata =
-        t.getRect(find.byKey(const ValueKey('music-card-metadata')));
     final title = t.getRect(find.byKey(const ValueKey('music-card-title')));
-    final album = t.getRect(find.byKey(const ValueKey('music-card-album')));
+    final artist = t.getRect(find.byKey(const ValueKey('music-card-artist')));
     final lyrics = t.getRect(find.byKey(const ValueKey('music-card-lyrics')));
     final cover = t.getRect(find.byType(MediaArtwork).first);
-    final left =
-        t.getRect(find.byKey(const ValueKey('music-card-left-column')));
-    final right =
-        t.getRect(find.byKey(const ValueKey('music-card-right-column')));
-    expect(left.width / right.width, closeTo(2 / 3, .01));
-    expect(title.left, closeTo(metadata.left, .1));
-    expect(album.left, closeTo(metadata.left, .1));
-    expect(title.top, greaterThan(cover.bottom));
-    expect(album.top, greaterThan(title.bottom));
-    expect(lyrics.left, greaterThan(title.right));
-    expect(
-        find.descendant(
-            of: find.byKey(const ValueKey('music-card-title')),
-            matching: find.byType(ShaderMask)),
-        findsOneWidget);
-    expect(
-        find.descendant(
-            of: find.byKey(const ValueKey('music-card-album')),
-            matching: find.byType(ShaderMask)),
-        findsOneWidget);
+    // 稿子 `.mu-info`：标题与副标题在封面右侧、顶端对齐；专辑进了副标题那行。
+    expect(title.left, greaterThan(cover.right));
+    expect(title.right, lessThanOrEqualTo(lyrics.right + .1));
+    expect(title.top, lessThan(cover.bottom));
+    expect(artist.left, closeTo(title.left, .1));
+    expect(artist.top, greaterThan(title.bottom));
+    expect(lyrics.top, greaterThan(cover.bottom));
+    expect(find.byKey(const ValueKey('music-card-album')), findsNothing);
+    for (final key in ['music-card-title', 'music-card-artist']) {
+      expect(
+          find.descendant(
+              of: find.byKey(ValueKey(key)),
+              matching: find.byType(ShaderMask)),
+          findsOneWidget,
+          reason: key);
+    }
     expect(t.takeException(), isNull);
+  });
+
+  testWidgets('two-row music card exposes a play/pause button on the right',
+      (t) async {
+    final (c, g) = await setup(t);
+    g.state['demo'] = false;
+    g.state['media'] = {
+      ...(g.state['media'] as Map<String, dynamic>),
+      'available': true,
+      'canToggle': true,
+      'playing': true
+    };
+    g.stream.add(Map.of(g.state));
+    Future<void> pumpCard(LauncherCard card, double height) =>
+        t.pumpWidget(MaterialApp(
+            theme: launcherTheme(SurfaceStyle.from(const Appearance(), true)),
+            home: Scaffold(
+                body: SizedBox(
+                    width: 600,
+                    height: height,
+                    child: CardContent(card: card, controller: c)))));
+
+    final compact = LauncherCard('music', 'music', '音乐', 0, 0, 4, 2, 0);
+    await pumpCard(compact, 240);
+    await t.pump(const Duration(milliseconds: 100));
+
+    const key = ValueKey('music-card-compact-play');
+    expect(find.byKey(key), findsOneWidget);
+    // 正在播放 → 暂停图标；按钮排在封面右边、卡片靠右那一侧。
+    expect(find.descendant(of: find.byKey(key), matching: find.byIcon(Icons.pause)),
+        findsOneWidget);
+    final cover = t.getRect(find.byType(MediaArtwork).first);
+    final button = t.getRect(find.byKey(key));
+    expect(button.left, greaterThan(cover.right));
+    expect(button.center.dx, greaterThan(300));
+
+    await t.tap(find.byKey(key));
+    await t.pump();
+    expect(g.commands.last['action'], 'toggle-play');
+
+    // 卡片变高走别的版式，这颗键不该再出现。
+    await pumpCard(LauncherCard('music', 'music', '音乐', 0, 0, 4, 4, 0), 530);
+    await t.pump(const Duration(milliseconds: 100));
+    expect(find.byKey(key), findsNothing);
+    expect(t.takeException(), isNull);
+  });
+
+  // 一格高（4×1）是 2026-11-15 新放开的档：卡高 ~100 px，卡头和 86 的封面
+  // 都放不下，所以这一档只留「封面 + 曲目 + 播放键」一行。
+  testWidgets('one-row music card drops the source header and stays in bounds',
+      (t) async {
+    final (c, g) = await setup(t);
+    Future<void> pumpCard(int h, double height) => t.pumpWidget(MaterialApp(
+        theme: launcherTheme(SurfaceStyle.from(const Appearance(), true)),
+        home: Scaffold(
+            body: SizedBox(
+                width: 608,
+                height: height,
+                child: CardContent(
+                    card: LauncherCard('music', 'music', '音乐', 0, 0, 4, h, 0),
+                    controller: c)))));
+
+    await pumpCard(1, 100);
+    await t.pump(const Duration(milliseconds: 100));
+    expect(t.takeException(), isNull);
+    // 卡头是来源徽标（显示 '测试播放器'）：一格档整行不画。
+    expect(find.text('测试播放器'), findsNothing);
+    expect(find.byKey(const ValueKey('music-card-title')), findsOneWidget);
+    expect(find.byKey(const ValueKey('music-card-artist')), findsOneWidget);
+    final key = const ValueKey('music-card-compact-play');
+    expect(find.byKey(key), findsOneWidget);
+
+    final cover = t.getRect(find.byType(MediaArtwork).first);
+    final button = t.getRect(find.byKey(key));
+    // 封面按卡高算（吃掉 ~九成高度），按钮排在它右边，两者都不出卡。
+    expect(cover.height, greaterThan(80));
+    expect(cover.bottom, lessThanOrEqualTo(100));
+    expect(button.left, greaterThan(cover.right));
+    expect(button.top, greaterThanOrEqualTo(0));
+    expect(button.bottom, lessThanOrEqualTo(100));
+
+    // 4×2 起卡头回来（回归：不能因为一格档把来源行全局删了）。
+    await pumpCard(2, 240);
+    await t.pump(const Duration(milliseconds: 100));
+    expect(find.text('测试播放器'), findsOneWidget);
+    expect(t.takeException(), isNull);
+    await t.pumpWidget(const SizedBox());
   });
 
   testWidgets('long titles and albums are clipped in every music card size',
@@ -548,10 +697,12 @@ void main() {
                           'music', 'music', '音乐', 0, 0, size.$1, size.$2, 0),
                       controller: c)))));
       await t.pump(const Duration(milliseconds: 200));
+      // 稿子的 4×4+ 把专辑并进副标题那行，没有独立的 music-card-album。
+      final draft = size.$1 == 4 && size.$2 >= 4;
       for (final key in [
         'music-card-title',
         'music-card-artist',
-        'music-card-album'
+        if (!draft) 'music-card-album'
       ]) {
         final field = find.byKey(ValueKey(key));
         expect(find.descendant(of: field, matching: find.byType(ClipRect)),
@@ -733,7 +884,7 @@ void main() {
     expect(g.commands.last['value'], 'disabled.map');
   });
 
-  testWidgets('applications page filters system apps and centers sidebar',
+  testWidgets('applications page filters system apps and puts filters above grid',
       (t) async {
     final (c, g) = await setup(t);
     (g.state['apps'] as List).addAll(<Map<String, dynamic>>[
@@ -772,10 +923,14 @@ void main() {
         findsOneWidget);
     expect(find.text('系统应用'), findsNothing);
     expect(find.text('com.ecars.mycar.inter'), findsNothing);
-    final sidebar = t.getRect(find.byKey(const ValueKey('apps-sidebar')));
+    // 稿子 f6 把筛选从左侧竖列收进面板顶部一行（.ap-tools），网格吃满宽度。
+    final pills = t.getRect(find.byKey(const ValueKey('apps-enabled')));
     final grid = t.getRect(find.byKey(const ValueKey('apps-enabled-grid')));
-    expect(sidebar.center.dy, closeTo(grid.center.dy, .1));
-    expect(sidebar.height, lessThan(grid.height));
+    expect(pills.bottom, lessThan(grid.top), reason: '筛选条应在网格上方');
+    final panel = t.getRect(find.byKey(const ValueKey('apps-panel')));
+    expect(panel.contains(pills.topLeft), isTrue, reason: '筛选与网格同住一张面板卡');
+    expect(panel.contains(grid.topLeft), isTrue);
+    expect(find.text('长按图标可编辑'), findsOneWidget);
     await t.tap(find.byKey(const ValueKey('apps-show-system')));
     await t.pumpAndSettle();
     expect(find.text('系统应用'), findsOneWidget);
@@ -792,18 +947,24 @@ void main() {
   testWidgets('music title opens player and bottom dock selects global panel',
       (t) async {
     final (c, g) = await setup(t, global: true);
+    // 4×3 才有卡片头上的来源标识（4×4 起按稿子走无头版式）。
+    c.cards = [const LauncherCard('music-1', 'music', '音乐', 0, 0, 4, 3, 0)];
     await t.pumpWidget(LauncherApp(controller: c));
     await t.pumpAndSettle();
     await t.tap(find.byKey(const ValueKey('media-source-entry')).first);
     await t.pumpAndSettle();
     expect(g.commands.last['action'], 'launch-player');
     expect(find.byType(LauncherSheet), findsNothing);
+    // 底栏引擎（hostMode=global-dock）：点音乐块不再弹旧的媒体面板，而是请桌面
+    // 把音乐卡铺满（2026-11-13 实车反馈：那个面板是另一套窗口，关掉还会卡桌面）。
+    g.state['hostMode'] = 'global-dock';
+    g.stream.add(Map.of(g.state));
     await t.pumpWidget(GlobalDockApp(controller: c));
     await t.pumpAndSettle();
     await t.tap(find.byKey(const ValueKey('music-info')));
     await t.pumpAndSettle();
-    expect(g.commands.last['action'], 'show-dock-panel');
-    expect(g.commands.last['value'], 'media');
+    expect(g.commands.last['action'], 'focus-music-card');
+    expect(g.commands.map((e) => e['action']), isNot(contains('show-dock-panel')));
     expect(find.byType(LauncherSheet), findsNothing);
   });
 
@@ -891,7 +1052,8 @@ void main() {
     expect(find.text('选择导航应用'), findsOneWidget);
     expect(find.text('通勤导航'), findsWidgets);
     expect(find.text('唯一地图'), findsNothing);
-    expect(find.byKey(const ValueKey('nav-show-all')), findsNothing);
+    // 无关应用不进主列表，只在「其他已安装应用」展开后才出现。
+    expect(find.byKey(const ValueKey('nav-show-all')), findsOneWidget);
     expect(find.byKey(const ValueKey('nav-option-test.player')), findsNothing);
     await t.tap(find.byKey(const ValueKey('nav-option-custom.map')));
     await t.pumpAndSettle();
@@ -943,27 +1105,34 @@ void main() {
     expect(t.takeException(), isNull);
   });
 
-  testWidgets('local music sheet disables backdrop filters when glass is off',
+  testWidgets('focused music card fills the page without a backdrop filter',
       (t) async {
     final (c, _) = await setup(t);
     await t.pumpWidget(LauncherApp(controller: c));
     await t.pumpAndSettle();
+    // 稿子 f5：底栏音乐块点进去把那张音乐卡铺满整页（头部与底栏仍在）。
     await t.tap(find.byKey(const ValueKey('music-info')));
     await t.pumpAndSettle();
-    expect(find.byType(LauncherSheet), findsOneWidget);
-    expect(find.byType(BackdropFilter), findsNothing);
+    expect(c.focusedCard.value, isNotNull);
+    expect(find.byKey(const ValueKey('music-player-title')), findsOneWidget);
+    expect(find.byType(Header), findsOneWidget);
+    // 铺满的卡片自己是不透明底，玻璃开关下都不挂 BackdropFilter。
     expect(
         find.descendant(
-            of: find.byType(LauncherSheet), matching: find.text('测试播放器')),
-        findsOneWidget);
-    await t.tap(find.byTooltip('关闭音乐详情'));
+            of: find.byType(GlassSurface),
+            matching: find.byType(BackdropFilter)),
+        findsNothing);
+    await t.tap(find.byKey(const ValueKey('card-focus-close')));
     await t.pumpAndSettle();
+    expect(c.focusedCard.value, isNull);
     c.setAppearance(c.appearance.copyWith(themeStyle: 'classic', glass: true),
         save: false);
     await t.pumpAndSettle();
     await t.tap(find.byKey(const ValueKey('music-info')));
     await t.pumpAndSettle();
-    expect(find.byType(BackdropFilter), findsWidgets);
+    expect(find.byKey(const ValueKey('music-player-title')), findsOneWidget);
+    await t.tap(find.byKey(const ValueKey('card-focus-close')));
+    await t.pumpAndSettle();
   });
 
   testWidgets('long music card lyric wraps instead of ellipsizing', (t) async {

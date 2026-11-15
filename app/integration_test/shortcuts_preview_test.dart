@@ -66,7 +66,9 @@ void main() {
         gateway.commands
             .any((v) => v['action'] == 'launch-app' && v['value'] == firstId),
         isTrue);
-    await t.tap(find.byKey(const ValueKey('shortcuts-edit-quick')));
+    // 这张 4×2 卡已选满 4 个，虚线「添加」格不在了；卡头也没有铅笔按钮，
+    // 所以进管理的唯一入口就是长按整卡（卡头副标题「长按编辑」说的就是它）。
+    await t.longPress(find.text('快捷应用'));
     await t.pumpAndSettle();
     final firstOption = find.byKey(ValueKey('shortcut-option-$firstId'));
     await t.ensureVisible(firstOption);

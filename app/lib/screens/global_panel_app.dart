@@ -13,7 +13,6 @@ import '../widgets/dock_window_scope.dart';
 import '../widgets/navigation_app_picker.dart';
 import '../widgets/music_app_picker.dart';
 import '../widgets/recent_tasks_panel.dart';
-import '../widgets/storage_cleaner_panel.dart';
 
 /// Separate, reusable window above the dock; never resizes its surface.
 class GlobalPanelApp extends StatefulWidget {
@@ -104,7 +103,8 @@ class _GlobalPanelAppState extends State<GlobalPanelApp> {
       case 'uni-menu':
         await showUniDockMenu(context, widget.controller);
       case 'cleaner':
-        await showCleanerPanel(context, widget.controller);
+        // 和 UNI 菜单里那颗一样：落到设置页的「垃圾清理」栏，不另开窗口。
+        await widget.controller.openSettings(tab: 'cleaner');
       case 'transfer':
         await showFileTransferPopup(context, widget.controller);
       case 'apps':
