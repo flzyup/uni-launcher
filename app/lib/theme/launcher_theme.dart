@@ -1,6 +1,10 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import '../model/appearance.dart';
 import 'design_tokens.dart';
+import 'launcher_type.dart';
+import 'skin_material.dart';
 import 'technical_frame.dart';
 
 /// Nocturne (暗夜) palette, copied 1:1 from `design/desktop-lynk05.html`.
@@ -16,8 +20,10 @@ abstract final class Nocturne {
   static const amber = Color(0xFFFFB057);
   static const cyan = Color(0xFF6FD3FF);
 
-  /// Canvas behind everything: near-black, never pure #000, so the 80 px grid
-  /// and the card shadows still read.
+  /// Canvas behind everything: near-black, never pure #000, so the card
+  /// shadows and the two ambient glows still read. (The 80 px grid that used
+  /// to sit on top of it was removed — it cut the empty space into cells and
+  /// made every card look pasted onto graph paper.)
   static const background = Color(0xFF050607);
 
   /// 切到暗夜时写进「圆角」的初始值。设计稿是 34，按实机观感收到 25：
@@ -54,9 +60,29 @@ abstract final class Nocturne {
 class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
   final bool dark, glass, technicalFrame, nocturne;
 
+  /// 皮肤标识。用 getter 从既有布尔位推出来，不新增构造参数——
+  /// 三处工厂都已分别置位（technicalFrame 只有 blueGlass 为真、
+  /// nocturne 只有 eclipse 为真），所以推出来的值与 themeStyle 一一对应，
+  /// 而 `==` / hashCode 一个都不用改。
+  LauncherSkin get skin => technicalFrame
+      ? LauncherSkin.blueGlass
+      : (nocturne ? LauncherSkin.eclipse : LauncherSkin.classic);
+
+  /// 这套皮肤在这个明暗态下的「新元素配色表」。布局是全局共用的，
+  /// 只有颜色按皮肤分发，缺一项就会出现某皮肤下元素不可见。
+  SkinMaterial get material => SkinMaterial.resolve(skin, dark);
+
   /// 画质降级：帧预算不够时由 [AdaptiveQuality] 打开，只关掉实时模糊，
   /// 配色与尺寸一个都不动，所以画面看起来是同一套皮肤。
   final bool lowPower;
+
+  /// 背后是**一张照片**（选了壁纸）而不是主题自己的渐变画布。
+  ///
+  /// 暗夜这套皮肤是围着「近黑底」设计的：卡片只有 5% 白、阴影是 90% 黑 + 54 模糊。
+  /// 近黑画布上那层阴影看不见；一旦换成照片，阴影就成了卡片底下一坨黑、卡片本体
+  /// 又把照片透上来（用户 2026-11-13 实车反馈「按钮全透明、卡片糊成一团黑」）。
+  /// 这个标记只在暗夜 + 壁纸时为真，`glass_surface` 据此换一套实底色与收敛的阴影。
+  final bool wallpaperBacked;
   final double radius;
   final String spectrumStyle;
   final Color accent,
@@ -75,6 +101,7 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
       this.technicalFrame = false,
       this.nocturne = false,
       this.lowPower = false,
+      this.wallpaperBacked = false,
       this.spectrumStyle = 'bars',
       required this.glass,
       required this.radius,
@@ -91,7 +118,11 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
       required this.shadow});
   factory SurfaceStyle.from(Appearance a, bool systemDark,
       {bool adaptToWallpaper = false, bool lowPower = false}) {
-    if (a.themeStyle == 'nocturne') return SurfaceStyle._nocturne(a, lowPower);
+    // 只有暗夜需要这个标记：另两套皮肤本来就靠玻璃底色吃照片。
+    final backed = a.wallpaper != 'gradient';
+    if (a.themeStyle == 'nocturne') {
+      return SurfaceStyle._nocturne(a, lowPower, backed);
+    }
     final dark = adaptToWallpaper && a.mode == 'smart'
         ? a.backgroundIsDark(systemDark)
         : a.isDark(systemDark);
@@ -118,7 +149,6 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
           edge: dark ? const Color(0xFF31475E) : const Color(0xFFCAD6E4),
           shadow: dark ? const Color(0x18000000) : const Color(0x0C263E58));
     }
-    if (a.themeStyle == 'nocturne') return SurfaceStyle._nocturne(a, lowPower);
     return SurfaceStyle(
         lowPower: lowPower,
         dark: dark,
@@ -150,25 +180,34 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
   /// picker and the preview entry point when they switch a profile to
   /// Nocturne; mapping 0 → 25 here would make the left end of the slider a
   /// dead zone.
-  factory SurfaceStyle._nocturne(Appearance a, [bool lowPower = false]) {
+  factory SurfaceStyle._nocturne(Appearance a,
+      [bool lowPower = false, bool wallpaperBacked = false]) {
     final accent = a.accent(true);
     return SurfaceStyle(
         nocturne: true,
         lowPower: lowPower,
+        wallpaperBacked: wallpaperBacked,
         dark: true,
         glass: a.glass,
         spectrumStyle: a.spectrumStyle,
         radius: Design.dz(a.radius),
         accent: accent,
-        accentText: Color.lerp(accent, Colors.black, .84)!,
+        // `--acc-d`：实心渐变上的字色，hsl(h,60%,9%) 的近黑同色系。
+        accentText: _tone(accent, .60, .09),
         seed: a.seed(),
         text: const Color(0xFFEFF4F6),
         muted: const Color(0x8CE9F1F5),
         disabled: const Color(0x5E676B70),
-        surface: const Color(0x14FFFFFF),
-        strong: const Color(0xFF131619),
-        soft: const Color(0x0FFFFFFF),
-        edge: const Color(0x16FFFFFF),
+        // 有壁纸时：几个表层色改成「压得住照片」的近黑实底，否则按钮、底栏胶囊、
+        // 面板全都半透明地浮在照片上（实车反馈）。没壁纸时保持原值。
+        surface:
+            wallpaperBacked ? const Color(0xE60E1113) : const Color(0x14FFFFFF),
+        strong:
+            wallpaperBacked ? const Color(0xFA131619) : const Color(0xFF131619),
+        soft:
+            wallpaperBacked ? const Color(0xB30B0D0E) : const Color(0x0FFFFFFF),
+        edge:
+            wallpaperBacked ? const Color(0x24FFFFFF) : const Color(0x16FFFFFF),
         shadow: const Color(0xE6000000));
   }
 
@@ -214,6 +253,45 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
   /// 已经为实心底算好的 [accentText]；科技框和暗夜是低透明度描边，没有实底，
   /// 用 `accent` 反而更清楚。
   Color get selectedText => technicalFrame || nocturne ? accent : accentText;
+
+  /// 同一色相下的一个色调，只换饱和度和明度。
+  static Color _tone(Color base, double saturation, double lightness) =>
+      HSLColor.fromAHSL(1, HSLColor.fromColor(base).hue, saturation, lightness)
+          .toColor();
+
+  /// 设计稿的强调色是三元组而不是单色：`--acc`（本体）、`--acc-hi`（实心
+  /// 控件的渐变亮端）、`--acc-lo`（暗端）。`.opt.on` / `.chip.on` / `.seg.on`
+  /// 都是 `linear-gradient(170deg, acc-hi, acc-lo)` 的实心底，文字再压一层
+  /// `--acc-d`（近黑的同色系），所以这三个值缺一不可。
+  ///
+  /// 稿子的算法是**同色相换明度**：
+  /// ```
+  /// --acc     hsl(h,62%,56%)   --acc-hi  hsl(h,72%,72%)
+  /// --acc-lo  hsl(h,55%,40%)   --acc-d   hsl(h,60%,9%)
+  /// ```
+  /// 不能写成 `Color.lerp(accent, white, .32)`——往白里插值会连着**饱和度一起
+  /// 稀释**，青屿的实心按钮就变成一层发白的灰绿，跟稿子上那种饱和的青绿差一
+  /// 整档。这里照稿子的公式算，换任意自定义色都不会跑偏。
+  Color get accentHi => nocturne
+      ? _tone(accent, .72, .72)
+      : Color.lerp(accent, Colors.white, .24)!;
+  Color get accentLo => nocturne
+      ? _tone(accent, .55, .40)
+      : Color.lerp(accent, Colors.black, .30)!;
+
+  /// 实心控件底（`.opt.on` / `.chip.on` / `.seg.on` / `.diag-btn.pri`）。
+  ///
+  /// 角度必须用 [GradientRotation] 锁死，不能写 `Alignment(-.34,-1)→(.34,1)`：
+  /// Flutter 的 Alignment 是**相对元素宽高**的，同一个对齐在一颗 380×35 的
+  /// 扁按钮上会被拉成横贯左右的渐变，而 CSS 的 `170deg` 是绝对角度。
+  ///
+  /// 符号：CSS 的角度是「渐变方向」，170deg = 向下偏右，所以亮端在左上；
+  /// Flutter 的 rotationZ 是顺时针为正，要还原「向下偏右」得给负角。
+  LinearGradient get accentFill => LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      transform: const GradientRotation(-10 * math.pi / 180),
+      colors: [accentHi, accentLo]);
 
   OutlinedBorder controlShape({bool selected = false}) => technicalFrame
       ? TechnicalFrameBorder(
@@ -268,6 +346,7 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
       other.technicalFrame == technicalFrame &&
       other.nocturne == nocturne &&
       other.lowPower == lowPower &&
+      other.wallpaperBacked == wallpaperBacked &&
       other.radius == radius &&
       other.spectrumStyle == spectrumStyle &&
       other.accent == accent &&
@@ -288,6 +367,7 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
       technicalFrame,
       nocturne,
       lowPower,
+      wallpaperBacked,
       radius,
       spectrumStyle,
       accent,
@@ -325,7 +405,7 @@ ThemeData _buildTheme(SurfaceStyle s) {
     textStyle: WidgetStatePropertyAll(TextStyle(
         fontSize: Design.px(21),
         fontWeight: FontWeight.w400,
-        height: 1.2,
+        height: LauncherType.lineTight,
         letterSpacing: 0)),
     minimumSize: WidgetStatePropertyAll(Size(0, Design.px(60))),
     padding:
@@ -348,18 +428,27 @@ ThemeData _buildTheme(SurfaceStyle s) {
       brightness: colors.brightness,
       colorScheme: colors,
       scaffoldBackgroundColor: s.background,
+      // 字族留空 = 跟随车机系统字体（见 launcher_type.dart 的实测依据）。
+      // 默认行高留 1.2：绝大多数 Text 是单行标签，行高只影响行盒高度；
+      // 段落级的多行说明显式用 LauncherType.lineBody / lineLoose。
       textTheme: Typography.material2021()
           .black
-          .apply(bodyColor: s.text, displayColor: s.text)
+          .apply(
+              fontFamily: LauncherType.family,
+              bodyColor: s.text,
+              displayColor: s.text)
           .copyWith(
               bodyMedium: TextStyle(
                   fontSize: Design.px(20),
-                  height: 1.2,
+                  height: LauncherType.lineTight,
                   color: s.text,
                   letterSpacing: 0)),
+      // 设计稿里 `.tbtn`（「打开导航应用」「立即应用驾驶模式」「立即开启无线
+      // adb」都是这一类）是 `color: rgb(var(--acc))` 的纯文字链接，不是灰字。
+      // 挂在 `s.muted`（白 40%）上的话，暗夜底下这些操作几乎看不见。
       textButtonTheme: TextButtonThemeData(
           style: button.copyWith(
-              foregroundColor: WidgetStatePropertyAll(s.muted))),
+              foregroundColor: WidgetStatePropertyAll(s.accent))),
       outlinedButtonTheme: OutlinedButtonThemeData(
           style: button.copyWith(
               foregroundColor: WidgetStatePropertyAll(s.text),
