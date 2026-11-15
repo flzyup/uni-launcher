@@ -341,9 +341,27 @@ public final class LauncherRuntime {
         try{
             packet.put("savedDesign",prefs.getString("savedDesign",""))
                 .put("appNames",storedAppNames())
+                // 「开机进入：上次停留」要用的那一页。放在 prelude 里是因为
+                // 页码必须在第一帧之前定下来，晚一包就会先画第 1 页再跳。
+                .put("lastDesktopPage",lastDesktopPage())
                 .put("dark",(context.getResources().getConfiguration().uiMode&Configuration.UI_MODE_NIGHT_MASK)==Configuration.UI_MODE_NIGHT_YES);
         }catch(Exception ignored){}
         return packet;
+    }
+
+    /** 上次停留的页（0 起）。 */
+    public int lastDesktopPage(){
+        return prefs.getInt("lastDesktopPage",0);
+    }
+
+    /**
+     * 记住停留页。只由 `desktopPage` 这条轻量通道调用：那条通道每次都走，
+     * 而 `saveDesign` 会回灌一整份快照，不能挂在每次翻页上。
+     */
+    public void rememberDesktopPage(int page){
+        if(page<0||page>19)return;
+        if(prefs.getInt("lastDesktopPage",0)==page)return;
+        prefs.edit().putInt("lastDesktopPage",page).apply();
     }
 
     public boolean saveDesign(String raw){return onMain(()->saveDesignOnMain(raw));}
@@ -411,6 +429,7 @@ public final class LauncherRuntime {
                 .put("autoPlayMusic",prefs.getBoolean("autoPlayMusic",false))
                 .put("steeringKeysEnabled",prefs.getBoolean("steeringKeysEnabled",true))
                 .put("instrumentSyncEnabled",prefs.getBoolean("instrumentSyncEnabled",true))
+                .put("dimClusterEnabled",prefs.getBoolean("dimClusterEnabled",false))
                 .put("bootAutostart",prefs.getBoolean("bootAutostart",true))
                 .put("homeKeyTarget",homeTarget)
                 .put("homeApps",installedHomeApps(context));
@@ -516,7 +535,7 @@ public final class LauncherRuntime {
                     t.fullMedia.optString("source"),prefs.getString("mediaPackage","auto"));
                 state.put("apps",t.projectedApps);
             }
-            if(wantDesign){state.put("savedDesign",t.design).put("appNames",t.appNames);}
+            if(wantDesign){state.put("savedDesign",t.design).put("appNames",t.appNames).put("lastDesktopPage",lastDesktopPage());}
             if(wantSettings){
                 JSONArray entries=systemSettings.snapshot();
                 if(entries!=null)state.put("systemSettings",new JSONObject().put("entries",entries).put("navigationAudio",navigationAudio.snapshot()));
@@ -573,9 +592,11 @@ public final class LauncherRuntime {
 
     private JSONObject demoMedia(){try{
         return new JSONObject().put("available",true).put("playing",demoPlaying)
-                .put("title",demoTrack%2==0?"向海而行":"山海之间").put("artist",demoTrack%2==0?"Coastline":"Northbound").put("collection","晨间驾驶歌单").put("source","simulator").put("canNext",true).put("canPrevious",true).put("canToggle",true).put("canSeek",true)
-                .put("lyrics","[00:00.00]晨光沿着海岸慢慢亮起\n[00:03.00]风把远方带进了呼吸\n[00:06.00]穿过山与海的交界\n[00:09.00]每一程都有新的风景\n[00:12.00]跟着潮声向前去\n[00:15.00]让今天从容开启")
-                .put("lyricsSource","demo").put("durationMs",258000).put("positionMs",demoPosition()).put("positionKnown",true)
+                // 示例曲目与封面（assets/art/cover-default.png）对齐稿子 f1/f5：
+                // 午夜立交 / 昼夜电台 / 环线。
+                .put("title","午夜立交").put("artist","昼夜电台").put("collection","环线").put("source","simulator").put("canNext",true).put("canPrevious",true).put("canToggle",true).put("canSeek",true)
+                .put("lyrics","[00:00.00]路灯把夜烫出一个洞\n[00:04.00]高架在头顶慢慢合拢\n[00:08.00]引擎声退成一片海\n[00:12.00]后视镜里城市在退潮\n[00:16.00]穿过环线，穿过午夜的风\n[00:20.00]电台里的人还没有睡\n[00:24.00]把方向盘握成一个句号")
+                .put("lyricsSource","demo").put("durationMs",269000).put("positionMs",demoPosition()).put("positionKnown",true)
                 .put("sampledAtMs",System.currentTimeMillis()).put("speed",1);
     }catch(Exception e){UniLog.e(LogTags.MEDIA,"演示媒体状态失败",e);return new JSONObject();}}
     private boolean saveDesignOnMain(String raw){
@@ -670,6 +691,13 @@ public final class LauncherRuntime {
             boolean on=request.optBoolean("enabled",true);
             prefs.edit().putBoolean("instrumentSyncEnabled",on).apply();
             media.setInstrumentEnabled(on);
+            publish();return true;
+        }
+        // 仪表自带媒体控件：第三条链路，和原车媒体中心并行，默认关。
+        if("dim-cluster".equals(action)){
+            boolean on=request.optBoolean("enabled",false);
+            prefs.edit().putBoolean("dimClusterEnabled",on).apply();
+            media.setDimClusterEnabled(on);
             publish();return true;
         }
         if("auto-play-music".equals(action)){prefs.edit().putBoolean("autoPlayMusic",request.optBoolean("enabled",false)).apply();publish();return true;}
@@ -860,7 +888,7 @@ public final class LauncherRuntime {
         if("seek".equals(action)){
             long position;try{position=Long.parseLong(value);}catch(NumberFormatException e){return true;}
             if(position<0)return true;
-            if(prefs.getBoolean("demo",false)){demoPositionMs=Math.min(258000,position);demoSampleAt=android.os.SystemClock.elapsedRealtime();}
+            if(prefs.getBoolean("demo",false)){demoPositionMs=Math.min(269000,position);demoSampleAt=android.os.SystemClock.elapsedRealtime();}
             else if(!media.command(action,position))toast("当前音源不支持调整进度");
             publish();return true;
         }
@@ -886,7 +914,7 @@ public final class LauncherRuntime {
         onMain(()->{
             boolean first=listeners.isEmpty();
             listeners.put(owner,listener);
-            if(first){media.setSteeringEnabled(prefs.getBoolean("steeringKeysEnabled",true));media.setInstrumentEnabled(prefs.getBoolean("instrumentSyncEnabled",true));media.setPreferredPackage(prefs.getString("mediaPackage","auto"));vehicle.start();weather.start();systemStatus.start();calendar.start();trafficLights.start();}
+            if(first){media.setSteeringEnabled(prefs.getBoolean("steeringKeysEnabled",true));media.setInstrumentEnabled(prefs.getBoolean("instrumentSyncEnabled",true));media.setDimClusterEnabled(prefs.getBoolean("dimClusterEnabled",false));media.setPreferredPackage(prefs.getString("mediaPackage","auto"));vehicle.start();weather.start();systemStatus.start();calendar.start();trafficLights.start();}
             publish();return null;
         });
     }

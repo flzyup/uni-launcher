@@ -2,7 +2,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import '../theme/design_tokens.dart';
 import '../theme/launcher_theme.dart';
-import '../widgets/glass_surface.dart';
+import '../widgets/choice_button.dart';
+import '../widgets/setting_block.dart';
 import '../widgets/launcher_dialog.dart';
 import 'update_controller.dart';
 
@@ -20,89 +21,123 @@ class _AboutPanelState extends State<AboutPanel> {
     widget.update.refreshContributors();
   }
 
+  String _stateLabel(UpdateController u) => switch (u.state) {
+        'checking' => '正在检查更新…',
+        'latest' => '当前已是最新版本',
+        'found' => '发现新版本 ${u.release?['version_name'] ?? ''}',
+        'downloading' => '正在下载 ${(u.progress * 100).toStringAsFixed(0)}%',
+        'error' => u.error,
+        'incompatible' => '当前设备暂无兼容更新',
+        _ => '尚未检查更新'
+      };
+
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
       animation: widget.update,
       builder: (context, _) {
         final u = widget.update, s = SurfaceStyle.of(context);
+        final version = '${u.info['versionName'] ?? '—'}';
         return SingleChildScrollView(
+            key: const PageStorageKey('about-scroll'),
             child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-              GlassSurface(
-                  child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                    Text('关于 UNI 桌面',
-                        style: TextStyle(fontSize: Design.px(26))),
-                    SizedBox(height: Design.px(15)),
-                    Text('UNI桌面  ${u.info['versionName'] ?? '—'}',
-                        style: TextStyle(fontSize: Design.px(30))),
-                    Text(
-                        '构建 ${u.info['versionCode'] ?? '—'}   ·   Android API ${u.info['sdk'] ?? '—'}',
-                        style:
-                            TextStyle(color: s.muted, fontSize: Design.px(20)))
-                  ])),
-              SizedBox(height: Design.px(20)),
-              GlassSurface(
-                  child: Column(children: [
-                Row(children: [
-                  Expanded(
-                      child: Text('软件更新',
-                          style: TextStyle(fontSize: Design.px(26)))),
-                  OutlinedButton(
-                      onPressed: () {
-                        showUpdateDialog(context, u, manual: true);
-                      },
-                      child: const Text('检查更新'))
-                ]),
-                SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('自动检查更新'),
-                    subtitle: const Text('桌面启动时会静默检查一次'),
-                    value: u.enabled,
-                    onChanged: u.setEnabled),
-                if (u.enabled)
-                  Row(children: [
-                    const Text('检查周期'),
-                    SizedBox(width: Design.px(20)),
-                    DropdownButton<int>(
-                      value: u.intervalMinutes,
-                      items: const [
-                        DropdownMenuItem(value: 30, child: Text('30分钟')),
-                        DropdownMenuItem(value: 120, child: Text('2小时')),
-                        DropdownMenuItem(value: 720, child: Text('半天')),
-                        DropdownMenuItem(value: 1440, child: Text('1天')),
-                      ],
-                      onChanged: (value) { if (value != null) u.setInterval(value); },
-                    ),
+                  // 页头不是块：标题 15 → 44 的版本号（版本号吃主题色）→ 构建信息。
+                  Text('关于 UNI 桌面',
+                      style: TextStyle(
+                          fontSize: Design.dz(15),
+                          color: s.text.withValues(alpha: .6))),
+                  SizedBox(height: Design.dz(8)),
+                  Row(crossAxisAlignment: CrossAxisAlignment.baseline, textBaseline: TextBaseline.alphabetic, children: [
+                    Text('UNI桌面 ',
+                        style: TextStyle(
+                            fontSize: Design.dz(44),
+                            height: 1.1,
+                            fontWeight: FontWeight.w300)),
+                    Text(version,
+                        style: TextStyle(
+                            fontSize: Design.dz(44),
+                            height: 1.1,
+                            fontWeight: FontWeight.w300,
+                            color: s.accent))
                   ]),
-                if (u.lastChecked != null)
-                  Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                          '上次检查：${u.lastChecked!.toLocal().toString().substring(0, 16)}',
-                          style: TextStyle(color: s.muted)))
-              ])),
-              SizedBox(height: Design.px(20)),
-              GlassSurface(
-                  child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                    Text('贡献者', style: TextStyle(fontSize: Design.px(26))),
-                    SizedBox(height: Design.px(16)),
-                    Wrap(
-                        spacing: Design.px(28),
-                        runSpacing: Design.px(12),
-                        children: [
-                          for (final name in u.contributors)
-                            Text(name,
-                                style: TextStyle(
-                                    fontSize: Design.px(21), color: s.text))
-                        ])
-                  ]))
-            ]));
+                  SizedBox(height: Design.dz(6)),
+                  Text(
+                      'UNI Desktop · feat/lynkco-05 · 领克 05 PHEV · 构建 ${u.info['versionCode'] ?? '—'}',
+                      style: TextStyle(
+                          fontSize: Design.dz(13),
+                          color: s.text.withValues(alpha: .4))),
+                  SizedBox(height: Design.dz(16)),
+                  SettingBlock(
+                      title: '软件更新',
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            SettingRow(
+                                label: _stateLabel(u),
+                                trailing: DesignSmallAction('检查更新',
+                                    onPressed: () => showUpdateDialog(context, u,
+                                        manual: true))),
+                            SettingRow(
+                                label: '自动检查更新',
+                                note: '桌面启动时会静默检查一次',
+                                trailing: DesignSwitch(
+                                    key: const ValueKey('auto-update'),
+                                    value: u.enabled,
+                                    onChanged: u.setEnabled)),
+                            SettingRow(
+                                label: '检查周期',
+                                trailing: u.enabled
+                                    ? _intervalPicker(u, s)
+                                    : Text('—',
+                                        style: TextStyle(
+                                            fontSize: Design.dz(13.5),
+                                            color:
+                                                s.text.withValues(alpha: .4)))),
+                            SettingRow(
+                                label: '上次检查',
+                                divider: false,
+                                trailing: Text(
+                                    u.lastChecked == null
+                                        ? '—'
+                                        : u.lastChecked!.toLocal().toString().substring(0, 16),
+                                    style: TextStyle(
+                                        fontSize: Design.dz(13.5),
+                                        color: s.text.withValues(alpha: .7))))
+                          ])),
+                  SizedBox(height: Design.dz(11.67)),
+                  SettingBlock(
+                      title: '贡献者',
+                      child: SettingRow(
+                          label: u.contributors.isEmpty
+                              ? 'UNI Desktop Contributors'
+                              : u.contributors.join(' · '),
+                          divider: false,
+                          trailing: Text('设计与工程',
+                              style: TextStyle(
+                                  fontSize: Design.dz(13),
+                                  color: s.text.withValues(alpha: .4)))))
+                ]));
       });
+
+  Widget _intervalPicker(UpdateController u, SurfaceStyle s) {
+    const options = {30: '30 分钟', 120: '2 小时', 720: '半天', 1440: '1 天'};
+    return PopupMenuButton<int>(
+        initialValue: u.intervalMinutes,
+        onSelected: u.setInterval,
+        color: s.strong,
+        itemBuilder: (context) => [
+              for (final entry in options.entries)
+                PopupMenuItem(value: entry.key, child: Text(entry.value))
+            ],
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Text(options[u.intervalMinutes] ?? '${u.intervalMinutes} 分钟',
+              style: TextStyle(fontSize: Design.dz(13.5), color: s.text.withValues(alpha: .8))),
+          SizedBox(width: Design.dz(2)),
+          Icon(Icons.chevron_right,
+              size: Design.dz(16), color: s.text.withValues(alpha: .3))
+        ]));
+  }
 }
 
 Future<void> showUpdateDialog(BuildContext context, UpdateController u,

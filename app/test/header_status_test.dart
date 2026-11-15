@@ -93,8 +93,10 @@ void main() {
                         LauncherCard('account', 'member', '账号', 0, 0, 4, 4, 0),
                     controller: c)))));
     await t.pumpAndSettle();
-    expect(find.text('我的账号'), findsOneWidget);
-    expect(find.text('已登录'), findsOneWidget);
+    // 稿子 `#f24` 的账号卡：姓名与登录状态各出现两次（头像旁大字 / 徽章，以及
+    // 键值块里的「账号名称」「登录状态」两行）——稿子本来就是这么排的。
+    expect(find.text('我的账号'), findsNWidgets(2));
+    expect(find.text('已登录'), findsNWidgets(2));
     expect(find.text('账号状态未同步'), findsNothing);
     expect(t.takeException(), isNull);
     await t.pumpWidget(const SizedBox.shrink());
