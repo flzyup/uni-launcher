@@ -5,6 +5,7 @@ import '../model/card_layout.dart';
 import '../model/weather_condition.dart';
 import '../theme/design_tokens.dart';
 import '../theme/launcher_theme.dart';
+import 'card_glyph.dart';
 import 'uni_icon.dart';
 import 'weather_icon.dart';
 
@@ -82,19 +83,83 @@ class _ClockWeatherCardState extends State<ClockWeatherCard> {
         }));
   }
 
-  Widget _combined(BuildContext context) => Row(children: [
-        Expanded(flex: 6, child: _ClockFace(title: widget.card.title)),
-        Container(
-            width: 1,
-            margin: EdgeInsets.symmetric(horizontal: Design.px(24)),
-            color: SurfaceStyle.of(context).edge),
-        Expanded(
-            flex: 5,
-            child: _WeatherFace(
-                weather: WeatherSnapshot.fromNative(widget.native),
-                editing: widget.editing,
-                centered: true)),
+  /// 稿子 f2 的「时间天气」卡：左上两行头、左侧 104 的大时间 + 日期，
+  /// 右下角太阳/云图标 + 温度 + 天气描述。原来是一分为二的「时钟 | 天气」，
+  /// 中间还画了条竖线——那是另一套版式，不是稿子。
+  Widget _combined(BuildContext context) {
+    final s = SurfaceStyle.of(context);
+    final weather = WeatherSnapshot.fromNative(widget.native);
+    final d = DateTime.now();
+    const weekdays = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日'];
+    return LayoutBuilder(builder: (context, box) {
+      // 稿子的卡是 522×360，下面这些比例都按它换算，卡片缩放时版式不变。
+      final h = box.maxHeight;
+      return Stack(clipBehavior: Clip.none, children: [
+        Positioned(
+            left: 0,
+            top: 0,
+            right: 0,
+            child: _ClockWeatherHeading(city: weather.city)),
+        Positioned(
+            left: 0,
+            top: h * .30,
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                      '${d.hour.toString().padLeft(2, '0')}:'
+                      '${d.minute.toString().padLeft(2, '0')}',
+                      maxLines: 1,
+                      style: TextStyle(
+                          fontSize: h * .29,
+                          height: .95,
+                          fontWeight: FontWeight.w200,
+                          letterSpacing: -h * .004,
+                          color: s.text.withValues(alpha: .95))),
+                  SizedBox(height: h * .038),
+                  Text('${d.month}月${d.day}日  ${weekdays[d.weekday - 1]}',
+                      maxLines: 1,
+                      style: TextStyle(
+                          fontSize: h * .042,
+                          letterSpacing: h * .0075,
+                          color: s.muted)),
+                ])),
+        if (!widget.editing)
+          Positioned(
+              right: 0,
+              bottom: 0,
+              child: Row(children: [
+                WeatherIcon(
+                    condition: weather.condition,
+                    night: weather.night,
+                    // 实车反馈「放太大了」，退回放大前的一档（h×.145）：这一块是
+                    // 卡片的配角，温度数字也比大时间小一号，读起来才不抢。
+                    size: h * .145,
+                    color: s.accent),
+                SizedBox(width: h * .038),
+                Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text('${weather.temperature ?? '—'}°',
+                          maxLines: 1,
+                          style: TextStyle(
+                              fontSize: h * .072,
+                              height: 1,
+                              fontWeight: FontWeight.w300,
+                              color: s.text.withValues(alpha: .92))),
+                      SizedBox(height: h * .012),
+                      Text(weather.description,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style:
+                              TextStyle(fontSize: h * .042, color: s.muted)),
+                    ]),
+              ])),
       ]);
+    });
+  }
 
   Widget _stacked(BuildContext context) {
     final s = SurfaceStyle.of(context);
@@ -175,11 +240,10 @@ class _ClockFace extends StatelessWidget {
 
 class _WeatherFace extends StatelessWidget {
   final WeatherSnapshot weather;
-  final bool editing, centered, horizontal, large;
+  final bool editing, horizontal, large;
   const _WeatherFace(
       {required this.weather,
       required this.editing,
-      this.centered = false,
       this.horizontal = false,
       this.large = false});
 
@@ -199,8 +263,7 @@ class _WeatherFace extends StatelessWidget {
             fontWeight: FontWeight.w300));
     final detail = Column(
         mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment:
-            centered ? CrossAxisAlignment.center : CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(weather.city,
               maxLines: 1,
@@ -238,6 +301,40 @@ class _WeatherFace extends StatelessWidget {
       icon,
       SizedBox(height: Design.px(editing ? 2 : 8)),
       detail,
+    ]);
+  }
+}
+
+/// 稿子 `.card-hd`：虚线开口环（时间卡用紫）+ `.k-label` 时间天气 + `.k-sub` 城市。
+class _ClockWeatherHeading extends StatelessWidget {
+  final String city;
+  const _ClockWeatherHeading({required this.city});
+  @override
+  Widget build(BuildContext context) {
+    final s = SurfaceStyle.of(context);
+    return Row(children: [
+      CardGlyph('clock', symbol: 'clock', size: 52.8),
+      SizedBox(width: Design.px(14.4)),
+      Flexible(
+          child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+            Text('时间天气',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                    fontSize: Design.px(13.8),
+                    height: 1.2,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: Design.px(2.76),
+                    color: s.text.withValues(alpha: .55))),
+            SizedBox(height: Design.px(4.8)),
+            Text(city,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: Design.px(15.6), color: s.muted)),
+          ])),
     ]);
   }
 }

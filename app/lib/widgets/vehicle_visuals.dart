@@ -185,8 +185,12 @@ class VehicleStatusDiagram extends StatelessWidget {
           imageRect.top + imageHeight * y,
           markerWidth,
           math.min(markerHeight, imageHeight * .15));
+      // 告警阈值先硬编码 2.1 bar：原车不上报告警线，先按一个固定值提亮，
+      // 等原生有字段再换成实测阈值。
+      const warnBelow = 2.1;
       Widget pressure(String label, String field, Rect rect) {
         final reading = VehicleField.fromNative(native, field, nowMs: nowMs);
+        final numeric = reading.value;
         return Positioned.fromRect(
             rect: rect,
             child: _VehiclePressureLabel(
@@ -194,6 +198,7 @@ class VehicleStatusDiagram extends StatelessWidget {
                 label: label,
                 value: reading.display(decimals: 2),
                 available: reading.valid,
+                warn: numeric is num && numeric < warnBelow,
                 compact: compact));
       }
 
@@ -266,25 +271,33 @@ class VehicleStatusDiagram extends StatelessWidget {
 class _VehiclePressureLabel extends StatelessWidget {
   final String label, value;
   final bool available, compact;
+
+  /// 低于告警阈值（先硬编码 2.1 bar）：数字转琥珀色，标签也跟着提亮一档，
+  /// 与稿子 `.tp.warn` 的提示方式一致。
+  final bool warn;
   const _VehiclePressureLabel(
       {super.key,
       required this.label,
       required this.value,
       required this.available,
+      this.warn = false,
       required this.compact});
 
   @override
   Widget build(BuildContext context) {
     final s = SurfaceStyle.of(context);
+    const warnColor = Color(0xFFFFB057);
     return Semantics(
-        label: '$label胎压 ${available ? '$value bar' : '无数据'}',
+        label: available
+            ? '$label胎压 $value bar${warn ? '，低于 2.1，偏低' : ''}'
+            : '$label胎压 无数据',
         child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Text(label,
                   style: TextStyle(
-                      color: s.muted,
+                      color: warn ? warnColor.withValues(alpha: .85) : s.muted,
                       fontSize: Design.px(compact ? 11 : 13),
                       height: 1.1)),
               SizedBox(height: Design.px(3)),
@@ -297,7 +310,11 @@ class _VehiclePressureLabel extends StatelessWidget {
                       children: [
                         Text(value,
                             style: TextStyle(
-                                color: available ? s.text : s.muted,
+                                color: warn
+                                    ? warnColor
+                                    : available
+                                        ? s.text
+                                        : s.muted,
                                 fontSize: Design.px(compact ? 20 : 25),
                                 height: 1,
                                 fontFeatures: const [
@@ -640,4 +657,120 @@ class _VehicleOpeningPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _VehicleOpeningPainter oldDelegate) =>
       oldDelegate.doors != doors;
+}
+
+/// 稿子 f2 的环形表：满圆轨道 + 270° 值弧（135° 起）+ 一圈细点，中心放数字。
+///
+/// 尺寸完全按稿子 172 视口的比例走（轨道半径 74/172、描边 7/172、点环 width 1、
+/// dash 2/8.9），所以外面只传盒子边长，描边和点距自己算。电池、燃油、车内空气
+/// 三张卡共用它。
+class CardRing extends StatelessWidget {
+  /// 0..1，超出范围会被夹住。
+  final double fraction;
+  final double size;
+  final Color color;
+
+  /// 值弧的渐变终点（稿子 `rc-mint` 薄荷→青、`rc-cyan` 青→薄荷）。
+  final Color? colorEnd;
+  final Widget center;
+  const CardRing({
+    super.key,
+    required this.fraction,
+    required this.size,
+    required this.color,
+    required this.center,
+    this.colorEnd,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final s = SurfaceStyle.of(context);
+    return SizedBox.square(
+        dimension: Design.px(size),
+        child: CustomPaint(
+            painter: _RingPainter(
+                fraction: fraction.clamp(0.0, 1.0),
+                color: color,
+                colorEnd: colorEnd ?? color,
+                track: s.text.withValues(alpha: .08),
+                dot: s.text.withValues(alpha: .28)),
+            child: Center(child: center)));
+  }
+}
+
+class _RingPainter extends CustomPainter {
+  final double fraction;
+  final Color color, colorEnd, track, dot;
+  const _RingPainter(
+      {required this.fraction,
+      required this.color,
+      required this.colorEnd,
+      required this.track,
+      required this.dot});
+
+  static const _start = math.pi * 0.75; // 135°
+  static const _sweep = math.pi * 1.5; // 270°
+
+  /// 点环的间距按稿子 `stroke-dasharray="2 8.9"`（周期 10.9 / 172 视口）。
+  static const _dotPeriod = 10.9 / 172;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final side = size.width;
+    final stroke = side * (7 / 172);
+    final radius = side * (74 / 172);
+    final center = Offset(side / 2, side / 2);
+    final rect = Rect.fromCircle(center: center, radius: radius);
+
+    // 满圆轨道（稿子是整圈 8% 白，不是只有 270°）
+    canvas.drawCircle(
+        center,
+        radius,
+        Paint()
+          ..color = track
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = stroke
+          ..isAntiAlias = true);
+
+    if (fraction > 0) {
+      final arc = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = stroke
+        ..strokeCap = StrokeCap.round
+        ..isAntiAlias = true;
+      // 两端不同色时用**扫描式**渐变：颜色沿弧长推进，起弧端是第一色、弧尖落在第二色。
+      // 稿子的 SVG 是把 linearGradient 打在旋转过的圆上，等价效果；用对角线性渐变的话
+      // 颜色会按对角线切一刀（右端只有很窄一段变色），跟稿子对不上。
+      if (color == colorEnd) {
+        arc.color = color;
+      } else {
+        arc.shader = SweepGradient(
+                startAngle: _start,
+                endAngle: _start + _sweep,
+                colors: [color, colorEnd])
+            .createShader(rect);
+      }
+      canvas.drawArc(rect, _start, _sweep * fraction, false, arc);
+    }
+
+    // 一圈细点：稿子是压在同一半径上的独立圆点，叠在彩色弧上像刻度亮点。
+    final dotRadius = side * (1.2 / 172);
+    final dotPaint = Paint()..color = dot..isAntiAlias = true;
+    final count = (2 * math.pi * radius / (side * _dotPeriod)).round();
+    for (var i = 0; i < count; i++) {
+      final angle = 2 * math.pi * i / count;
+      canvas.drawCircle(
+          center + Offset(math.cos(angle), math.sin(angle)) * radius,
+          dotRadius,
+          dotPaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _RingPainter old) =>
+      old.fraction != fraction ||
+      old.color != color ||
+      old.colorEnd != colorEnd ||
+      old.track != track ||
+      old.dot != dot;
 }

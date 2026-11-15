@@ -143,6 +143,7 @@ void main() {
   });
   test('default OEM layout has no overlap', () {
     expect(validLayout(defaultCards()), true);
+    // 默认两页 9 张（页1 三张 + 页2 六张）；页 3 的时钟/天气/日历不再预置。
     expect(defaultCards().length, 9);
     final firstPage = defaultCards().where((card) => card.page == 0).toList();
     expect(
@@ -150,6 +151,8 @@ void main() {
     final body = defaultCards().singleWhere((card) => card.type == 'body');
     expect((body.page, body.x, body.y, body.w, body.h), (1, 0, 0, 4, 3));
     expect(defaultCards().any((card) => card.type == 'tpms'), isFalse);
+    // 页 3（eclipse f3）：时钟吃满 8×6，右侧上下分天气与日历。
+    // 页 2 的组合卡保持原样，设计稿 f2 用的就是组合卡。
     final clockWeather =
         defaultCards().singleWhere((card) => card.type == 'clockWeather');
     expect((
@@ -159,14 +162,13 @@ void main() {
       clockWeather.w,
       clockWeather.h,
       clockWeather.layout
-    ), (
-      1,
-      8,
-      0,
-      4,
-      3,
-      'combined'
-    ));
+    ), (1, 8, 0, 4, 3, 'combined'));
+    // 页 3 那三张（时钟 / 天气 / 日历）不再预置——默认只给两页，
+    // 想要的人从「添加卡片」自己加，所以默认布局里一张都不该有。
+    for (final type in ['clock', 'weather', 'calendar']) {
+      expect(defaultCards().any((card) => card.type == type), isFalse,
+          reason: '默认布局不该再预置 $type');
+    }
     final shortcut =
         defaultCards().singleWhere((card) => card.type == 'shortcuts');
     expect((shortcut.page, shortcut.x, shortcut.y, shortcut.w, shortcut.h),
@@ -177,7 +179,7 @@ void main() {
   test('saved weather layout remains intact until reset', () async {
     final previous = defaultCards()
         .map((card) => card.id == 'traffic-light-1'
-            ? const LauncherCard('weather-1', 'weather', '天气', 8, 4, 4, 2, 0)
+            ? const LauncherCard('weather-saved', 'weather', '天气', 8, 4, 4, 2, 0)
             : card)
         .toList();
     final gateway = FakeGateway()
@@ -187,7 +189,7 @@ void main() {
       });
     final controller = LauncherController(gateway);
     await controller.initialize();
-    expect(controller.cards.any((card) => card.id == 'weather-1'), isTrue);
+    expect(controller.cards.any((card) => card.id == 'weather-saved'), isTrue);
     expect(
         controller.cards.any((card) => card.type == 'trafficLight'), isFalse);
     controller.resetLayout();
@@ -294,6 +296,48 @@ void main() {
     loaded.dispose();
     await g.dispose();
     await next.dispose();
+  });
+  test('旧布局里预置的第 3 页被清掉，主屏回到两页', () async {
+    // 旧版本存下来的布局：默认两页 + 页 3 那三张预置卡。
+    final legacy = [
+      ...defaultCards(),
+      const LauncherCard('clock-1', 'clock', '时钟', 0, 0, 8, 6, 2),
+      const LauncherCard('weather-1', 'weather', '天气', 8, 0, 4, 3, 2),
+      const LauncherCard('calendar-1', 'calendar', '日历', 8, 3, 4, 3, 2),
+    ];
+    final saved = jsonEncode({
+      'preferences': const Appearance().toJson(),
+      'cards': legacy.map((card) => card.toJson()).toList(),
+    });
+    final g = FakeGateway()..state['savedDesign'] = saved;
+    final c = LauncherController(g);
+    await c.initialize();
+
+    expect(c.pageCount, 2, reason: '页 3 只有预置卡，应该整页清掉');
+    expect(c.cards.any((card) => card.page >= 2), isFalse);
+    expect(c.cards.length, defaultCards().length, reason: '前两页一张不能少');
+    c.dispose();
+    await g.dispose();
+  });
+
+  test('页 3 有用户自己加的卡就整页保留', () async {
+    final legacy = [
+      ...defaultCards(),
+      const LauncherCard('clock-1', 'clock', '时钟', 0, 0, 8, 6, 2),
+      const LauncherCard('shortcuts-2', 'shortcuts', '快捷应用', 8, 0, 4, 3, 2),
+    ];
+    final saved = jsonEncode({
+      'preferences': const Appearance().toJson(),
+      'cards': legacy.map((card) => card.toJson()).toList(),
+    });
+    final g = FakeGateway()..state['savedDesign'] = saved;
+    final c = LauncherController(g);
+    await c.initialize();
+
+    expect(c.pageCount, 3, reason: '用户动过这一页，不能替他删');
+    expect(c.cards.where((card) => card.page == 2).length, 2);
+    c.dispose();
+    await g.dispose();
   });
 }
 

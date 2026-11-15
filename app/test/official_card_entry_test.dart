@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:uni_launcher/controller/launcher_controller.dart';
 import 'package:uni_launcher/model/appearance.dart';
 import 'package:uni_launcher/model/card_layout.dart';
+import 'package:uni_launcher/theme/design_tokens.dart';
 import 'package:uni_launcher/theme/launcher_theme.dart';
 import 'package:uni_launcher/widgets/card_content.dart';
 import 'package:uni_launcher/widgets/glass_surface.dart';
@@ -74,35 +75,41 @@ void main() {
         home: Scaffold(
             body: Center(
                 child: SizedBox(
-                    width: 500,
-                    height: 380,
+                    // 账号卡是 4×6（502×733 画布单位）：按真实尺寸给，别用
+                    // 小方框——低于 4×3 高度会走紧凑版式，测不到键值块。
+                    width: Design.px(602),
+                    height: Design.px(880),
                     child: GlassSurface(
                         padding: EdgeInsets.zero,
                         child: CardContent(card: card, controller: c)))))));
     await t.pumpAndSettle();
-    expect(find.text('车主账号'), findsOneWidget);
-    expect(find.text('已登录'), findsOneWidget);
+    // 稿子 `#f24`：姓名 + 状态徽章 + 4 行键值 + 底部「进入账号中心」。
+    // 姓名出现两次：头像旁的大字，以及键值块第一行「账号名称」。
+    expect(find.text('车主账号'), findsNWidgets(2));
+    // 同上，「已登录」也在两处：状态徽章 + 「登录状态」行（稿子本来就是这样）。
+    expect(find.text('已登录'), findsNWidgets(2));
     expect(find.text('银卡会员'), findsOneWidget);
-    expect(find.text('点击查看账号详情'), findsOneWidget);
+    expect(find.text('原车会员中心'), findsOneWidget);
+    // 稿子里那行「点击查看账号详情」的灰字换成了底部主按钮。
+    expect(find.text('点击查看账号详情'), findsNothing);
+    expect(find.text('进入账号中心'), findsOneWidget);
     expect(find.text('打开账号中心'), findsNothing);
 
     await t.tap(find.byKey(const ValueKey('member-card-open')));
     await t.pumpAndSettle();
     expect(find.text('账号详情'), findsOneWidget);
+    final sheet = find.byKey(const ValueKey('account-profile-detail'));
+    expect(sheet, findsOneWidget);
     expect(
-        find.byKey(const ValueKey('account-profile-detail')), findsOneWidget);
-    expect(
-        t.widget<GlassSurface>(
-            find.byKey(const ValueKey('account-profile-detail'))),
-        isA<GlassSurface>());
-    expect(
-        find.descendant(
-            of: find.byKey(const ValueKey('account-profile-detail')),
-            matching: find.text('车主账号')),
+        find.descendant(of: sheet, matching: find.text('车主账号')),
         findsNWidgets(2));
-    expect(find.text('原车会员中心'), findsOneWidget);
-    expect(find.text('会员等级'), findsOneWidget);
-    expect(find.text('银卡会员'), findsNWidgets(2));
+    // 卡片在弹层下面还留着同名键值行，所以这里都限定在弹层里数。
+    expect(find.descendant(of: sheet, matching: find.text('原车会员中心')),
+        findsOneWidget);
+    expect(find.descendant(of: sheet, matching: find.text('会员等级')),
+        findsOneWidget);
+    expect(find.descendant(of: sheet, matching: find.text('银卡会员')),
+        findsOneWidget);
 
     await t.tap(find.byKey(const ValueKey('account-open-center')));
     await t.pumpAndSettle();

@@ -352,4 +352,44 @@ void main() {
     controller.dispose();
     await gateway.dispose();
   });
+
+  testWidgets('胎压低于 2.1 转琥珀色告警', (t) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    Map<String, dynamic> field(num value) => {
+          'valid': true,
+          'value': value,
+          'unit': 'bar',
+          'unitVerified': true,
+          'updatedAtMs': now,
+        };
+    final native = <String, dynamic>{
+      'vehicle': {
+        'connected': true,
+        'fields': {
+          'pressureFrontLeft': field(2.05),
+          'pressureFrontRight': field(2.40),
+          'pressureRearLeft': field(2.10),
+          'pressureRearRight': field(2.45),
+        },
+      }
+    };
+    await t.pumpWidget(MaterialApp(
+        theme: launcherTheme(SurfaceStyle.from(
+            const Appearance(mode: 'dark', themeStyle: 'blueGlass'), true)),
+        home: Scaffold(
+            body: SizedBox(
+                width: 520,
+                height: 360,
+                child: VehicleStatusDiagram(native: native, nowMs: now)))));
+    await t.pump();
+
+    // 阈值先硬编码 2.1 bar（原车不上报告警线），只影响颜色，不改角标版式。
+    const warn = Color(0xFFFFB057);
+    Color? colorOf(String text) => t.widget<Text>(find.text(text)).style?.color;
+    expect(colorOf('2.05'), warn, reason: '低于 2.1 要提亮成琥珀');
+    expect(colorOf('2.10'), isNot(warn), reason: '刚好 2.10 不算告警');
+    expect(colorOf('2.40'), isNot(warn));
+    expect(t.takeException(), isNull);
+    await t.pumpWidget(const SizedBox.shrink());
+  });
 }
