@@ -42,6 +42,11 @@ class WeatherDetailsContent extends StatelessWidget {
     return '${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
   }
 
+  num? get _tonightLow =>
+      weather.forecasts.isEmpty ? null : weather.forecasts.first.minimum;
+  num? get _tomorrowHigh =>
+      weather.forecasts.length < 2 ? null : weather.forecasts[1].maximum;
+
   String _windDirection(num? degrees) {
     if (degrees == null) return '';
     const names = ['北', '东北', '东', '东南', '南', '西南', '西', '西北'];
@@ -92,7 +97,23 @@ class WeatherDetailsContent extends StatelessWidget {
                               ]),
                           SizedBox(height: Design.px(8)),
                           Text(weather.description,
-                              style: TextStyle(fontSize: Design.px(24)))
+                              style: TextStyle(fontSize: Design.px(24))),
+                          // 稿子 `#f8` 那一行「今夜最低 / 明日最高」：数据取自
+                          // forecasts[0].minimum 与 forecasts[1].maximum，读不到就不画
+                          // （用户 2026-11-14：稿子上源码读不到的信息去掉）。
+                          if (_tonightLow != null || _tomorrowHigh != null) ...[
+                            SizedBox(height: Design.px(8)),
+                            Text([
+                              if (_tonightLow != null)
+                                '今夜 ${_number(_tonightLow, suffix: '°')}',
+                              if (_tomorrowHigh != null)
+                                '明日 ${_number(_tomorrowHigh, suffix: '°')}',
+                            ].join(' · '),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                    fontSize: Design.px(18), color: s.muted)),
+                          ]
                         ])),
                 Container(width: 1, height: Design.px(150), color: s.edge),
                 SizedBox(width: Design.px(34)),

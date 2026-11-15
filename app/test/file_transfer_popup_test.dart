@@ -181,7 +181,7 @@ void main() {
       note('t1', '天安门东停车场 A 区 B1'),
       note('t2', '取件码 8848'),
     ]);
-    expect(find.text('手机发来的文本（2）'), findsOneWidget);
+    expect(find.text('已接收 2'), findsOneWidget);
     expect(find.text('取件码 8848'), findsOneWidget);
 
     // 点整块文本复制
@@ -207,7 +207,7 @@ void main() {
         contains(predicate((Map<String, dynamic> m) =>
             m['action'] == 'transfer-text-remove' && m['value'] == 't1')));
 
-    await t.tap(find.text('清空'));
+    await t.tap(find.text('清空文本'));
     await t.pump();
     expect(
         g.commands,
