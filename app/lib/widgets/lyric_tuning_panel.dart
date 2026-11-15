@@ -135,7 +135,9 @@ class _LyricTuningPanelState extends State<LyricTuningPanel> {
           '当前曲目微调'),
       SizedBox(height: Design.px(10)),
       DropdownButtonFormField<String>(
-          key: const ValueKey('lyric-cache-policy'),
+          // key 带上当前值：FormField 只在 initState 读一次 initialValue，
+          // 不换 key 的话选完还显示旧策略（`_saving` 的文字变了、框里没变）。
+          key: ValueKey('lyric-cache-policy-${_tuning.policy}'),
           initialValue: LyricCachePolicy.normalise(_tuning.policy),
           isExpanded: true,
           decoration: InputDecoration(
@@ -150,7 +152,7 @@ class _LyricTuningPanelState extends State<LyricTuningPanel> {
           }),
       if (LyricCachePolicy.normalise(_tuning.policy) == LyricCachePolicy.capacity)
         DropdownButtonFormField<int>(
-            key: const ValueKey('lyric-cache-limit'),
+            key: ValueKey('lyric-cache-limit-${_tuning.limitMb}'),
             initialValue: _tuning.limitMb,
             isExpanded: true,
             decoration: const InputDecoration(labelText: '容量上限'),

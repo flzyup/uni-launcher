@@ -200,13 +200,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(_FakeClient.calls.last.status.rows, 2);
 
-    // Width is a slider now: drag the thumb, and the value must only be committed on release.
-    final width = find.byKey(const ValueKey('cluster-width-slider'));
-    final widthRect = tester.getRect(width);
-    await tester.dragFrom(
-        widthRect.centerLeft + const Offset(4, 0), Offset(widthRect.width * 0.3, 0));
+    // Width is a preset row (design board `.dd` 档位): tapping a preset must send it as-is.
+    await tester.tap(find.byKey(const ValueKey('cluster-width-86')));
     await tester.pumpAndSettle();
     final widthRatio = _FakeClient.calls.last.status.widthRatio;
+    expect(widthRatio, closeTo(0.86, 1e-9));
     expect(widthRatio, greaterThan(ClusterLayout.minWidthRatio));
     expect(widthRatio, lessThan(ClusterLayout.maxWidthRatio));
 
@@ -219,7 +217,7 @@ void main() {
     expect(_FakeClient.calls.last.status.accent, 0xFFFFC46B);
   });
 
-  testWidgets('the font slider moves the size and pins it inside the range',
+  testWidgets('the font step buttons move the size and pin it inside the range',
       (tester) async {
     await tester.pumpWidget(_host(const ClusterLyricsSettingsTab(
       client: _FakeClient([_cluster],
@@ -227,18 +225,22 @@ void main() {
               enabled: true, displayId: 2, displayName: '仪表', fontSp: 34)),
     )));
     await tester.pumpAndSettle();
-    final font = find.byKey(const ValueKey('cluster-font-slider'));
-    final rect = tester.getRect(font);
-    // Drag past the right end: the widget must clamp to MAX, not send 90 sp to the cluster.
-    await tester.dragFrom(rect.center, Offset(rect.width, 0));
-    await tester.pumpAndSettle();
+    // 设计稿把这档做成「− 44 ＋」步进：连点加号到顶，必须停在最大档而不是继续加。
+    for (var i = 0; i < 5; i++) {
+      await tester.tap(find.byKey(const ValueKey('cluster-font-up')));
+      await tester.pumpAndSettle();
+    }
+    expect(_FakeClient.calls.last.status.fontSp, 54);
     expect(_FakeClient.calls.last.status.fontSp,
-        closeTo(ClusterLayout.maxFontSp, 1e-9));
-    // And back past the left end.
-    await tester.dragFrom(rect.center, Offset(-rect.width * 2, 0));
-    await tester.pumpAndSettle();
+        lessThanOrEqualTo(ClusterLayout.maxFontSp));
+    // 再连点减号到底。
+    for (var i = 0; i < 5; i++) {
+      await tester.tap(find.byKey(const ValueKey('cluster-font-down')));
+      await tester.pumpAndSettle();
+    }
+    expect(_FakeClient.calls.last.status.fontSp, 24);
     expect(_FakeClient.calls.last.status.fontSp,
-        closeTo(ClusterLayout.minFontSp, 1e-9));
+        greaterThanOrEqualTo(ClusterLayout.minFontSp));
   });
 
   testWidgets('effects are off by default and can be switched on', (tester) async {

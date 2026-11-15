@@ -10,8 +10,16 @@ class AudioSpectrum extends StatefulWidget {
   final bool playing;
   final double height;
   final AudioSpectrumService? service;
+
+  /// 指定画法（bars / segments / mirror / outline）；null 跟随设置里的频谱样式。
+  /// 卡片、底栏与铺满档都不传：用户在设置里换哪一款，三处一起换。
+  final String? style;
   const AudioSpectrum(
-      {super.key, required this.playing, this.height = 42, this.service});
+      {super.key,
+      required this.playing,
+      this.height = 42,
+      this.service,
+      this.style});
   @override
   State<AudioSpectrum> createState() => _AudioSpectrumState();
 }
@@ -94,6 +102,11 @@ class _AudioSpectrumState extends State<AudioSpectrum>
   @override
   Widget build(BuildContext context) {
     final s = SurfaceStyle.of(context);
+    // 无声 / 暂停时画不出音柱，只剩底部那一排「刻度」（painter 里的 track）。
+    // 暗夜皮肤的 edge 是偏亮的蓝灰（#31475E），压在近黑底上看得到；浅色皮肤的
+    // edge 却是接近白的（classic #CAD6E4、蓝玻璃半透明白），落在白底上等于没画
+    // （用户 2026-11-13 反馈）。浅色单独压深一档：用正文墨色的低透明度当刻度色。
+    final track = s.dark ? s.edge : s.text.withValues(alpha: .44);
     return SizedBox(
         height: Design.px(widget.height),
         child: Semantics(
@@ -103,7 +116,7 @@ class _AudioSpectrumState extends State<AudioSpectrum>
               CustomPaint(
                   key: const ValueKey('audio-spectrum-paint'),
                   painter: AudioSpectrumPainter(
-                      service, s.accent, s.edge, s.spectrumStyle)),
+                      service, s.accent, track, widget.style ?? s.spectrumStyle)),
               if (!service.granted && presentation == 'permission-required')
                 Center(
                     child: TextButton.icon(

@@ -13,6 +13,12 @@ class LyricsView extends StatefulWidget {
   final int? visibleLines;
   final double? lineHeight, fontSize;
   final TextAlign textAlign;
+
+  /// 音乐卡稿子版式（f1 `.lmini`）：固定 N 行、不滚动、当前行放大发光。
+  /// 这一档的 [fontSize] / [lineHeight] / [activeFontSize] / [activeLineHeight]
+  /// 一律按逻辑像素算，不再过 [Design.px]——卡片是按可用宽度自己算比例缩放的。
+  final bool mini;
+  final double? activeFontSize, activeLineHeight;
   const LyricsView(
       {super.key,
       required this.media,
@@ -21,7 +27,10 @@ class LyricsView extends StatefulWidget {
       this.visibleLines,
       this.lineHeight,
       this.fontSize,
-      this.textAlign = TextAlign.center});
+      this.textAlign = TextAlign.center,
+      this.mini = false,
+      this.activeFontSize,
+      this.activeLineHeight});
   @override
   State<LyricsView> createState() => _LyricsViewState();
 }
@@ -194,6 +203,72 @@ class _LyricsViewState extends State<LyricsView> {
     super.dispose();
   }
 
+  /// 稿子 f1 的迷你歌词窗：一屏 4 行左右，已唱两档更淡、未来更淡，当前行放大到
+  /// 25 并带一层同色光晕。窗口跟着当前行滑动，不滚动也不需要 ScrollController。
+  Widget _miniWindow(SurfaceStyle s) {
+    final count = visibleLines;
+    final total = lyrics.lines.length;
+    final anchor = active < 0 ? 0 : active;
+    // 奇数列（播放器整屏 7 行）当前句正好居中；偶数列（卡片 4 行）按稿子
+    // 留两行已唱、一行未唱，所以偏下一点。
+    final bias = count.isOdd ? (count - 1) ~/ 2 : (count - 1) * 2 ~/ 3;
+    final start =
+        total <= count ? 0 : (anchor - bias).clamp(0, total - count);
+    final normalHeight = widget.lineHeight ?? 29;
+    final activeHeight = widget.activeLineHeight ?? normalHeight;
+    final normalSize = widget.fontSize ?? 17.5;
+    final activeSize = widget.activeFontSize ?? normalSize;
+    final rows = <Widget>[];
+    var height = 0.0;
+    final end = start + count < total ? start + count : total;
+    for (var i = start; i < end; i++) {
+      // 还没有时间轴时（active < 0）不点名当前行，整窗按「未唱」处理。
+      final on = active >= 0 && i == anchor;
+      final row = on ? activeHeight : normalHeight;
+      height += row;
+      rows.add(SizedBox(
+          height: row,
+          width: double.infinity,
+          child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(lyrics.lines[i].text,
+                  key: ValueKey('lyric-line-$i-${on ? "active" : "idle"}'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.start,
+                  style: TextStyle(
+                      fontSize: on ? activeSize : normalSize,
+                      height: 1.16,
+                      fontWeight: on ? FontWeight.w500 : FontWeight.w400,
+                      color: on
+                          ? s.accent
+                          : s.text.withValues(
+                              alpha: active < 0 || i > anchor
+                                  ? .19
+                                  : i == anchor - 1
+                                      ? .32
+                                      : .16),
+                      shadows: on
+                          ? [
+                              Shadow(
+                                  color: s.accent.withValues(alpha: .38),
+                                  blurRadius: 22),
+                              Shadow(
+                                  color: s.accent.withValues(alpha: .14),
+                                  blurRadius: 5),
+                            ]
+                          : null)))));
+    }
+    return Semantics(
+        label: '歌词',
+        child: SizedBox(
+            height: height,
+            child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: rows)));
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = SurfaceStyle.of(context);
@@ -274,6 +349,7 @@ class _LyricsViewState extends State<LyricsView> {
                   style: TextStyle(
                       fontSize: Design.px(widget.fontSize ?? 19),
                       color: s.muted))));
+    if (widget.mini) return _miniWindow(s);
     return Semantics(
         label: '歌词',
         child: LayoutBuilder(builder: (context, constraints) {

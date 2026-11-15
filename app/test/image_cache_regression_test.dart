@@ -309,11 +309,19 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     expect(PaintingBinding.instance.imageCache.statusForKey(last).keepAlive,
         false);
+    // 解不出来的封面一律落到打包进去的兜底封面（以前是一颗小音符图标，
+    // 实车上看着像空白）。
+    void expectFallback() {
+      final image = tester.widget<Image>(find.byType(Image)).image;
+      expect(image, isA<AssetImage>());
+      expect((image as AssetImage).assetName, 'assets/art/cover-default.png');
+    }
+
     await show('invalid');
-    expect(find.byType(Image), findsNothing);
+    expectFallback();
     await show('A' * 1000000);
-    expect(find.byType(Image), findsNothing);
+    expectFallback();
     await show('');
-    expect(find.byType(Image), findsNothing);
+    expectFallback();
   });
 }
