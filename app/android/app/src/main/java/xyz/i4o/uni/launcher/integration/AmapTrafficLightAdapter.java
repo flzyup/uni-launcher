@@ -172,6 +172,9 @@ public final class AmapTrafficLightAdapter {
             JSONObject light=lights.optJSONObject(i);if(light==null)continue;
             if(sb.length()>0)sb.append(',');
             sb.append(directionOf(light)).append('/').append(lampOf(light)).append('@').append(light.optInt("countdownSeconds",-1));
+            // 标准通道带着原始枚举，日志里一起打：实测出现反例时照它改表，不用再猜。
+            if(light.has("rawDirection")||light.has("rawStatus"))
+                sb.append("(raw ").append(light.optInt("rawDirection",-1)).append('/').append(light.optInt("rawStatus",-1)).append(')');
         }
         return sb.length()==0?"empty":sb.toString();
     }
