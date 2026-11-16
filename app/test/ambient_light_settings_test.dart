@@ -99,10 +99,11 @@ void main() {
   });
 
   testWidgets('the legacy engine hides the parameter sliders', (t) async {
-    // The V2 engine starts in preset mode: the sliders are hidden until 自定义.
+    // The V2 engine shows its parameters all the time: a preset only fills
+    // them in (f13 把滑杆摆在明面上，预设不再是「只看摘要」的一页).
     await show(t, const AmbientLightSettings());
     expect(find.byKey(const ValueKey('ambient-slider-亮度起 attack')),
-        findsNothing);
+        findsOneWidget);
     expect(find.byKey(const ValueKey('ambient-preset-summary')), findsOneWidget);
 
     await show(t, const AmbientLightSettings(
@@ -113,19 +114,16 @@ void main() {
     expect(find.byKey(const ValueKey('ambient-engine-note')), findsOneWidget);
   });
 
-  testWidgets('a preset hides the sliders and 自定义 shows them again',
+  testWidgets('a preset fills the values and 自定义 only marks the page',
       (t) async {
     await show(t, const AmbientLightSettings());
 
-    // Preset mode: chips + summary, no sliders.
+    // 预设只填值：滑杆与分区编排一直在，摘要在预设命中时出现。
     expect(find.byKey(const ValueKey('ambient-preset-summary')), findsOneWidget);
-    expect(find.byKey(const ValueKey('ambient-slider-色相跨度')), findsNothing);
-    expect(find.byKey(const ValueKey('ambient-slider-灵敏度')), findsNothing);
-    expect(find.byKey(const ValueKey('ambient-zone-choreo')), findsNothing);
-    // The default values are exactly the 均衡 preset, so it is the readout.
-    expect(find.byKey(const ValueKey('ambient-preset-readout')), findsOneWidget);
-    // Preset mode explains the mood in one sentence: no numbers, no
-    // second 自定义 button (the chip in the row is the only way in).
+    expect(find.byKey(const ValueKey('ambient-slider-色相跨度')), findsOneWidget);
+    expect(find.byKey(const ValueKey('ambient-slider-灵敏度')), findsOneWidget);
+    expect(find.byKey(const ValueKey('ambient-zone-choreo')), findsOneWidget);
+    // 预设用一句话解释「灯会怎么动」，不写数字、不写建议。
     expect(find.byKey(const ValueKey('ambient-preset-customize')), findsNothing);
     expect(find.textContaining('颜色跟着频谱缓慢换'), findsOneWidget);
     expect(find.textContaining('亮度包络'), findsNothing);

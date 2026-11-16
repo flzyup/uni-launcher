@@ -97,8 +97,17 @@ class LogTools {
     return text ?? '(暂无日志)';
   }
 
-  /// Log system state: level, bytes on disk, degraded flag, anchor count.
+  /// 日志系统状态：落盘级别、占用字节、是否降级、锚点数、文件份数与落盘策略。
+  ///
+  /// 预览与测试的注入点：Windows 预览里没有安卓侧的日志服务，`status` 通道
+  /// 无人应答，设置页「系统与调试」那一栏就全是「—」，看不出渲染对不对。
+  /// 塞一份快照即可（见 `preview/main_preview.dart`）。正式运行恒为 null，
+  /// 只影响读取，不影响导出/清空这些真动作。
+  static Map<String, dynamic>? statusOverride;
+
   static Future<Map<String, dynamic>> status() async {
+    final override = statusOverride;
+    if (override != null) return Map<String, dynamic>.from(override);
     final raw = await _invoke<Map<Object?, Object?>>('status');
     return raw == null ? <String, dynamic>{} : Map<String, dynamic>.from(raw);
   }

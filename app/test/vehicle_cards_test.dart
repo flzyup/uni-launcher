@@ -96,6 +96,7 @@ void main() {
       'shortcuts',
       'vehicle',
       'air'
+      // 页 3（时钟 / 天气 / 日历）不再预置：默认只给两页
     ]);
     for (final type in ['battery', 'air', 'vehicle']) {
       final spec = specFor(type);
@@ -214,22 +215,24 @@ void main() {
     expect(reading(native, 'pm25').display, '12');
   });
 
-  testWidgets('battery 0 95 100 and fractional levels occupy exact track width',
-      (t) async {
+  testWidgets('battery ring shows the level and the mode rows', (t) async {
     for (final value in [0.0, 95.0, 100.0, 95.5]) {
       final native = vehicleGalleryFixture();
       field(native, 'batteryPercent')['value'] = value;
       await t.pumpWidget(
           surface(BatteryCard(native: native, nowMs: () => vehicleGalleryNow)));
       await t.pumpAndSettle();
-      final track =
-          t.getSize(find.byKey(const ValueKey('battery-track'))).width;
-      final fill = t.getSize(find.byKey(const ValueKey('battery-fill'))).width;
-      expect(fill, closeTo(track * value / 100, .001));
+      // 稿子 f2 用 198 环形表表示 SOC，条形条已经去掉。
+      final ring = t.widget<CardRing>(find.byType(CardRing));
+      expect(ring.fraction, closeTo(value / 100, .001));
+      // 稿子 f2 的右列只有四段：综合续航 / 能量流 + 电力驱动 / 驾驶模式 / 总里程。
+      // 「外接充电」稿子里没有，已经删掉（有测试盯着别再长回来）。
+      expect(find.text('综合续航'), findsOneWidget);
       expect(find.text('驾驶模式'), findsOneWidget);
       expect(find.text('混动'), findsOneWidget);
       expect(find.text('电力驱动'), findsOneWidget);
-      expect(find.text('外接充电'), findsOneWidget);
+      expect(find.text('总里程'), findsOneWidget);
+      expect(find.text('外接充电'), findsNothing);
       expect(find.text('待同步'), findsNothing);
       expect(find.text('已同步'), findsNothing);
       expect(find.textContaining('充电中'), findsNothing);
@@ -240,7 +243,7 @@ void main() {
     await t.pumpAndSettle();
     expect(find.byKey(const ValueKey('vehicle-value-batteryPercent')),
         findsOneWidget);
-    expect(t.getSize(find.byKey(const ValueKey('battery-fill'))).width, 0);
+    expect(t.widget<CardRing>(find.byType(CardRing)).fraction, 0);
     await t.pumpWidget(const SizedBox.shrink());
   });
 
@@ -497,9 +500,9 @@ void main() {
     await t.pump();
     expect(find.byType(FuelCard), findsOneWidget);
     expect(find.text('78.5'), findsOneWidget);
-    expect(find.text('42.4 L'), findsOneWidget);
+    expect(find.text('42.4'), findsOneWidget);
     expect(find.text('54 L'), findsOneWidget);
-    expect(find.text('480 km'), findsOneWidget);
+    expect(find.text('480'), findsOneWidget);
 
     final nativeRangeOnly = {
       'vehicle': {

@@ -14,6 +14,37 @@ Android9缓存策略尺寸，因此启用/恢复资源后，以原来的有效DP
 
 `WorkspacePolicy` 只保留为没有平台权限的开发包兼容路径，不把它当作系统确认页的完整支持。旧overscan会迁移清除；不再制造重复inset。旧路径跳过原车影像和原车最近任务，后者在启动期间重建窗口会触发它自身的空Context异常。
 
+### 2026-11-15 修正：`immersive.full` 会连导航栏 inset 一起清零
+
+实车把「隐藏原任务栏 + 全局底栏」一起打开后，普通应用底部会被底栏压住 96px。原因是 `policy_control` 里写的是 `immersive.full=*`（11-01 为了让原厂导航栏彻底不露头，从 `immersive.status` 改过来的）：全屏沉浸会把导航栏 **连同 inset** 一起清零，系统于是不再给应用留底部空间，而底栏是 `TYPE_APPLICATION_OVERLAY` 悬浮窗，本来就压在应用之上。
+
+所以「insets 资源包生效」不等于「系统已经预留」，两者必须分开判断：
+
+- 启动底栏时按 `policy_control` 是否含 `immersive.full` 决定要不要缩放任务，只看 `NavigationInsets.applied()` 会漏掉 inset 被清零的情况；
+- `resizeStack` 的返回值以前被丢弃，被拒也计进 `workspaceResizes`，任务停在 1080 却没有任何日志。现在失败会重试两次并落一条 `sys/workspace action=resize`，成功才算数；
+- 还有一条 `工作区跳过（原生尺寸任务）`，用来区分「缩放被拒」和「被豁免名单误伤」。
+
+### 2026-11-15 晚：系统「接受」不等于「落地」
+
+现场日志 `uni-logs-20261115-182815` 证明上一版已经能预留：打开文件管理器后 0.5 秒
+落下 `工作区已预留 tasks=2`，全程没有一条「任务拒绝工作区缩放」。但它还是「时好时坏」，
+原因有两条：
+
+- 去重签名 `attemptSig` 一旦命中、又没有失败记录，就直接 `continue`。于是**系统接受了
+  却没粘住**（任务或栈被重建后回到 1080）的栈永远不会被重发。当天的「把隐藏原任务栏
+  关一下再打开就好了」正是这么修好的：开关把 `dockTop` 从 848 改到 984，签名变了才
+  又发了一次 `resizeStack`。
+- `workspaceResizes` 数的是 `resizeStack` 的调用次数，不是结果，快照上会说谎。
+
+现在的规则：
+
+- 只有轮询亲眼看到 `bounds==target` 才算落地，`workspaceResizes` = 当前**已落地**的栈数；
+- 接受了但 bounds 又回到满屏 → 冷却 3 秒后重发，最多 5 次，每次落一条
+  `工作区没粘住，重新请求 stack=… bounds=…`；5 次还不粘就转 30 秒慢速重试
+  （留一条 `工作区一直没粘住，转慢速重试`），不再彻底放弃、让应用一直被挡着；
+- 被 `resizeStack` 明确拒绝 3 次 → 落一条 `工作区放弃缩放 reason=rejected`，停手。
+  真出现这条，说明该栈根本不吃 stack 缩放，下一步应改成按 task 缩放而不是加大重试。
+
 资源覆盖机制见 [AOSP RRO说明](https://source.android.com/docs/core/runtime/rros)。本项目具体尺寸与权限结论来自本地IP753资源及实车验证。
 
 ## 窗口和原车最近任务

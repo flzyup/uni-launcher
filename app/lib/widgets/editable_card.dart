@@ -4,6 +4,8 @@ import '../model/card_layout.dart';
 import '../theme/launcher_theme.dart';
 import '../theme/design_tokens.dart';
 import 'card_content.dart';
+import 'card_glyph.dart';
+import 'choice_button.dart';
 import 'clock_weather_card.dart';
 import 'glass_surface.dart';
 import 'launcher_dialog.dart';
@@ -54,6 +56,8 @@ class _EditableCardState extends State<EditableCard> {
         onLongPressStart: (d) => start(false, d.globalPosition),
         child: GlassSurface(
             padding: EdgeInsets.zero,
+            // 只有桌面卡片要卡底压暗带；面板、弹窗、设置块不要。
+            card: true,
             glow: s.cardGlow(card.type),
             borderColor: c.editing ? s.accent : null,
             child: Stack(children: [

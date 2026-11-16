@@ -32,9 +32,18 @@ abstract class NativeGateway {
 class AndroidGateway implements NativeGateway {
   static const methods = MethodChannel('xyz.i4o.uni.launcher/platform');
   static const eventChannel = EventChannel('xyz.i4o.uni.launcher/events');
-  void Function()? _home, _homeFirst, _settings, _rebound;
-  void onOpenSettings(void Function() callback) {
+  void Function()? _home, _homeFirst, _rebound;
+  /// 原生请求打开设置页；带 [tab] 时直接落到那一栏（例如 UNI 菜单的「垃圾清理」）。
+  void Function(String? tab)? _settings;
+  void onOpenSettings(void Function(String? tab) callback) {
     _settings = callback;
+  }
+
+  /// 底栏引擎点音乐块：那个 isolate 里没有桌面，原生转一条
+  /// `focus-music-card` 请主窗口把音乐卡铺满。
+  void Function()? _focusMusicCard;
+  void onFocusMusicCard(void Function() callback) {
+    _focusMusicCard = callback;
   }
 
   /// 引擎被新窗口接管（Activity 重建）时回调：本进程的 Dart 树还活着，但
@@ -100,8 +109,12 @@ class AndroidGateway implements NativeGateway {
     methods.setMethodCallHandler((call) async {
       if (call.method == 'home') _home?.call();
       if (call.method == 'home-first') _homeFirst?.call();
-      if (call.method == 'open-settings') _settings?.call();
+      if (call.method == 'open-settings') {
+        final args = call.arguments;
+        _settings?.call(args is Map ? args['tab'] as String? : null);
+      }
       if (call.method == 'rehost') _rebound?.call();
+      if (call.method == 'focus-music-card') _focusMusicCard?.call();
     });
   }
 

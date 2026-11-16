@@ -17,8 +17,26 @@ public final class AmapTrafficLightProtocol {
         Integer direction=integer(extras.opt("dir")),status=integer(extras.opt("trafficLightStatus"));
         if(direction==null||status==null)return null;
         JSONArray result=new JSONArray();
-        result.put(light(direction,status,seconds(extras.opt("redLightCountDownSeconds")),
-            integer(extras.opt("waitRound")),null));
+        JSONObject signal=light(direction,status,seconds(extras.opt("redLightCountDownSeconds")),
+            integer(extras.opt("waitRound")),null);
+        // 标准广播（KEY_TYPE 60073）的 dir/status 与巡航通道**不是同一套枚举**：
+        // analysis/amap-traffic-evidence.json:69 早就写明
+        // "yh CameraLightInfo cruise only; do not apply to standard dir/status"。
+        // 2026-11-15 用三张实车现场照片 + 日志逐秒对齐实测出的真表：
+        //   dir    1=左转、4=直行
+        //   status 1=红、4=绿
+        // 依据：该路口左转相位 85s 红(dir1/status1) → 31s 绿(dir1/status4) 交替两轮，
+        // 倒计时与高德界面逐秒吻合；直行路段抓到 (dir4/status1) 对应红灯 24，
+        // (dir4/status4) 对应绿灯 8。沿用巡航表会导致「红灯显示绿、绿灯显示灰」。
+        // 表外的值仍然是 unknown，不猜；原始值留在 rawDirection/rawStatus 里。
+        String dir=direction==1?"left":direction==4?"straight":"unknown";
+        String lamp=status==1?"red":status==4?"green":"unknown";
+        try{
+            signal.put("direction",dir).put("lamp",lamp)
+                .put("directionVerified",!"unknown".equals(dir))
+                .put("lampVerified",!"unknown".equals(lamp));
+        }catch(Exception ignored){}
+        result.put(signal);
         // greenLightLastSecond has an unverified meaning and a channel gate.
         // Preserve it for diagnosis; never turn it into a green countdown.
         try{Integer green=integer(extras.opt("greenLightLastSecond"));if(green!=null)result.getJSONObject(0).put("rawGreenLightLastSecond",green);}catch(Exception ignored){}

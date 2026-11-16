@@ -55,16 +55,24 @@ void main() {
     expect(g.saved, contains('"glass":false'));
     expect(t.takeException(), null);
   });
-  testWidgets('desktop always exposes one transient trailing library page',
+  testWidgets('transient trailing library page only exists while editing',
       (t) async {
     final (c, _) = await launch(t);
+    // 默认布局两页。用户 2026-11-14：普通浏览时不要那张永远滑得到的空白页，
+    // 所以临时尾页只在编辑态挂着（编辑态仍能加卡）。
     expect(c.pageCount, 2);
-    for (final key in ['page-0', 'page-1', 'page-2']) {
-      expect(find.byKey(ValueKey(key)), findsOneWidget);
-    }
+    expect(find.byKey(const ValueKey('page-0')), findsOneWidget);
+    expect(find.byKey(const ValueKey('page-1')), findsOneWidget);
+    expect(find.byKey(const ValueKey('page-2')), findsNothing);
+    expect(find.text('添加一张卡片'), findsNothing);
+
+    c.beginEdit();
+    await t.pumpAndSettle();
+    expect(find.byKey(const ValueKey('page-2')), findsOneWidget);
     await t.tap(find.byKey(const ValueKey('page-2')));
     await t.pumpAndSettle();
     expect(c.page, 2);
+    // 还是临时页：没在上面放卡就不算新页。
     expect(c.pageCount, 2);
     expect(find.text('添加一张卡片'), findsOneWidget);
     expect(t.takeException(), isNull);
@@ -129,6 +137,8 @@ void main() {
     expect(t.widget<Material>(libraryTile).shape, isA<TechnicalFrameBorder>());
     await t.tap(find.byKey(const ValueKey('add-air')));
     await t.pumpAndSettle();
+    // 默认 12 张（三页全满），叠加这张新加的 air 卡 = 13，并落到第 4 张草稿页。
+    // 默认两页 9 张 + 新加的一张
     expect(c.cards.length, 10);
     await t.tap(find.byKey(const ValueKey('finish-edit')));
     await t.pumpAndSettle();

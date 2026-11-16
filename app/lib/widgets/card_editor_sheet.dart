@@ -26,135 +26,165 @@ const _desktopTypes = {
   'trafficLight'
 };
 
+/// 卡片库。稿子 `#f16`：1120×694 的弹层，头部只有标题 + X，分组头是
+/// 「标签 + 渐隐细线 + 右侧计数」。桌面扩展（稿子 `#f18`）按用户 2026-11-14 的决定
+/// **不拆独立弹层**，仍作为这里的第一组下半段，所以列数统一 4 列。
 Future<void> showCardLibrary(BuildContext context, LauncherController c) =>
     showLauncherSheet<void>(context,
         title: '添加卡片',
-        subtitle: '原车卡片使用官方信息来源，统一为桌面样式',
         closeLabel: '关闭卡片库',
-        width: Design.px(1560),
-        height: Design.px(850),
+        width: Design.dz(1120),
+        height: Design.dz(694),
         glowType: 'shortcuts',
         builder: (context) {
-      final s = SurfaceStyle.of(context);
-      return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Expanded(
-            child: SingleChildScrollView(
-                child: Padding(
-                    padding: EdgeInsets.only(right: Design.px(10)),
-                    child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          for (final group in const [
-                            ('原车卡片', false),
-                            ('桌面扩展', true)
-                          ]) ...[
-                            if (group.$2) SizedBox(height: Design.px(28)),
-                            Text(group.$1,
-                                style: TextStyle(
-                                    fontSize: Design.px(22), color: s.muted)),
-                            SizedBox(height: Design.px(18)),
-                            GridView.count(
-                                crossAxisCount: 4,
-                                shrinkWrap: true,
-                                physics: const NeverScrollableScrollPhysics(),
-                                padding: EdgeInsets.zero,
-                                mainAxisSpacing: Design.px(18),
-                                crossAxisSpacing: Design.px(18),
-                                childAspectRatio: 1.76,
-                                children: [
-                                  for (final spec in librarySpecs.where(
-                                      (spec) =>
-                                          _desktopTypes.contains(spec.type) ==
-                                          group.$2))
-                                    _LibraryTile(
-                                        spec: spec,
-                                        onTap: () {
-                                          if (c.add(spec.type)) {
-                                            Navigator.pop(context);
-                                          } else {
-                                            showLauncherToast(
-                                                context, '桌面页已满，请先移除一张卡片');
-                                          }
-                                        }),
-                                ]),
-                          ],
-                        ])))),
-        SizedBox(height: Design.px(28)),
-        Text('可重复添加 · 空间不足时添加到新页 · 其他车型卡片见样式总览',
-            style: TextStyle(
-                fontSize: Design.px(18), height: 1.2, color: s.muted)),
-      ]);
+      final groups = [
+        ('原车卡片', false, '来自原车服务 · 共 ${_libraryCount(false)} 张'),
+        ('桌面扩展', true, '系统级卡片 · 共 ${_libraryCount(true)} 张'),
+      ];
+      return SingleChildScrollView(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        for (var i = 0; i < groups.length; i++) ...[
+          if (i > 0) SizedBox(height: Design.dz(26)),
+          _LibraryGroupHeader(
+              label: groups[i].$1, note: groups[i].$3),
+          SizedBox(height: Design.dz(14)),
+          GridView.count(
+              crossAxisCount: 4,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              padding: EdgeInsets.zero,
+              mainAxisSpacing: Design.dz(14),
+              crossAxisSpacing: Design.dz(14),
+              // 稿子 tile 是自适应高度；Grid 里只能给比例。按「预览 64 + 两行字 +
+              // padding 20×2」实测，1.5 才不会挤（1.62 会溢出 1.9px）。
+              childAspectRatio: 1.5,
+              children: [
+                for (final spec in librarySpecs.where((spec) =>
+                    _desktopTypes.contains(spec.type) == groups[i].$2))
+                  _LibraryTile(
+                      spec: spec,
+                      onTap: () {
+                        if (c.add(spec.type)) {
+                          Navigator.pop(context);
+                        } else {
+                          showLauncherToast(context, '桌面页已满，请先移除一张卡片');
+                        }
+                      }),
+              ]),
+        ],
+      ]));
     });
 
+int _libraryCount(bool desktop) =>
+    librarySpecs.where((spec) => _desktopTypes.contains(spec.type) == desktop).length;
+
+/// 稿子 `.k-label` + 一条 10% 墨色渐隐到透明的细线 + 右侧小字计数。
+class _LibraryGroupHeader extends StatelessWidget {
+  final String label, note;
+  const _LibraryGroupHeader({required this.label, required this.note});
+  @override
+  Widget build(BuildContext context) {
+    final s = SurfaceStyle.of(context);
+    return Row(children: [
+      Text(label,
+          style: TextStyle(
+              fontSize: Design.dz(13),
+              letterSpacing: Design.dz(1.6),
+              color: s.muted)),
+      SizedBox(width: Design.dz(12)),
+      Expanded(
+          child: Container(
+              height: 1,
+              decoration: BoxDecoration(
+                  gradient: LinearGradient(colors: [
+                s.text.withValues(alpha: .10),
+                s.text.withValues(alpha: 0)
+              ])))),
+      SizedBox(width: Design.dz(12)),
+      Text(note,
+          style: TextStyle(fontSize: Design.dz(12), color: s.muted)),
+    ]);
+  }
+}
+
+/// 稿子 `.lib-it`：圆角 18 / 1px 8% 描边 / 3.5% 底 / padding 20，内部依次是
+/// 64 高预览块（卡片色 6% 底 + 32px 圆角 10 图标块 + 两条骨架条）、标题 15、副标题 12、
+/// 右下那颗 24px 的 `+`。以前整块比稿子大一号（86 预览 / 54 图标 / 23 号字），4 列显挤。
 class _LibraryTile extends StatelessWidget {
   final CardSpec spec;
   final VoidCallback onTap;
   const _LibraryTile({required this.spec, required this.onTap});
+
+  /// 稿子每张卡预览块都有自己的色相（导航=主题色、音乐=粉、天气=青、日历=紫）。
+  /// 没在稿子里出现过的类型统一用主题色。
+  Color _tint(SurfaceStyle s) => switch (spec.type) {
+        'music' => const Color(0xFFFF5FA8),
+        'weather' || 'air' => CardTint.cyan,
+        'calendar' || 'member' || 'cleanup' => CardTint.violet,
+        'trafficLight' || 'ride' => CardTint.amber,
+        'battery' || 'fuel' || 'tpms' || 'body' || 'vehicle' => CardTint.mint,
+        _ => s.accent,
+      };
+
   @override
   Widget build(BuildContext context) {
-    final s = SurfaceStyle.of(context);
+    final s = SurfaceStyle.of(context), tint = _tint(s);
     return Material(
-        color: s.soft,
+        color: s.text.withValues(alpha: .035),
+        // 深蓝玻璃那套有自己的框架描边（technicalFrame），别把它覆盖成圆角矩形。
         shape: s.technicalFrame
             ? s.controlShape().copyWith(side: s.controlSide(false))
             : RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(s.radius * .8),
-                side: BorderSide(color: s.edge)),
+                borderRadius: BorderRadius.circular(Design.dz(18)),
+                side: BorderSide(color: s.text.withValues(alpha: .08))),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
             key: ValueKey('add-${spec.type}'),
             onTap: onTap,
             child: Padding(
-                padding: EdgeInsets.all(Design.px(16)),
+                padding: EdgeInsets.all(Design.dz(20)),
                 child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Container(
-                          height: Design.px(86),
-                          padding: EdgeInsets.all(Design.px(15)),
+                          height: Design.dz(64),
+                          padding: EdgeInsets.symmetric(
+                              horizontal: Design.dz(14), vertical: Design.dz(12)),
                           decoration: BoxDecoration(
-                              borderRadius:
-                                  BorderRadius.circular(s.controlRadius),
-                              color: s.soft,
-                              gradient: RadialGradient(
-                                  center: Alignment.topLeft,
-                                  radius: 1.3,
-                                  colors: [
-                                    s.seed.withValues(alpha: .20),
-                                    Colors.transparent
-                                  ])),
+                              borderRadius: BorderRadius.circular(Design.dz(12)),
+                              color: tint.withValues(alpha: .06)),
                           child: Row(children: [
                             Container(
-                                width: Design.px(54),
-                                height: Design.px(54),
+                                width: Design.dz(32),
+                                height: Design.dz(32),
                                 decoration: BoxDecoration(
-                                    color: s.soft,
+                                    color: tint.withValues(alpha: .16),
                                     borderRadius:
-                                        BorderRadius.circular(s.controlRadius)),
+                                        BorderRadius.circular(Design.dz(10))),
                                 child: Center(
                                     child: UniIcon(cardSymbol(spec.type),
-                                        size: Design.px(30), color: s.accent))),
-                            SizedBox(width: Design.px(23)),
+                                        size: Design.dz(17), color: tint))),
+                            SizedBox(width: Design.dz(11)),
                             Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  for (final width in [80, 56]) ...[
+                                  for (final width in [62.0, 42.0]) ...[
                                     Container(
-                                        width: Design.px(width),
-                                        height: Design.px(8),
+                                        width: Design.dz(width),
+                                        height: Design.dz(6),
                                         decoration: BoxDecoration(
-                                            color: s.edge.withValues(
-                                                alpha: width == 80 ? .3 : .18),
+                                            color: s.text.withValues(
+                                                alpha: width == 62 ? .22 : .10),
                                             borderRadius: BorderRadius.circular(
-                                                Design.px(8)))),
-                                    if (width == 80)
-                                      SizedBox(height: Design.px(14)),
+                                                Design.dz(3)))),
+                                    if (width == 62)
+                                      SizedBox(height: Design.dz(7)),
                                   ],
                                 ]),
                           ])),
-                      SizedBox(height: Design.px(14)),
-                      Row(children: [
+                      SizedBox(height: Design.dz(12)),
+                      Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                         Expanded(
                             child: Row(children: [
                           Flexible(
@@ -163,24 +193,25 @@ class _LibraryTile extends StatelessWidget {
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
-                                      fontSize: Design.px(23), height: 1.2))),
+                                      fontSize: Design.dz(15),
+                                      color: s.text.withValues(alpha: .86)))),
                           if (spec.type == 'air') ...[
-                            SizedBox(width: Design.px(10)),
+                            SizedBox(width: Design.dz(8)),
                             Text('按车型',
                                 style: TextStyle(
-                                    fontSize: Design.px(13), color: s.muted)),
+                                    fontSize: Design.dz(11), color: s.muted)),
                           ],
                         ])),
-                        UniIcon('plus', size: Design.px(25), color: s.accent),
+                        UniIcon('plus',
+                            size: Design.dz(24),
+                            color: s.accent),
                       ]),
-                      SizedBox(height: Design.px(9)),
+                      SizedBox(height: Design.dz(4)),
                       Text(_libraryDescriptions[spec.type] ?? spec.source,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                              fontSize: Design.px(15),
-                              height: 1.2,
-                              color: s.muted)),
+                              fontSize: Design.dz(12), color: s.muted)),
                     ]))));
   }
 }
@@ -189,7 +220,7 @@ Future<void> editCard(
         BuildContext context, LauncherController c, LauncherCard card) =>
     showLauncherSheet<void>(context,
         title: '编辑${specFor(card.type).label}卡片',
-        subtitle: '调整展示，保持官方信息来源',
+        subtitle: '选择尺寸与位置',
         closeLabel: '关闭卡片设置',
         width: Design.px(780),
         glowType: card.type,
@@ -246,11 +277,14 @@ class _CardEditorState extends State<_CardEditor> {
     final vehicleCard =
         const {'battery', 'fuel', 'air', 'vehicle'}.contains(draft.type);
     final sizes = draft.type == 'trafficLight'
-        ? <(int, int)>[(4, 2), (4, 3)]
+        // 4×1 是「只有一行读数」档：没有卡头，环和倒计时撑满卡高。
+        ? <(int, int)>[(4, 1), (4, 2), (4, 3)]
         : draft.type == 'shortcuts'
-            ? <(int, int)>[(4, 2), (4, 3), (4, 4)]
+            // 4×1 是「一行图标」档：没有卡头，应用不足 4 个用加号补齐。
+            ? <(int, int)>[(4, 1), (4, 2), (4, 3), (4, 4)]
             : draft.type == 'music'
-                ? <(int, int)>[(4, 2), (4, 3), (4, 4), (8, 6)]
+                // 4×1 同上：没有卡头，只留封面 + 曲目 + 播放键。
+                ? <(int, int)>[(4, 1), (4, 2), (4, 3), (4, 4), (8, 6)]
                 : <(int, int)>[
                     draft.type == 'weather' ? (4, 2) : (spec.minW, spec.minH),
                     if (vehicleCard)
@@ -287,21 +321,19 @@ class _CardEditorState extends State<_CardEditor> {
             SizedBox(
                 width: Design.px(162),
                 height: Design.px(58),
-                child: OutlinedButton(
+                // 选中态跟设置页同一套实心渐变（`.opt.on`），不再自写一份
+                // 「描边 + 主题色字」——那样同一台车机上会出现两种选中态。
+                child: ChoiceButton(
                     key: ValueKey('clock-weather-layout-${option.id}'),
+                    kind: ChoiceKind.filled,
+                    height: null,
+                    radius: 11,
+                    selected:
+                        clockWeatherLayoutId(draft.layout) == option.id,
                     onPressed: () => setState(
                         () => draft = draft.copyWith(layout: option.id)),
-                    style: OutlinedButton.styleFrom(
-                        foregroundColor:
-                            clockWeatherLayoutId(draft.layout) == option.id
-                                ? s.accent
-                                : s.text,
-                        side: BorderSide(
-                            color:
-                                clockWeatherLayoutId(draft.layout) == option.id
-                                    ? s.accent
-                                    : s.edge)),
-                    child: Text(option.label)))
+                    child: Text(option.label,
+                        style: TextStyle(fontSize: Design.px(19)))))
         ]),
       ],
       SizedBox(height: Design.px(30)),
@@ -363,6 +395,8 @@ class _CardEditorState extends State<_CardEditor> {
   }
 }
 
+/// 稿子 `#f17` 的尺寸块：74 高、圆角 14，选中 = 50% 主题色描边 + 8% 同色底 +
+/// 文案「4×3 · 当前」，未选 = 10% 墨色描边 + 次要文字。
 class _SizeOption extends StatelessWidget {
   final (int, int) size;
   final bool selected;
@@ -371,37 +405,32 @@ class _SizeOption extends StatelessWidget {
       {required this.size, required this.selected, required this.onTap});
   @override
   Widget build(BuildContext context) {
-    final s = SurfaceStyle.of(context), color = selected ? s.accent : s.muted;
+    final s = SurfaceStyle.of(context);
+    final label = '${size.$1}×${size.$2}${selected ? ' · 当前' : ''}';
     return Semantics(
         button: true,
         selected: selected,
         label: '${size.$1} × ${size.$2}',
-        child: SizedBox(
-            height: Design.px(120),
-            child: Material(
-                color: s.soft,
-                shape: s
-                    .controlShape(selected: selected)
-                    .copyWith(side: s.controlSide(selected)),
-                child: InkWell(
-                    key: ValueKey('card-size-${size.$1}-${size.$2}'),
-                    onTap: onTap,
-                    borderRadius: BorderRadius.circular(s.controlRadius),
-                    child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Container(
-                              height: Design.px(37),
-                              width: Design.px(37 * size.$1 / size.$2),
-                              decoration: BoxDecoration(
-                                  border: Border.all(
-                                      color: color, width: Design.px(2)),
-                                  borderRadius:
-                                      BorderRadius.circular(Design.px(7)))),
-                          SizedBox(height: Design.px(14)),
-                          Text('${size.$1} × ${size.$2}',
-                              style: TextStyle(
-                                  fontSize: Design.px(19), color: color)),
-                        ])))));
+        child: Material(
+            color: selected ? s.accent.withValues(alpha: .08) : Colors.transparent,
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(Design.dz(14)),
+                side: BorderSide(
+                    color: selected
+                        ? s.accent.withValues(alpha: .5)
+                        : s.text.withValues(alpha: .1))),
+            child: InkWell(
+                key: ValueKey('card-size-${size.$1}-${size.$2}'),
+                onTap: onTap,
+                borderRadius: BorderRadius.circular(Design.dz(14)),
+                child: SizedBox(
+                    height: Design.dz(74),
+                    child: Center(
+                        child: Text(label,
+                            style: TextStyle(
+                                fontSize: Design.dz(13),
+                                color: selected
+                                    ? s.text.withValues(alpha: .85)
+                                    : s.muted)))))));
   }
 }

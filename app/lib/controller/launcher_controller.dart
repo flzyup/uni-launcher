@@ -68,10 +68,77 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
     return target;
   }
 
-  int page = 0, pageCount = 2;
+  /// 页数必须由卡片实际占用推出来。默认布局现在有三页（第 3 页是时钟 + 天气 +
+  /// 日历），写死 2 会让首启的页点少一个、尾部草稿页错位。
+  static int pagesOf(List<LauncherCard> list) =>
+      list.fold<int>(1, (n, c) => max(n, c.page + 1)).clamp(1, 20);
+  int page = 0, pageCount = pagesOf(defaultCards());
   final pageChanged = ValueNotifier<int>(0);
+
+  /// 原生记着的「上次停在第几页」（走 `desktopPage` 这条轻量通道顺手落盘，
+  /// 不写整份设计 JSON，也就不会在每次翻页时触发一次完整快照回灌）。
+  int lastDesktopPage = 0;
+
+  /// 开机页只结算一次：prelude 与 bootstrap 都会调 `_applyDesign`，而用户可能
+  /// 在 bootstrap 到达之前就已经翻过页了，第二次不能再把页码拽回去。
+  bool _bootPageSettled = false;
+
+  /// 被点开铺满整页的那张卡（卡片 id，null = 正常网格）。
+  ///
+  /// 铺满不是另开一页：网格里只渲染这一张卡、铺到整块桌面区域，顶部栏与底栏
+  /// 照常显示；退出就回到原来的页面，卡位一个都不动。
+  final focusedCard = ValueNotifier<String?>(null);
+
+  void focusCard(String id) {
+    if (settings || editing) return;
+    if (focusedCard.value == id) return;
+    focusedCard.value = id;
+  }
+
+  void unfocusCard() {
+    if (focusedCard.value == null) return;
+    focusedCard.value = null;
+  }
+
+  /// 把音乐卡铺满（卡片被点、或底栏请桌面代开都走这里）。
+  ///
+  /// 卡片不在当前页时先翻过去：铺满层是画在那一页的网格里的，页不对就什么都看不到。
+  /// 没有音乐卡时返回 false，调用方自己决定退到什么（桌面退到老的媒体面板）。
+  ///
+  /// [cardId] 必须是**被点的那一张**（2026-11-15 实车反馈）：以前这里固定取
+  /// `cards` 里第一张音乐卡，桌面上有两张时点第 2 页那张会先把桌面翻回第 1 页
+  /// 那张，收起后就停在第一屏 —— 用户说的「每次返回都回首页」。底栏没有具体卡片，
+  /// 才按「当前页的音乐卡 → 第一张」兜底。
+  bool focusMusicCard({String? cardId}) {
+    final card = (cardId == null
+            ? null
+            : cards.where((item) => item.id == cardId).firstOrNull) ??
+        cards
+            .where((item) => item.type == 'music' && item.page == page)
+            .firstOrNull ??
+        cards.where((item) => item.type == 'music').firstOrNull;
+    if (card == null) return false;
+    if (card.page != page) {
+      _setPage(card.page);
+      notifyListeners();
+    }
+    focusCard(card.id);
+    return true;
+  }
+
   int _pageRequest = 0;
-  bool settings = false, editing = false, ready = false;
+  bool editing = false, ready = false;
+
+  bool _settings = false;
+
+  /// 进设置页时把手上的铺满卡片先收回去，免得出设置回来还压着桌面。
+  bool get settings => _settings;
+
+  set settings(bool value) {
+    if (value == _settings) return;
+    _settings = value;
+    if (value) unfocusCard();
+  }
 
   /// 外观与布局已经读到（prelude 就算数）。根组件靠它决定是画兜底画布，
   /// 还是把真正的桌面挂上去。
@@ -154,8 +221,11 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
     gateway.onHome(home);
     gateway.onHomeFirst(homeFirst);
     if (gateway is AndroidGateway) {
-      (gateway as AndroidGateway).onOpenSettings(openSettings);
+      (gateway as AndroidGateway)
+          .onOpenSettings((tab) => openSettings(tab: tab));
       (gateway as AndroidGateway).onHostRebound(_hostRebound);
+      // 底栏引擎没有桌面，点音乐只能请这一侧代开：原生转一条 focus-music-card 过来。
+      (gateway as AndroidGateway).onFocusMusicCard(focusMusicCard);
     }
     // 只要外观和布局。这一段只读偏好，不碰任何适配器，第一帧用的就是正确
     // 的主题；完整快照（车辆/媒体/天气/图标）随后补齐。
@@ -168,7 +238,8 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
     try {
       final state = await gateway.bootstrap();
       if (_disposed) return;
-      _applyDesign(state['savedDesign'], state['appNames']);
+      _applyDesign(state['savedDesign'], state['appNames'],
+          state['lastDesktopPage']);
       _receive(state);
       if (state['initialSettings'] == true) settings = true;
       _subscription = gateway.events.listen(_receive, onError: (Object e) {
@@ -194,7 +265,8 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
     try {
       final prelude = await gateway.prelude();
       if (_disposed || prelude == null) return;
-      _applyDesign(prelude['savedDesign'], prelude['appNames']);
+      _applyDesign(prelude['savedDesign'], prelude['appNames'],
+          prelude['lastDesktopPage']);
       // 从设置入口启动时这个标记只发一次（prelude 会消费掉），这里必须接住。
       if (prelude['initialSettings'] == true) settings = true;
       designReady = true;
@@ -215,7 +287,10 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
   ///
   /// prelude 与 bootstrap 带的是同一份字符串，所以这段只写一次；[names] 是
   /// 原生顺手带上的应用显示名，优先于布局里存的那一份。
-  void _applyDesign(Object? raw, Object? names) {
+  void _applyDesign(Object? raw, Object? names, [Object? lastPage]) {
+    if (lastPage is num) {
+      lastDesktopPage = lastPage.toInt().clamp(0, 19);
+    }
     if (raw is! String || raw.isEmpty) return;
     try {
       final data = jsonDecode(raw) as Map<String, dynamic>;
@@ -227,8 +302,12 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
       final parsed = (data['cards'] as List)
           .map((c) => LauncherCard.fromJson(Map<String, dynamic>.from(c)))
           .toList();
-      if (validLayout(parsed)) {
-        cards = parsed;
+      // 旧版本默认给过第 3 页（时钟 / 天气 / 日历）。那一页上如果只剩这三张
+      // 默认卡，直接清掉：主屏默认只留两页，想要的人自己从「添加卡片」加。
+      // 用户往里加过别的卡就整页保留，不碰他的布局。
+      final restored = stripLegacyDefaultPage3(parsed);
+      if (validLayout(restored)) {
+        cards = restored;
         // Empty trailing pages are editor scratch space, not persistent
         // desktops. Keeping them made an empty-page prompt animate over
         // the last real page after restart.
@@ -238,6 +317,36 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
       message = '旧布局无法读取，已恢复默认卡片';
       UniLog.w(UniLogTags.app, '旧布局无法读取，已恢复默认卡片');
     }
+    _settleBootPage();
+  }
+
+  /// 把手势之外的开机页落下去：`appearance.bootPage` 是用户明确选的，
+  /// `-1` 则用原生记住的上次停留页。
+  ///
+  /// 只在 `pageCount` 与 `appearance` 都就绪之后调，所以要把请求 clamp 到真实
+  /// 页数里——用户可能设了第 3 页，后来又把那页的卡删光，页数缩回 2。
+  void _settleBootPage() {
+    if (_bootPageSettled) return;
+    _bootPageSettled = true;
+    final wanted = appearance.bootPage >= 0
+        ? appearance.bootPage
+        : lastDesktopPage;
+    final target = wanted.clamp(0, pageCount - 1);
+    if (target == page) return;
+    page = target;
+    pageChanged.value = target;
+    // 原生侧靠这一条决定「桌面内容要不要盖在地图上」（page == 0 才接管），
+    // 启动时不同步会让它一直以为停在第 1 页。
+    unawaited(gateway.setDesktopPage(target).catchError((Object _) {}));
+  }
+
+  /// 设置里的「开机进入」：`-1` = 上次停留，其余是 0 起的页索引。
+  Future<void> setBootPage(int value) async {
+    final next = value.clamp(-1, pageCount - 1);
+    if (next == appearance.bootPage) return;
+    appearance = appearance.copyWith(bootPage: next);
+    notifyListeners();
+    await persist();
   }
 
   /// Payloads that Android sends on bootstrap and on change, never with every
@@ -640,6 +749,9 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
     // 指令：先把编辑收尾（已提交的布局保留），再回桌面。
     if (editing) finishEdit();
     settings = false;
+    // 铺满的音乐卡也是压在桌面上的一层：HOME 是「回桌面」，它必须一起收掉，
+    // 否则回到第一屏还盖着那张卡（`settings` 的 setter 只在进设置时清）。
+    unfocusCard();
     if (resetPage) {
       // 全部应用页、最近任务、媒体/空调这类面板是压在桌面上的路由或全局底栏的
       // 独立窗口。HOME 是「回桌面」的明确指令，两层都要收：路由栈退回根，
@@ -661,19 +773,31 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
   /// 和 `home()` 默认行为的区别就是 [resetPage]：默认那条服务于「窗口被复用」
   /// （从第三方应用切回来，停在原页更稳），这条服务于「用户明确按了 HOME」。
   void homeFirst() => home(resetPage: true);
-  void openSettings() {
-    UniLog.event(UniLogTags.ui, '打开桌面设置');
+  /// 打开桌面设置。[tab] 为要直接落到的一栏（见 `settings_screen.dart` 的分类表）；
+  /// 全局底栏那条路要绕一趟原生 Activity，所以 tab 走命令参数传过去。
+  Future<void> openSettings({String? tab}) async {
+    UniLog.event(UniLogTags.ui, '打开桌面设置', fields: {if (tab != null) 'tab': tab});
     if (isGlobalDock) {
-      command('show-desktop-settings');
+      // 必须等命令发完：全局面板在调用返回后会立刻补一条 dismiss-dock-panel，
+      // 不等的话顺序会反过来，先收面板再开设置，设置窗口就被自己收掉了。
+      await command('show-desktop-settings', value: tab);
       return;
     }
     if (editing) return;
     settings = true;
+    if (tab != null) settingsTab = tab == 'sources' ? 'system' : tab;
     notifyListeners();
   }
 
+  /// 返回键：一层一层往上收。
+  ///
+  /// 铺满的音乐卡最先收（用户 2026-11-15 反馈「只能点右上角箭头才退得出来」）：
+  /// 它压在桌面上，是视觉上最外的一层。
   void back() {
-    if (editing) {
+    if (focusedCard.value != null) {
+      unfocusCard();
+      notifyListeners();
+    } else if (editing) {
       cancelEdit();
     } else if (settings) {
       settings = false;
@@ -689,9 +813,12 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> switchPage(int value) async {
     // pageCount itself is the transient trailing library page. It is not part
-    // of pageCount until a card is actually placed there.
-    final target = value.clamp(0, pageCount).toInt(), request = ++_pageRequest;
+    // of pageCount until a card is actually placed there —— 而且**只有编辑态**
+    // 才挂着它（普通浏览时那页不存在，见 desktop.dart 的 _gridsFor）。
+    final last = editing ? pageCount : (pageCount - 1).clamp(0, 20);
+    final target = value.clamp(0, last).toInt(), request = ++_pageRequest;
     if (target == page) return;
+    unfocusCard();
     // Page selection is intentionally a small one-way platform call. Sending
     // it through the general action channel publishes a complete vehicle
     // snapshot and rebuilds every telemetry/media card during a swipe.
@@ -718,6 +845,7 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
 
   void beginEdit() {
     if (editing) return;
+    unfocusCard();
     _backup = List.of(cards);
     _backupPages = pageCount;
     editing = true;
@@ -859,7 +987,7 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
 
   void resetLayout() {
     cards = defaultCards();
-    pageCount = 2;
+    pageCount = pagesOf(cards);
     _setPage(0);
     persist();
     notifyListeners();
@@ -875,6 +1003,7 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
     _pageRequest++;
     _subscription?.cancel();
     pageChanged.dispose();
+    focusedCard.dispose();
     native.dispose();
     super.dispose();
   }

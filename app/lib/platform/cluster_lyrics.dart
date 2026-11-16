@@ -265,8 +265,15 @@ class ClusterLyrics {
     } on PlatformException catch (error) {
       return ClusterCastStatus.unknown.copyWith(report: error.message ?? '投射控制失败');
     } on MissingPluginException {
-      return ClusterCastStatus.unknown.copyWith(report: '原生投射服务不可用');
+      return ClusterCastStatus.unknown.copyWith(report: bridgeUnavailable);
     }
   }
+
+  /// 桥不可用时 [apply] / [status] 回填的 report。
+  ///
+  /// 调用方要区分两件事：「原生明确拒绝了这次改动」和「原生根本没连上」。
+  /// 后者（Windows 预览、没装投射服务的车机）返回的是 [ClusterCastStatus.unknown]，
+  /// 拿它去覆盖界面上的值，用户看到的就是「点了没反应、选中态不切换」。
+  static const String bridgeUnavailable = '原生投射服务不可用';
 }
 

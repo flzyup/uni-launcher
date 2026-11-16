@@ -930,6 +930,9 @@ if(next!=null&&isOnlinePlayer(next.getPackageName())){
                 }
             }
         }catch(RuntimeException ignored){}
+        // 上面的分支全是「命中就 return」；走到这里说明元数据里没有可用的
+        // 本地路径，返回 null 让调用方按「来源未知」处理。缺这一句方法就
+        // 没有返回值，整个模块编译不过（2026-11-08 修复）。
         return null;
     }
     private static String readLyrics(MediaMetadata metadata,Bundle extras){

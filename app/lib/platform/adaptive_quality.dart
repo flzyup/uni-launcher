@@ -116,7 +116,13 @@ class AdaptiveQuality extends ChangeNotifier {
       return;
     }
     _smoothSince ??= now;
-    if (now - _smoothSince! >= _recoverHold && _frames.every((ms) => ms < recoverBelow)) {
+    // 恢复条件原来要求「窗口里**每一帧**都低于 recoverBelow」，在 60 fps 的车上
+    // 等价于永不恢复：40 帧里只要掺进一帧 15 ms（后台任务、GC、日志落盘），
+    // 计时就归零，降级于是成了单向棘轮——一次卡顿之后实时模糊整晚都不回来。
+    // 改成「窗口均值够低 + 九成帧没有跨过降级线」，既保留滞回，又允许偶发抖动。
+    final calm = _frames.where((ms) => ms >= degradeAbove).length * 10 <=
+        _frames.length;
+    if (now - _smoothSince! >= _recoverHold && calm) {
       _frames.clear();
       _setDegraded(false);
     }

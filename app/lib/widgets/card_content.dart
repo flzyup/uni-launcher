@@ -9,9 +9,12 @@ import '../theme/launcher_theme.dart';
 import 'clock_card.dart';
 import 'clock_weather_card.dart';
 import 'account_details_sheet.dart';
+import 'card_glyph.dart';
+import 'choice_button.dart';
 import 'glass_surface.dart';
 import 'launcher_dialog.dart';
 import 'dock_window_scope.dart';
+import 'canvas_scope.dart';
 import 'uni_icon.dart';
 import 'lyrics_view.dart';
 import 'media_progress.dart';
@@ -32,12 +35,13 @@ import '../model/vehicle_data.dart';
 import '../model/traffic_light.dart';
 import 'traffic_light_card.dart';
 
-export 'vehicle_visuals.dart' show TireDiagram, VehicleDoorSnapshot;
+export 'vehicle_visuals.dart' show CardRing, TireDiagram, VehicleDoorSnapshot;
 
 part 'card_content_music.dart';
 part 'card_content_navigation.dart';
 part 'card_content_oem.dart';
 part 'card_content_panels.dart';
+part 'music_player_page.dart';
 
 Map<String, dynamic> mapOf(dynamic value) =>
     value is Map ? Map<String, dynamic>.from(value) : {};
@@ -227,31 +231,61 @@ class _CardCanvas extends StatelessWidget {
 
 class _Heading extends StatelessWidget {
   final String title, source, symbol;
-  const _Heading(this.title, this.source, this.symbol);
+
+  /// 稿子 `.card-hd` 的第二行（`.k-sub`）。不传就把 [source] 当副标题——
+  /// '原车/官方' 那类来源标注是给维护者看的，不该占副标题位置。
+  final String? sub;
+
+  /// 稿子卡片头的图形名（[CardGlyph]）。不传按 [symbol] 推：同一张图在稿子里
+  /// 有两种画法的（车况与胎压 vs 行车信息都用 car.svg）要显式传。
+  final String? kind;
+  const _Heading(this.title, this.source, this.symbol,
+      {this.sub, this.kind});
+
   @override
   Widget build(BuildContext context) {
     final s = SurfaceStyle.of(context);
-    return SizedBox(
-        height: Design.px(32),
-        child: Row(children: [
-          UniIcon(symbol, size: Design.px(27), color: s.accent),
-          SizedBox(width: Design.px(12)),
-          Expanded(
-              child: Text(title,
+    final fallback =
+        !source.contains('原车') && !source.contains('官方') ? source : '';
+    final secondary = (sub ?? fallback).trim();
+    // 稿子 `.card-hd`：44 图标 + 两行（`.k-label` 11.5/600/字距 .2em + `.k-sub` 13），
+    // gap 12。原来是「图标 + 一行标题 + 右侧来源」，副标题这一行整个缺失。
+    return Row(children: [
+      // 稿子 `.card-hd .ic`：44 见方的虚线开口环 + 环内渐变线描，不是一张
+      // 通用线性图标。中心对齐，行高由这块 44 决定（文字块只有 33.4）。
+      SizedBox(
+          width: Design.px(52.8),
+          height: Design.px(52.8),
+          child: Center(
+              child: CardGlyph(kind ?? glyphKindForSymbol(symbol),
+                  symbol: symbol, size: 52.8))),
+      SizedBox(width: Design.px(14.4)),
+      Expanded(
+          child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+            Text(title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                    fontSize: Design.px(13.8),
+                    height: 1.2,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: Design.px(2.76),
+                    color: s.text.withValues(alpha: .55))),
+            if (secondary.isNotEmpty) ...[
+              SizedBox(height: Design.px(4.8)),
+              Text(secondary,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: Design.px(25), height: 1.2))),
-          if (!source.contains('原车') && !source.contains('官方'))
-            SizedBox(width: Design.px(14)),
-          if (!source.contains('原车') && !source.contains('官方'))
-            Flexible(
-                child: Text(source,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.end,
-                    style: TextStyle(
-                        fontSize: Design.px(16), height: 1.2, color: s.muted))),
-        ]));
+                  style: TextStyle(
+                      fontSize: Design.px(15.6),
+                      height: 1.2,
+                      color: s.muted)),
+            ],
+          ])),
+    ]);
   }
 }
 

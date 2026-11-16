@@ -271,6 +271,9 @@ public final class MainActivity extends FlutterActivity {
                     int page=call.arguments instanceof Number?((Number)call.arguments).intValue():0;
                     if(mapHost!=null)mapHost.preparePageChange();
                     engineState.flutterViewport.put("page",page);
+                    // 顺手记下停留页（prefs.apply，不触发快照回灌）：设置里
+                    // 「开机进入：上次停留」下次启动要读它。
+                    rt.rememberDesktopPage(page);
                     rt.setDesktopContentSilently(page==0);result.success(null);
                 }
                 else if("viewport".equals(call.method)){engineState.flutterViewport=new JSONObject((String)call.arguments);
@@ -906,6 +909,38 @@ public final class MainActivity extends FlutterActivity {
         host.dispatchHomeFirst(via);
     }
 
+    /**
+     * 请桌面窗口补发一份快照。
+     *
+     * <p>底栏面板的开合只走 {@link GlobalDockService} 自己的 publish（它只喂底栏/面板那两个
+     * 引擎），桌面要等下一次遥测才看得到 {@code globalDock.expanded} 变了。而桌面整块是
+     * 被 `expanded` 门控的（面板展开时关掉 TickerMode），拿不到这次更新就会一直停在「面板
+     * 还开着」的状态：翻页不落位、卡片动画全停，用户看到的就是「关掉面板以后整个桌面卡住」。
+     */
+    public static void requestPublish(){
+        MainActivity host=active.get();
+        if(host==null)return;
+        host.runOnUiThread(host::publish);
+    }
+
+    /**
+     * 底栏（独立 overlay 引擎）点音乐块：让桌面窗口把音乐卡铺满。
+     *
+     * <p>底栏那个 isolate 里没有网格，画不了铺满层；以前它让原生弹「媒体面板」窗口，
+     * 于是车上看到的是另一套 1040 宽的旧弹层，关掉后桌面还会僵住。现在和
+     * {@code open-settings} 走同一条通道：原生转一条 {@code focus-music-card} 给桌面 Dart，
+     * 由桌面自己把卡片铺满。窗口不在前台时顺手拉起来，否则用户点了只觉得「没反应」。
+     */
+    public static void requestMusicCard(){
+        MainActivity host=active.get();
+        if(host==null)return;
+        host.bringSelfToFront();
+        host.runOnUiThread(()->{
+            try{if(host.channel!=null)host.channel.invokeMethod("focus-music-card",null);}
+            catch(RuntimeException e){UniLog.w(LogTags.APP,"请桌面铺满音乐卡失败",e);}
+        });
+    }
+
     public static void launchHomeTarget(Context context, String targetPackage){
         if(context==null)return;
         try{
@@ -1161,7 +1196,11 @@ public final class MainActivity extends FlutterActivity {
             intent.removeExtra("uniSpectrumPermission");
         }
         if(settings){
-            if(channel!=null)channel.invokeMethod("open-settings",null);
+            // 「垃圾清理」这类入口要直接落到某一栏：tab 由全局底栏放进来，
+            // 没有就还是老行为（打开设置，停在默认那一栏）。
+            String tab=intent==null?null:intent.getStringExtra("uniSettingsTab");
+            if(channel!=null)channel.invokeMethod("open-settings",
+                tab==null||tab.isEmpty()?null:java.util.Collections.singletonMap("tab",tab));
         }else{
             android.content.SharedPreferences prefs=getSharedPreferences("launcher",0);
             String target=prefs.getString("homeKeyTarget",getPackageName());
