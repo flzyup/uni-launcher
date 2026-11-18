@@ -66,118 +66,136 @@ class _LauncherShellState extends State<LauncherShell> {
         child: ListenableBuilder(
             listenable: controller,
             builder: (context, _) => Scaffold(
-            // The car's decor already reserves the OEM control bar. Its inset
-            // reports fluctuate when an ActivityView gains focus; never apply
-            // that inset a second time to the desktop or move the dock for it.
-            resizeToAvoidBottomInset: false,
-            body: SceneBackground(
-              appearance: controller.appearance,
-              forceOverlay: controller.settings,
-              child: SafeArea(
-                  top: false,
-                  bottom: false,
-                  child: LayoutBuilder(builder: (context, box) {
-                    final scale = box.maxWidth / Design.canvasWidth;
-                    final nativeHeight =
-                        (controller.native.value['viewportHeightPx'] as num?)
+                // The car's decor already reserves the OEM control bar. Its inset
+                // reports fluctuate when an ActivityView gains focus; never apply
+                // that inset a second time to the desktop or move the dock for it.
+                resizeToAvoidBottomInset: false,
+                body: SceneBackground(
+                  appearance: controller.appearance,
+                  forceOverlay: controller.settings,
+                  child: SafeArea(
+                      top: false,
+                      bottom: false,
+                      child: LayoutBuilder(builder: (context, box) {
+                        final scale = box.maxWidth / Design.canvasWidth;
+                        final nativeHeight = (controller
+                                .native.value['viewportHeightPx'] as num?)
                             ?.toDouble();
-                    // With the global dock enabled the overlay is the only bar
-                    // (home included); the inline dock must not duplicate it.
-                    final globalDock = controller.native.value['globalDock'];
-                    final globalDockActive = globalDock is Map &&
-                        globalDock['enabled'] == true &&
-                        globalDock['running'] == true &&
-                        globalDock['visible'] == true;
-                    final height = nativeHeight != null && nativeHeight > 0
-                        ? (nativeHeight /
-                                MediaQuery.devicePixelRatioOf(context))
-                            .clamp(0.0, box.maxHeight)
-                        : box.maxHeight;
-                    if (controller.gateway is AndroidGateway) {
-                      final metrics = jsonEncode({
-                        'width': box.maxWidth,
-                        'maxHeight': box.maxHeight,
-                        'height': height,
-                        'nativeHeightPx': nativeHeight,
-                        'dpr': MediaQuery.devicePixelRatioOf(context),
-                        'page': controller.page,
-                        'settings': controller.settings
-                      });
-                      final pending = metrics;
-                      WidgetsBinding.instance.addPostFrameCallback(
-                          (_) => _reportViewport(pending));
-                    }
-                    return Align(
-                        alignment: Alignment.topCenter,
-                        child: SizedBox(
-                            width: box.maxWidth,
-                            height: height,
-                            child: FittedBox(
-                                fit: BoxFit.fill,
-                                child: SizedBox(
-                                    width: Design.canvasWidth,
-                                    height: height / scale,
-                                    child: Column(children: [
-                                      Header(
-                                          controller: controller,
-                                          position: pagePosition),
-                                      Expanded(
-                                          child: Stack(
-                                              fit: StackFit.expand,
-                                              children: [
-                                            IgnorePointer(
-                                                ignoring: controller.settings,
-                                                child: AnimatedOpacity(
-                                                    opacity: controller.settings
-                                                        ? 0
-                                                        : 1,
-                                                    duration: const Duration(
-                                                        milliseconds: 180),
-                                                    child: NativeSliceBuilder(
-                                                        valueListenable:
-                                                            controller.native,
-                                                        select: (state) =>
-                                                            mapOf(state[
-                                                                    'globalDock'])[
-                                                                'expanded'] ==
-                                                            true,
-                                                        builder:
-                                                            (context, state) =>
-                                                                TickerMode(
-                                                                    enabled: !controller
-                                                                            .settings &&
-                                                                        mapOf(state['globalDock'])[
-                                                                                'expanded'] !=
-                                                                            true,
-                                                                    child: Desktop(
-                                                                        controller:
-                                                                            controller,
-                                                                        position:
-                                                                            pagePosition))))),
-                                            IgnorePointer(
-                                                ignoring: !controller.settings,
-                                                child: AnimatedSwitcher(
-                                                    duration: const Duration(
-                                                        milliseconds: 180),
-                                                    child: controller.settings
-                                                        ? SettingsScreen(
-                                                            key: const ValueKey(
-                                                                'settings-page'),
-                                                            controller:
-                                                                controller,
-                                                            update: controller
-                                                                        .gateway
-                                                                    is AndroidGateway
-                                                                ? update
-                                                                : null)
-                                                        : const SizedBox.shrink(
-                                                            key: ValueKey(
-                                                                'settings-hidden')))),
-                                          ])),
-                                      if (!globalDockActive)
-                                        BottomDock(controller: controller),
-                                    ])))));
-                  })),
-            ))));
+                        final height = nativeHeight != null && nativeHeight > 0
+                            ? (nativeHeight /
+                                    MediaQuery.devicePixelRatioOf(context))
+                                .clamp(0.0, box.maxHeight)
+                            : box.maxHeight;
+                        if (controller.gateway is AndroidGateway) {
+                          final metrics = jsonEncode({
+                            'width': box.maxWidth,
+                            'maxHeight': box.maxHeight,
+                            'height': height,
+                            'nativeHeightPx': nativeHeight,
+                            'dpr': MediaQuery.devicePixelRatioOf(context),
+                            'page': controller.page,
+                            'settings': controller.settings
+                          });
+                          final pending = metrics;
+                          WidgetsBinding.instance.addPostFrameCallback(
+                              (_) => _reportViewport(pending));
+                        }
+                        return Align(
+                            alignment: Alignment.topCenter,
+                            child: SizedBox(
+                                width: box.maxWidth,
+                                height: height,
+                                child: FittedBox(
+                                    fit: BoxFit.fill,
+                                    child: SizedBox(
+                                        width: Design.canvasWidth,
+                                        height: height / scale,
+                                        child: Column(children: [
+                                          Header(
+                                              controller: controller,
+                                              position: pagePosition),
+                                          Expanded(
+                                              child: Stack(
+                                                  fit: StackFit.expand,
+                                                  children: [
+                                                IgnorePointer(
+                                                    ignoring:
+                                                        controller.settings,
+                                                    child: AnimatedOpacity(
+                                                        opacity: controller.settings
+                                                            ? 0
+                                                            : 1,
+                                                        duration: const Duration(
+                                                            milliseconds: 180),
+                                                        child: NativeSliceBuilder(
+                                                            valueListenable: controller
+                                                                .native,
+                                                            select: (state) =>
+                                                                mapOf(state['globalDock'])['expanded'] ==
+                                                                true,
+                                                            builder: (context, state) => TickerMode(
+                                                                enabled: !controller
+                                                                        .settings &&
+                                                                    mapOf(state['globalDock'])['expanded'] !=
+                                                                        true,
+                                                                child: Desktop(
+                                                                    controller:
+                                                                        controller,
+                                                                    position: pagePosition))))),
+                                                IgnorePointer(
+                                                    ignoring:
+                                                        !controller.settings,
+                                                    child: AnimatedSwitcher(
+                                                        duration:
+                                                            const Duration(
+                                                                milliseconds:
+                                                                    180),
+                                                        child: controller
+                                                                .settings
+                                                            ? SettingsScreen(
+                                                                key: const ValueKey(
+                                                                    'settings-page'),
+                                                                controller:
+                                                                    controller,
+                                                                update: controller
+                                                                            .gateway
+                                                                        is AndroidGateway
+                                                                    ? update
+                                                                    : null)
+                                                            : const SizedBox
+                                                                .shrink(
+                                                                key: ValueKey(
+                                                                    'settings-hidden')))),
+                                              ])),
+                                          // Dock visibility arrives on the native
+                                          // stream independently of configuration
+                                          // and controller notifications.
+                                          NativeSliceBuilder(
+                                              valueListenable:
+                                                  controller.native,
+                                              select: (state) {
+                                                final dock =
+                                                    mapOf(state['globalDock']);
+                                                return dock['enabled'] ==
+                                                        true &&
+                                                    dock['running'] == true &&
+                                                    dock['visible'] == true;
+                                              },
+                                              builder: (context, state) {
+                                                final dock =
+                                                    mapOf(state['globalDock']);
+                                                final active =
+                                                    dock['enabled'] == true &&
+                                                        dock['running'] ==
+                                                            true &&
+                                                        dock['visible'] == true;
+                                                return active
+                                                    ? const SizedBox.shrink()
+                                                    : BottomDock(
+                                                        controller: controller);
+                                              }),
+                                        ])))));
+                      })),
+                ))));
   }
 }

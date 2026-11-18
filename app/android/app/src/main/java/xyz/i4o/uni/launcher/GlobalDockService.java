@@ -21,6 +21,8 @@ import xyz.i4o.uni.launcher.overlay.OverscanPolicy;
 import xyz.i4o.uni.launcher.overlay.WorkspacePolicy;
 import xyz.i4o.uni.launcher.overlay.NavigationInsets;
 import xyz.i4o.uni.launcher.overlay.RecentTasksRepository;
+import xyz.i4o.uni.launcher.overlay.ImmersiveWindowMonitor;
+import xyz.i4o.uni.launcher.overlay.ImmersiveEdgeGesture;
 
 /** A small, touch-bounded global window; expanded only while a dock panel is open.
  * One persistent dock engine, one short-lived panel engine, one native runtime.
@@ -39,6 +41,42 @@ public final class GlobalDockService extends Service {
     private boolean recentTasksReady;
     private int recentTasksRevision;
     private boolean visible, cameraSuspended, externalHomeSuspended, nativeInsets;
+    private ImmersiveWindowMonitor immersiveMonitor;
+    private ImmersiveEdgeGesture immersiveEdge;
+    private boolean immersive, dockTouching;
+    private String immersivePackage="";
+    private long transientUntil;
+    private static final long TRANSIENT_BAR_MS=2250;
+    private final Runnable hideTransientDock=new Runnable(){public void run(){
+        if(immersive&&(!panel.isEmpty()||dockTouching))main.postDelayed(this,TRANSIENT_BAR_MS);
+        else update();
+    }};
+    private boolean transientDockVisible(){return immersive&&(dockTouching||!panel.isEmpty()||SystemClock.elapsedRealtime()<transientUntil);}
+    private void revealImmersiveDock(){
+        if(!immersive)return;
+        transientUntil=SystemClock.elapsedRealtime()+TRANSIENT_BAR_MS;
+        main.removeCallbacks(hideTransientDock);main.postDelayed(hideTransientDock,TRANSIENT_BAR_MS);
+        update();
+    }
+    private void immersiveDockTouch(MotionEvent event){
+        if(!immersive)return;
+        int action=event.getActionMasked();
+        if(action==MotionEvent.ACTION_DOWN){dockTouching=true;main.removeCallbacks(hideTransientDock);}
+        else if(action==MotionEvent.ACTION_UP||action==MotionEvent.ACTION_CANCEL){dockTouching=false;revealImmersiveDock();}
+    }
+    private void applyImmersiveState(String pkg,boolean hidden){
+        if(immersive==hidden&&(!hidden||pkg.equals(immersivePackage)))return;
+        immersive=hidden;immersivePackage=hidden?pkg:"";transientUntil=0;dockTouching=false;
+        main.removeCallbacks(hideTransientDock);
+        if(workspace!=null)workspace.setImmersivePackage(immersivePackage);
+        UniLog.i(LogTags.DOCK,"应用沉浸式状态变化","package",pkg,"immersive",hidden);
+        update();MainActivity.requestPublish();
+    }
+    private int physicalDockTop(){
+        if(!immersive)return WorkspacePolicy.dockTop(this,runtime.prefs());
+        DisplayMetrics real=new DisplayMetrics();windows.getDefaultDisplay().getRealMetrics(real);
+        return real.heightPixels-WorkspacePolicy.dockHeight(this,runtime.prefs());
+    }
     private String panel="";
     private int panelRevision;
     private byte[] panelBackdrop;
@@ -58,6 +96,11 @@ public final class GlobalDockService extends Service {
     public static void resumeDockForExternalHome(){
         GlobalDockService s=active;
         if(s!=null){
+            // System BACK from AVM resumes MainActivity without a show-home
+            // command. Restore the overlay before publishing the home viewport,
+            // otherwise home draws a second inline dock above the reserved strip.
+            s.cameraSuspended=false;
+            if(s.immersiveMonitor!=null)s.immersiveMonitor.setForeground(s.getPackageName());
             s.externalHomeSuspended=false;
             s.update();
         }
@@ -128,8 +171,11 @@ public final class GlobalDockService extends Service {
             j.put("enabled",c.getSharedPreferences("launcher",0).getBoolean("globalDockEnabled",false))
              .put("allowed",allowed!=null?allowed:Settings.canDrawOverlays(c)).put("running",s!=null&&s.dockWindow!=null)
              .put("visible",s!=null&&s.visible).put("expanded",s!=null&&!s.panel.isEmpty())
+             .put("cameraSuspended",s!=null&&s.cameraSuspended)
+             .put("immersive",s!=null&&s.immersive).put("immersivePackage",s==null?"":s.immersivePackage)
+             .put("transientVisible",s!=null&&s.transientDockVisible())
              .put("nativeNavigationInsets",s!=null&&s.nativeInsets)
-             .put("workspaceReserved",s!=null&&(s.nativeInsets||s.workspace!=null&&s.workspace.available()))
+             .put("workspaceReserved",s!=null&&!s.immersive&&(s.nativeInsets||s.workspace!=null&&s.workspace.available()))
              .put("workspaceResizes",s==null||s.workspace==null?0:s.workspace.resized())
              .put("panelReady",s!=null&&s.panelReady)
              .put("liveFlutterEngines",probeLive)
@@ -300,8 +346,10 @@ public final class GlobalDockService extends Service {
         UniLog.done(LogTags.DOCK,"dock/attach","surface","dock");
         UniLog.i(LogTags.DOCK,"底栏窗口已创建","nativeInsets",nativeInsets,"workspace",workspace.available());
         externalHomeSuspended=isExternalHomeVisible();
+        immersiveEdge=new ImmersiveEdgeGesture(this,nativeInsets,this::revealImmersiveDock);
+        immersiveMonitor=new ImmersiveWindowMonitor(this,this::applyImmersiveState);
         runtime.addListener(this,this::onRuntimeChanged);update();
-        main.postDelayed(externalHomeCheck,1000);
+        main.post(externalHomeCheck);
         main.postDelayed(this::prewarmPanel,1800);
     }
     private void prewarmPanel(){
@@ -361,6 +409,10 @@ public final class GlobalDockService extends Service {
             installPlatformChannel(engine,isPanel);
             FlutterTextureView texture=new FlutterTextureView(GlobalDockService.this);texture.setOpaque(false);
             view=new FlutterView(GlobalDockService.this,texture){
+                @Override public boolean dispatchTouchEvent(MotionEvent event){
+                    if(!isPanel)immersiveDockTouch(event);
+                    return super.dispatchTouchEvent(event);
+                }
                 @Override public boolean dispatchKeyEvent(KeyEvent event){
                     if(event.getKeyCode()==KeyEvent.KEYCODE_BACK&&isPanel){
                         if(event.getAction()==KeyEvent.ACTION_UP)engine.getNavigationChannel().popRoute();return true;
@@ -388,8 +440,8 @@ public final class GlobalDockService extends Service {
         private boolean setBounds(){
             DisplayMetrics real=new DisplayMetrics();windows.getDefaultDisplay().getRealMetrics(real);
             int bar=WorkspacePolicy.dockHeight(GlobalDockService.this,runtime.prefs());
-            int y=isPanel?0:WorkspacePolicy.dockTop(GlobalDockService.this,runtime.prefs());
-            int h=isPanel?WorkspacePolicy.dockTop(GlobalDockService.this,runtime.prefs()):bar;
+            int y=isPanel?0:physicalDockTop();
+            int h=isPanel?physicalDockTop():bar;
             boolean changed=bounds.width!=real.widthPixels||bounds.height!=h||bounds.x!=0||bounds.y!=y;
             bounds.width=real.widthPixels;bounds.height=h;bounds.x=0;bounds.y=y;return changed;
         }
@@ -500,7 +552,8 @@ public final class GlobalDockService extends Service {
     }
     private void dismissPanel(){
         if(panel.isEmpty())return;
-        panel="";panelReady=false;panelBackdrop=null;panelRevision++;main.removeCallbacks(foregroundCheck);update();
+        panel="";panelReady=false;panelBackdrop=null;panelRevision++;main.removeCallbacks(foregroundCheck);
+        if(immersive)revealImmersiveDock();else update();
         // 同上：关面板这一步必须让桌面立刻收到 expanded=false，否则 TickerMode 一直关着，
         // 翻页不落位、卡片动画全停 —— 用户感受就是「弹窗关掉以后整个桌面卡住」。
         MainActivity.requestPublish();
@@ -595,6 +648,7 @@ public final class GlobalDockService extends Service {
     private final Runnable externalHomeCheck=new Runnable(){
         @Override public void run(){
             if(dockWindow!=null){
+                if(immersiveMonitor!=null)immersiveMonitor.setForeground(topTaskPackage());
                 boolean ext=isExternalHomeVisible();
                 if(ext!=externalHomeSuspended){
                     externalHomeSuspended=ext;
@@ -669,7 +723,9 @@ public final class GlobalDockService extends Service {
         if(isExternalHomeVisible()){
             externalHomeSuspended=true;
         }
-        visible=!cameraSuspended&&!externalHomeSuspended;
+        visible=!cameraSuspended&&!externalHomeSuspended&&(!immersive||transientDockVisible());
+        if(immersiveEdge!=null)try{immersiveEdge.show(immersive&&!cameraSuspended&&!externalHomeSuspended&&!visible);}
+        catch(RuntimeException e){visible=!cameraSuspended&&!externalHomeSuspended;UniLog.w(LogTags.DOCK,"底部边缘手势窗口不可用，保留底栏",e);}
         dockWindow.updateBounds();dockWindow.show(visible);
         if(panelWindow!=null){panelWindow.updateBounds();panelWindow.show(visible&&!panel.isEmpty());}
         publish();
@@ -727,6 +783,8 @@ public final class GlobalDockService extends Service {
         try{unregisterReceiver(closeDialogsReceiver);}catch(Throwable ignored){}
         if(runtime!=null)runtime.removeListener(this);
         main.removeCallbacksAndMessages(null);
+        if(immersiveMonitor!=null)immersiveMonitor.close();
+        if(immersiveEdge!=null)immersiveEdge.close();
         if(workspace!=null)workspace.stopAndRestore();
         if(panelWindow!=null){panelWindow.close();panelWindow=null;}
         if(dockWindow!=null){dockWindow.close();dockWindow=null;}

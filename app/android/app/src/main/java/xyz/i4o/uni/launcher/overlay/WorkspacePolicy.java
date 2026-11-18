@@ -35,7 +35,7 @@ public final class WorkspacePolicy {
     private Method stacks,resize;
     private JSONObject originals;
     private boolean running,available;
-    private final boolean compatibilityOnly;
+    private String immersivePackage="";
     /** 已经**真的坐在**目标高度上的栈：只有轮询亲眼看到 `bounds==target` 才进来。
      *  以前这里数的是 resizeStack 的调用次数——系统接受了但没落地也算，
      *  快照里的 `workspaceResizes` 于是会说谎，「已预留」而应用仍被压住。 */
@@ -115,11 +115,7 @@ public final class WorkspacePolicy {
         update();if(available)handler.postDelayed(this,POLL_MS);
     }};
     public WorkspacePolicy(Context context,SharedPreferences prefs){
-        this(context,prefs,false);
-    }
-    public WorkspacePolicy(Context context,SharedPreferences prefs,boolean compatibilityOnly){
         this.context=context;this.prefs=prefs;
-        this.compatibilityOnly=compatibilityOnly;
         try{originals=new JSONObject(prefs.getString(SAVED,"{}"));}catch(Exception e){originals=new JSONObject();}
         try{
             manager=Class.forName("android.app.ActivityManager").getMethod("getService").invoke(null);
@@ -129,7 +125,13 @@ public final class WorkspacePolicy {
             available=true;
         }catch(Exception e){UniLog.w(LogTags.SYS,"Task workspace API unavailable",e,"tag","UniWorkspace");UniLog.fail(LogTags.SYS,"sys/workspace","reason","api-unavailable","error",e.getClass().getSimpleName());}
     }
-    public void start(){running=true;UniLog.enter(LogTags.SYS,"sys/workspace","action","start","compatibilityOnly",compatibilityOnly);handler.post(check);UniLog.done(LogTags.SYS,"sys/workspace","action","start","compatibilityOnly",compatibilityOnly);}
+    public void start(){running=true;UniLog.enter(LogTags.SYS,"sys/workspace","action","start");handler.post(check);UniLog.done(LogTags.SYS,"sys/workspace","action","start");}
+    public void setImmersivePackage(String pkg){
+        String value=pkg==null?"":pkg;
+        if(value.equals(immersivePackage))return;
+        immersivePackage=value;
+        if(running)update();
+    }
     public boolean available(){return available;}
     /** 当前**落地**的栈数（不是请求成功数），供底栏快照的 `workspaceResizes` 使用。 */
     public int resized(){return landed.size();}
@@ -170,10 +172,15 @@ public final class WorkspacePolicy {
                 String[] names=(String[])t.getField("taskNames").get(info);
                 int id=t.getField("stackId").getInt(info);if(id==0)continue;Rect bounds=(Rect)t.getField("bounds").get(info);
                 seen.add(id);
-                if(compatibilityOnly&&!WorkspaceCompatibilityPolicy.shouldResize(visible,names)){
-                    restoreOne(id,bounds,real);continue;
-                }
                 if(!visible||names==null||names.length==0){forget(id);continue;}
+                // Release the reserved strip for actual immersive requests.
+                // Keep it released even while the transient UNI bar overlays the app.
+                if(WorkspaceCompatibilityPolicy.isImmersiveTask(names,immersivePackage)){
+                    forget(id);landed.remove(id);
+                    Rect full=new Rect(0,0,real.widthPixels,real.heightPixels);
+                    if(!full.equals(bounds))resize(id,full);
+                    continue;
+                }
                 // OEM recents, OEM launcher, AppPane and home apps must retain native size.
                 // stack resize recreates activities or squashes grids, dropping labels.
                 // UNI's own MainActivity already reserves dockTop via viewportHeightPx.
