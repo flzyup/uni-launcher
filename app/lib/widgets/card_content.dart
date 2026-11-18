@@ -10,7 +10,6 @@ import 'clock_card.dart';
 import 'clock_weather_card.dart';
 import 'account_details_sheet.dart';
 import 'card_glyph.dart';
-import 'choice_button.dart';
 import 'glass_surface.dart';
 import 'launcher_dialog.dart';
 import 'dock_window_scope.dart';
@@ -33,6 +32,7 @@ import 'native_slice_builder.dart';
 import '../model/weather_condition.dart';
 import '../model/vehicle_data.dart';
 import '../model/traffic_light.dart';
+import '../model/simulation_mode.dart';
 import 'traffic_light_card.dart';
 
 export 'vehicle_visuals.dart' show CardRing, TireDiagram, VehicleDoorSnapshot;
@@ -96,6 +96,7 @@ class CardContent extends StatelessWidget {
         valueListenable: controller.native,
         select: (native) => [
           native['demo'],
+          native['mediaDemo'],
           for (final key in switch (card.type) {
             'nav' => [
                 'navigation',
@@ -113,9 +114,14 @@ class CardContent extends StatelessWidget {
             'weather' || 'clockWeather' => ['weather'],
             'calendar' => ['calendar'],
             'member' => ['systemStatus'],
-            'battery' || 'fuel' || 'air' || 'vehicle' || 'tpms' || 'body' || 'ride' => [
-                'vehicle'
-              ],
+            'battery' ||
+            'fuel' ||
+            'air' ||
+            'vehicle' ||
+            'tpms' ||
+            'body' ||
+            'ride' =>
+              ['vehicle'],
             'shortcuts' => ['apps', 'appNames'],
             _ => <String>[],
           })
@@ -239,8 +245,7 @@ class _Heading extends StatelessWidget {
   /// 稿子卡片头的图形名（[CardGlyph]）。不传按 [symbol] 推：同一张图在稿子里
   /// 有两种画法的（车况与胎压 vs 行车信息都用 car.svg）要显式传。
   final String? kind;
-  const _Heading(this.title, this.source, this.symbol,
-      {this.sub, this.kind});
+  const _Heading(this.title, this.source, this.symbol, {this.sub, this.kind});
 
   @override
   Widget build(BuildContext context) {
@@ -273,16 +278,14 @@ class _Heading extends StatelessWidget {
                     height: 1.2,
                     fontWeight: FontWeight.w600,
                     letterSpacing: Design.px(2.76),
-                    color: s.text.withValues(alpha: .55))),
+                    color: s.muted)),
             if (secondary.isNotEmpty) ...[
               SizedBox(height: Design.px(4.8)),
               Text(secondary,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                      fontSize: Design.px(15.6),
-                      height: 1.2,
-                      color: s.muted)),
+                      fontSize: Design.px(15.6), height: 1.2, color: s.muted)),
             ],
           ])),
     ]);

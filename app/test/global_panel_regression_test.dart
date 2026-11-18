@@ -8,7 +8,6 @@ import 'package:uni_launcher/screens/global_dock_app.dart';
 import 'package:uni_launcher/screens/global_panel_app.dart';
 import 'package:uni_launcher/theme/launcher_theme.dart';
 import 'package:uni_launcher/theme/design_tokens.dart';
-import 'package:uni_launcher/theme/technical_frame.dart';
 import 'package:uni_launcher/widgets/bottom_dock.dart';
 import 'package:uni_launcher/widgets/launcher_dialog.dart';
 import 'package:uni_launcher/widgets/glass_surface.dart';
@@ -70,6 +69,97 @@ void main() {
     });
     return (c, g);
   }
+
+  testWidgets('inline dock follows global visibility after system mode changes',
+      (t) async {
+    final (c, g) = await setup(t);
+    g.state['globalDock'] = {
+      'enabled': true,
+      'running': true,
+      'visible': true,
+      'allowed': true
+    };
+    g.stream.add(Map.of(g.state));
+    await t.pumpWidget(LauncherApp(controller: c));
+    await t.pumpAndSettle();
+    expect(find.byType(BottomDock), findsNothing);
+
+    // A mode/configuration change can temporarily hide the overlay and then
+    // restore it without any other controller-level setting changing.
+    g.state['dark'] = false;
+    g.state['globalDock'] = {
+      'enabled': true,
+      'running': false,
+      'visible': false,
+      'allowed': true
+    };
+    g.stream.add(Map.of(g.state));
+    await t.pumpAndSettle();
+    expect(find.byType(BottomDock), findsOneWidget);
+
+    g.state['globalDock'] = {
+      'enabled': true,
+      'running': true,
+      'visible': true,
+      'allowed': true
+    };
+    g.stream.add(Map.of(g.state));
+    await t.pumpAndSettle();
+    expect(find.byType(BottomDock), findsNothing);
+
+    g.state['globalDock'] = {
+      'enabled': false,
+      'running': false,
+      'visible': false,
+      'allowed': true
+    };
+    g.stream.add(Map.of(g.state));
+    await t.pumpAndSettle();
+    expect(find.byType(BottomDock), findsOneWidget);
+  });
+
+  testWidgets('dock keeps climate space and fixed height across icon sizes',
+      (t) async {
+    final (c, g) = await setup(t, host: 'global-dock', global: true);
+    // The overlay engine receives only the physical 96px strip.
+    t.view.physicalSize = const Size(1920, 96);
+    g.state['demo'] = true;
+    g.state['climate'] = {
+      'left': 22.5,
+      'right': 31.0,
+      'fan': 7,
+      'blowing': 'auto'
+    };
+    g.stream.add(Map.of(g.state));
+    await t.pumpWidget(GlobalDockApp(controller: c));
+    for (final layout in ['floating', 'full']) {
+      for (final size in Appearance.dockSizes) {
+        c.setAppearance(
+            c.appearance.copyWith(dockLayout: layout, dockSize: size));
+        await t.pumpAndSettle();
+        expect(t.takeException(), isNull, reason: '$layout / $size');
+        final dock = t.getRect(find.byKey(const ValueKey('bottom-dock')));
+        expect(dock.height, closeTo(96, .1));
+        final controls = [
+          'dock-ac-indicator',
+          'dock-temperature-left',
+          'climate',
+          'dock-airflow',
+          'dock-circulation-indicator',
+          'dock-temperature-right',
+          'climate-power'
+        ].map((key) => t.getRect(find.byKey(ValueKey(key)))).toList();
+        for (final control in controls) {
+          expect(control.width, greaterThan(90));
+          expect(control.width, closeTo(controls.first.width, .1));
+          expect(control.center.dy, closeTo(controls.first.center.dy, .1));
+        }
+        expect(find.byKey(const ValueKey('dock-sep')), findsNothing);
+        expect(t.getSize(find.byKey(const ValueKey('home'))),
+            t.getSize(find.byKey(const ValueKey('play-pause'))));
+      }
+    }
+  });
 
   testWidgets('header transfer icon follows service and opens global popup',
       (t) async {
@@ -151,7 +241,7 @@ void main() {
     final ink = find.byKey(const ValueKey('app-icon-ink-test.player'));
     expect(frame, findsOneWidget);
     expect(ink, findsOneWidget);
-    expect(t.widget<Material>(frame).shape, isA<TechnicalFrameBorder>());
+    expect(t.widget<Material>(frame).shape, isA<RoundedRectangleBorder>());
     expect(t.getSize(frame).width, t.getSize(frame).height);
     expect(t.getSize(frame).width, greaterThan(80));
     expect(t.getSize(ink), t.getSize(frame));
@@ -290,8 +380,7 @@ void main() {
     expect(find.text('扫码上传 · 夸克网盘'), findsNothing, reason: '说明行已去掉');
     expect(find.text('缓存 · 日志 · 残留'), findsNothing, reason: '说明行已去掉');
     expect(find.text('外观 · 应用 · 动画'), findsNothing, reason: '说明行已去掉');
-    expect(
-        t.getRect(find.byKey(const ValueKey('uni-menu-vehicle'))).height,
+    expect(t.getRect(find.byKey(const ValueKey('uni-menu-vehicle'))).height,
         closeTo(58.5, .5),
         reason: '行高应为设计稿的 58.5 画布，不随 dock 档位缩放');
     await t.tap(find.byKey(const ValueKey('uni-menu-vehicle')));
@@ -325,8 +414,7 @@ void main() {
     // 不再弹独立的清理窗口，而是打开设置并落在「垃圾清理」那一栏。
     expect(c.settings, isTrue);
     expect(c.settingsTab, 'cleaner');
-    expect(find.text('扫全机缓存、临时文件与残留；照片、导航离线地图和行车记录不动'),
-        findsNothing);
+    expect(find.text('扫全机缓存、临时文件与残留；照片、导航离线地图和行车记录不动'), findsNothing);
     expect(g.commands, isEmpty);
     expect(t.takeException(), isNull);
   });
@@ -498,12 +586,12 @@ void main() {
         if (draft) {
           // 稿子 f1：卡片头整个省掉（来源与换音源都在播放器弹层里），歌词是
           // 迷你窗——当前行放大 + 左对齐 + 不滚动。
-          expect(find.byKey(const ValueKey('media-source-entry')), findsNothing);
+          expect(
+              find.byKey(const ValueKey('media-source-entry')), findsNothing);
           expect(lyricView.mini, isTrue);
           expect(lyricView.textAlign, TextAlign.start);
           expect(lyricView.visibleLines, inInclusiveRange(3, 7));
-          expect(lyricView.activeFontSize,
-              greaterThan(lyricView.fontSize!));
+          expect(lyricView.activeFontSize, greaterThan(lyricView.fontSize!));
           // 三颗音质标签是稿子的静态装饰（原车没有音质字段），位置在标题下面。
           for (final tag in ['VIP', 'SQ', 'Hi-Res']) {
             expect(find.byKey(ValueKey('music-quality-$tag')), findsOneWidget,
@@ -511,9 +599,9 @@ void main() {
           }
           expect(
               t.getRect(find.byKey(const ValueKey('music-quality-VIP'))).top,
-              greaterThan(
-                  t.getRect(find.byKey(const ValueKey('music-card-artist')))
-                      .top));
+              greaterThan(t
+                  .getRect(find.byKey(const ValueKey('music-card-artist')))
+                  .top));
         } else {
           expect(lyricView.mini, isFalse);
           expect(lyricView.lineHeight, 44);
@@ -572,8 +660,7 @@ void main() {
     for (final key in ['music-card-title', 'music-card-artist']) {
       expect(
           find.descendant(
-              of: find.byKey(ValueKey(key)),
-              matching: find.byType(ShaderMask)),
+              of: find.byKey(ValueKey(key)), matching: find.byType(ShaderMask)),
           findsOneWidget,
           reason: key);
     }
@@ -607,7 +694,9 @@ void main() {
     const key = ValueKey('music-card-compact-play');
     expect(find.byKey(key), findsOneWidget);
     // 正在播放 → 暂停图标；按钮排在封面右边、卡片靠右那一侧。
-    expect(find.descendant(of: find.byKey(key), matching: find.byIcon(Icons.pause)),
+    expect(
+        find.descendant(
+            of: find.byKey(key), matching: find.byIcon(Icons.pause)),
         findsOneWidget);
     final cover = t.getRect(find.byType(MediaArtwork).first);
     final button = t.getRect(find.byKey(key));
@@ -884,7 +973,8 @@ void main() {
     expect(g.commands.last['value'], 'disabled.map');
   });
 
-  testWidgets('applications page filters system apps and puts filters above grid',
+  testWidgets(
+      'applications page filters system apps and puts filters above grid',
       (t) async {
     final (c, g) = await setup(t);
     (g.state['apps'] as List).addAll(<Map<String, dynamic>>[
@@ -921,7 +1011,7 @@ void main() {
             of: find.byKey(const ValueKey('apps-show-system')),
             matching: find.byType(DesignToggle)),
         findsOneWidget);
-    expect(find.text('系统应用'), findsNothing);
+    expect(find.text('系统应用'), findsOneWidget);
     expect(find.text('com.ecars.mycar.inter'), findsNothing);
     // 稿子 f6 把筛选从左侧竖列收进面板顶部一行（.ap-tools），网格吃满宽度。
     final pills = t.getRect(find.byKey(const ValueKey('apps-enabled')));
@@ -933,8 +1023,10 @@ void main() {
     expect(find.text('长按图标可编辑'), findsOneWidget);
     await t.tap(find.byKey(const ValueKey('apps-show-system')));
     await t.pumpAndSettle();
-    expect(find.text('系统应用'), findsOneWidget);
+    expect(find.text('系统应用'), findsNothing);
     expect(find.text('com.ecars.mycar.inter'), findsNothing);
+    await t.tap(find.byKey(const ValueKey('apps-show-system')));
+    await t.pumpAndSettle();
     await t.tap(find.byKey(const ValueKey('apps-disabled')));
     await t.pumpAndSettle();
     expect(find.text('已禁用系统应用'), findsOneWidget);
@@ -964,7 +1056,8 @@ void main() {
     await t.tap(find.byKey(const ValueKey('music-info')));
     await t.pumpAndSettle();
     expect(g.commands.last['action'], 'focus-music-card');
-    expect(g.commands.map((e) => e['action']), isNot(contains('show-dock-panel')));
+    expect(
+        g.commands.map((e) => e['action']), isNot(contains('show-dock-panel')));
     expect(find.byType(LauncherSheet), findsNothing);
   });
 

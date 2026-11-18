@@ -36,14 +36,16 @@ class _MusicCardFull extends StatelessWidget {
                   state['appNames'],
                   state['integrationPreferences'],
                   state['demo'],
+                  state['mediaDemo'],
                 ],
-            builder: (context, state) => CanvasScope(child: _page(context, state))));
+            builder: (context, state) =>
+                CanvasScope(child: _page(context, state))));
   }
 
   Widget _page(BuildContext context, Map<String, dynamic> state) {
     final s = SurfaceStyle.of(context);
     final media = mapOf(state['media']);
-    final demo = state['demo'] == true;
+    final demo = mediaIsDemo(state);
     final title = _mediaValue(state, 'title', '午夜立交', '暂无播放');
     final artist = _mediaValue(state, 'artist', '昼夜电台', '等待媒体会话');
     final album = _mediaValue(state, 'collection', '环线', '');
@@ -60,9 +62,9 @@ class _MusicCardFull extends StatelessWidget {
                             center: const Alignment(-.5, .42),
                             radius: .92,
                             colors: [
-                      _musicPink.withValues(alpha: .21),
-                      _musicPink.withValues(alpha: 0)
-                    ]))))),
+              _musicPink.withValues(alpha: .21),
+              _musicPink.withValues(alpha: 0)
+            ]))))),
         Positioned.fill(
             child: IgnorePointer(
                 child: DecoratedBox(
@@ -71,9 +73,9 @@ class _MusicCardFull extends StatelessWidget {
                             center: const Alignment(.78, -.68),
                             radius: .7,
                             colors: [
-                      _musicViolet.withValues(alpha: .10),
-                      _musicViolet.withValues(alpha: 0)
-                    ]))))),
+              _musicViolet.withValues(alpha: .10),
+              _musicViolet.withValues(alpha: 0)
+            ]))))),
       ],
       // 两列**底部对齐**：左边最后一格是频谱、右边最后一格是控制键，
       // 两者底边落在同一条线上（用户要求「频谱与按钮部分对齐」）。
@@ -156,21 +158,21 @@ class _MusicCardFull extends StatelessWidget {
               key: const ValueKey('music-player-subtitle'),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                  fontSize: Design.px(16.5),
-                  color: s.text.withValues(alpha: .46))),
+              style: TextStyle(fontSize: Design.px(16.5), color: s.muted)),
           SizedBox(height: Design.px(17)),
           const _MediaTags(scale: 1.1),
           // `.lyr-hd`
           Padding(
               padding: EdgeInsets.only(
-                  left: Design.px(24), top: Design.px(30), bottom: Design.px(4)),
+                  left: Design.px(24),
+                  top: Design.px(30),
+                  bottom: Design.px(4)),
               child: Row(children: [
                 Text('LYRICS · 逐句',
                     style: TextStyle(
                         fontSize: Design.px(10.5),
                         letterSpacing: Design.px(2.5),
-                        color: s.text.withValues(alpha: .30))),
+                        color: s.muted)),
                 SizedBox(width: Design.px(10)),
                 Expanded(
                     child: Container(
@@ -242,7 +244,11 @@ class _Cover extends StatelessWidget {
                         _musicHalo.withValues(alpha: .26 * halo),
                         _musicViolet.withValues(alpha: .13 * halo),
                         _musicHalo.withValues(alpha: 0)
-                      ], stops: const [0, .44, .72])))),
+                      ], stops: const [
+                        0,
+                        .44,
+                        .72
+                      ])))),
           Container(
               width: side,
               height: side,
@@ -287,11 +293,14 @@ class _Cover extends StatelessWidget {
                                   end: Alignment.bottomCenter,
                                   colors: [
                                     _musicPink.withValues(alpha: .22 * halo),
-                                    _musicPink.withValues(
-                                        alpha: .05 * halo),
+                                    _musicPink.withValues(alpha: .05 * halo),
                                     _musicPink.withValues(alpha: 0)
                                   ],
-                                  stops: const [0, .42, .84])))))),
+                                  stops: const [
+                                    0,
+                                    .42,
+                                    .84
+                                  ])))))),
         ]));
   }
 }
@@ -319,8 +328,7 @@ class _RoundButton extends StatelessWidget {
                 decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: s.text.withValues(alpha: .055),
-                    border:
-                        Border.all(color: s.text.withValues(alpha: .09))),
+                    border: Border.all(color: s.text.withValues(alpha: .09))),
                 child: Icon(icon,
                     size: Design.px(24),
                     color: enabled
@@ -398,7 +406,13 @@ class _LyricsWindow extends StatelessWidget {
                             s.accent.withValues(alpha: .30),
                             s.accent.withValues(alpha: 0)
                           ],
-                          stops: const [0, .3, .5, .7, 1])))),
+                          stops: const [
+                            0,
+                            .3,
+                            .5,
+                            .7,
+                            1
+                          ])))),
           Padding(
               padding: EdgeInsets.only(left: Design.px(24)),
               child: ShaderMask(
@@ -453,9 +467,10 @@ class _SourcePill extends StatelessWidget {
               state['appNames'],
               state['integrationPreferences'],
               state['demo'],
+              state['mediaDemo'],
             ],
         builder: (context, state) {
-          final demo = state['demo'] == true;
+          final demo = mediaIsDemo(state);
           return Material(
               type: MaterialType.transparency,
               child: InkWell(
@@ -468,8 +483,8 @@ class _SourcePill extends StatelessWidget {
                       decoration: BoxDecoration(
                           color: s.text.withValues(alpha: .05),
                           borderRadius: BorderRadius.circular(Design.px(14)),
-                          border: Border.all(
-                              color: s.text.withValues(alpha: .10))),
+                          border:
+                              Border.all(color: s.text.withValues(alpha: .10))),
                       child: Row(mainAxisSize: MainAxisSize.min, children: [
                         // 稿子那颗 7px 小圆点：示例态粉色，有真实会话时取强调色。
                         Container(

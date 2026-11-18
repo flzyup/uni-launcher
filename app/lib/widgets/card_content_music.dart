@@ -5,13 +5,13 @@ String _mediaValue(
   final value = mapOf(state['media'])[key]?.toString().trim() ?? '';
   return value.isNotEmpty
       ? value
-      : state['demo'] == true
+      : mediaIsDemo(state)
           ? demoValue
           : waiting;
 }
 
 String mediaSourceLabel(Map<String, dynamic> state) {
-  if (state['demo'] == true) return '媒体播放示例';
+  if (mediaIsDemo(state)) return '媒体播放示例';
   final media = mapOf(state['media']);
   final preferred = mapOf(state['integrationPreferences'])['mediaPackage'];
   final source = media['source'] ?? (preferred == 'auto' ? null : preferred);
@@ -29,8 +29,10 @@ class _MediaCover extends StatelessWidget {
   final bool demo;
   final double size;
   final Map<String, dynamic> media;
+
   /// 圆角；不传沿用卡片圆角的 .93 倍（稿子音乐的封面是 22）。
   final double? radius;
+
   /// 封面投影颜色；不传用卡片阴影。稿子音乐卡是粉色光晕。
   final Color? glow;
   const _MediaCover(
@@ -81,7 +83,9 @@ class _MediaTags extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = SurfaceStyle.of(context);
-    return Wrap(spacing: Design.dz(8) * scale, runSpacing: Design.dz(6) * scale,
+    return Wrap(
+        spacing: Design.dz(8) * scale,
+        runSpacing: Design.dz(6) * scale,
         children: [
           for (final (label, hex, border, background, spacing) in _tags)
             Container(
@@ -91,8 +95,7 @@ class _MediaTags extends StatelessWidget {
                     vertical: Design.dz(4) * scale),
                 decoration: BoxDecoration(
                     color: _tint(s, hex).withValues(alpha: background),
-                    borderRadius:
-                        BorderRadius.circular(Design.dz(7) * scale),
+                    borderRadius: BorderRadius.circular(Design.dz(7) * scale),
                     border: Border.all(
                         color: _tint(s, hex).withValues(alpha: border))),
                 child: Text(label,
@@ -243,7 +246,7 @@ class _MusicCard extends StatelessWidget {
     // 铺满档：网格把这张卡铺到整块桌面区域（desktop.dart 的 _CardFocus 会把它
     // 归一成 12×6），版式换成稿子 f5 那套。
     if (card.w >= 12) return _MusicCardFull(controller: controller);
-    final demo = state['demo'] == true, media = mapOf(state['media']);
+    final demo = mediaIsDemo(state), media = mapOf(state['media']);
     final compact = card.h <= 2;
     // 一格外档（4×1）：卡高只有 ~100 逻辑像素，卡头和 86 的封面都放不下。
     // 这一档不画卡头，封面按卡高算，只留「封面 + 曲目 + 播放键」一行。
@@ -259,8 +262,15 @@ class _MusicCard extends StatelessWidget {
         album: _mediaValue(state, 'collection', '环线', ''),
         compact: compact,
         centered: false);
-    final double spectrumHeight =
-        compact ? 0.0 : draft ? 34 : card.h == 3 ? 40 : large ? 58 : 34;
+    final double spectrumHeight = compact
+        ? 0.0
+        : draft
+            ? 34
+            : card.h == 3
+                ? 40
+                : large
+                    ? 58
+                    : 34;
     final spectrum = compact
         ? const SizedBox.shrink(key: ValueKey('music-card-spectrum-disabled'))
         : AudioSpectrum(
@@ -322,9 +332,8 @@ class _MusicCard extends StatelessWidget {
       final normalSize = Design.dz(17.5) * k, activeSize = Design.dz(25) * k;
       final normalRow = Design.dz(29) * k, activeRow = Design.dz(41) * k;
       // 稿子窗口 154 = 29 + 29 + 41 + 29 再加一点余量；高卡多给几行。
-      final lines = height <= 0
-          ? 3
-          : ((height - activeRow) / normalRow).floor() + 1;
+      final lines =
+          height <= 0 ? 3 : ((height - activeRow) / normalRow).floor() + 1;
       return RepaintBoundary(
           child: Stack(children: [
         Positioned(
@@ -345,7 +354,13 @@ class _MusicCard extends StatelessWidget {
                           s.accent.withValues(alpha: .24),
                           s.accent.withValues(alpha: 0)
                         ],
-                        stops: const [0, .22, .5, .78, 1])))),
+                        stops: const [
+                          0,
+                          .22,
+                          .5,
+                          .78,
+                          1
+                        ])))),
         Padding(
             padding: EdgeInsets.only(left: Design.dz(19) * k),
             child: ShaderMask(
@@ -404,8 +419,7 @@ class _MusicCard extends StatelessWidget {
                       children: [
                         MarqueeText(
                             key: const ValueKey('music-card-title'),
-                            data: _mediaValue(
-                                state, 'title', '午夜立交', '暂无播放'),
+                            data: _mediaValue(state, 'title', '午夜立交', '暂无播放'),
                             style: TextStyle(
                                 fontSize: Design.dz(24) * k,
                                 height: 1.2,
@@ -415,8 +429,7 @@ class _MusicCard extends StatelessWidget {
                             key: const ValueKey('music-card-artist'),
                             data: subtitle,
                             style: TextStyle(
-                                fontSize: Design.dz(14.5) * k,
-                                color: s.text.withValues(alpha: .52))),
+                                fontSize: Design.dz(14.5) * k, color: s.muted)),
                         SizedBox(height: Design.dz(12) * k),
                         // 静态装饰标签，见 _MediaTags 注释。
                         _MediaTags(scale: k),
@@ -438,7 +451,8 @@ class _MusicCard extends StatelessWidget {
         // 这里要的是卡片按 k 缩放后的逻辑像素，所以再乘回去。
         AudioSpectrum(
             playing: !demo && media['playing'] == true,
-            height: spectrumHeight * k * Design.artworkWidth / Design.canvasWidth),
+            height:
+                spectrumHeight * k * Design.artworkWidth / Design.canvasWidth),
       ]);
     }
 
@@ -484,21 +498,21 @@ class _MusicCard extends StatelessWidget {
                           mainAxisSize: MainAxisSize.min,
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                        MarqueeText(
-                            key: const ValueKey('music-card-title'),
-                            data:
-                                _mediaValue(state, 'title', '午夜立交', '暂无播放'),
-                            style: TextStyle(
-                                fontSize: titleSize,
-                                height: 1.2,
-                                fontWeight: FontWeight.w500)),
-                        SizedBox(height: Design.px(6)),
-                        MarqueeText(
-                            key: const ValueKey('music-card-artist'),
-                            data: subtitle,
-                            style: TextStyle(
-                                fontSize: titleSize * .68, color: s.muted)),
-                      ])))),
+                            MarqueeText(
+                                key: const ValueKey('music-card-title'),
+                                data:
+                                    _mediaValue(state, 'title', '午夜立交', '暂无播放'),
+                                style: TextStyle(
+                                    fontSize: titleSize,
+                                    height: 1.2,
+                                    fontWeight: FontWeight.w500)),
+                            SizedBox(height: Design.px(6)),
+                            MarqueeText(
+                                key: const ValueKey('music-card-artist'),
+                                data: subtitle,
+                                style: TextStyle(
+                                    fontSize: titleSize * .68, color: s.muted)),
+                          ])))),
           SizedBox(width: Design.px(12)),
           // 播放键用 FittedBox 兜一层：卡再被压矮时跟着缩，不会顶出边界。
           FittedBox(
@@ -581,7 +595,13 @@ class _MusicCard extends StatelessWidget {
         // 卡高只有 ~100 px 时走 FittedBox 会被整体缩到一半，封面和字反而更小。
         // minWidth 同理——这个尺寸的卡不需要等比兜底。
         minWidth: bare ? 0 : 340,
-        minHeight: bare ? 0 : (compact ? 190 : card.h == 3 ? 290 : 320),
+        minHeight: bare
+            ? 0
+            : (compact
+                ? 190
+                : card.h == 3
+                    ? 290
+                    : 320),
         padded: !bare,
         child: GestureDetector(
             key: const ValueKey('music-card-open-panel'),
@@ -595,24 +615,23 @@ class _MusicCard extends StatelessWidget {
                     // 水平也收到 14，让封面和标题占满整行。
                     padding: EdgeInsets.symmetric(
                         horizontal: Design.px(14), vertical: Design.px(6)),
-                    child: LayoutBuilder(
-                        builder: (context, box) => body(box)))
+                    child: LayoutBuilder(builder: (context, box) => body(box)))
                 : Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      heading(),
-                      Expanded(
-                          child: LayoutBuilder(
-                              builder: (context, box) => body(box))),
-                      if (!compact && !draft) ...[
-                        SizedBox(height: Design.px(10)),
-                        RepaintBoundary(
-                            child: MediaProgress(
-                                media: media,
-                                onSeek: (v) =>
-                                    controller.command('seek', value: '$v'))),
-                      ],
-                    ])));
+                        heading(),
+                        Expanded(
+                            child: LayoutBuilder(
+                                builder: (context, box) => body(box))),
+                        if (!compact && !draft) ...[
+                          SizedBox(height: Design.px(10)),
+                          RepaintBoundary(
+                              child: MediaProgress(
+                                  media: media,
+                                  onSeek: (v) =>
+                                      controller.command('seek', value: '$v'))),
+                        ],
+                      ])));
   }
 }
 
@@ -624,13 +643,14 @@ class MediaPanel extends StatelessWidget {
       valueListenable: controller.native,
       select: (state) => [
             state['demo'],
+            state['mediaDemo'],
             state['media'],
             state['apps'],
             state['appNames'],
           ],
       builder: (context, state) {
         final s = SurfaceStyle.of(context), m = mapOf(state['media']);
-        final demo = state['demo'] == true,
+        final demo = mediaIsDemo(state),
             available = demo || m['available'] == true;
         final artist = _mediaValue(state, 'artist', '昼夜电台', '等待媒体会话');
         final collection = _mediaValue(state, 'collection', '环线', '');

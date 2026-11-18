@@ -798,6 +798,11 @@ public final class GlobalDockService extends Service {
     @Override public IBinder onBind(Intent intent){return null;}
     @Override protected void dump(java.io.FileDescriptor fd,java.io.PrintWriter writer,String[] args){try{JSONObject report=snapshot(this),all=runtime.snapshot(new LauncherRuntime.StaticCursor()),m=all.optJSONObject("media"),safe=new JSONObject();
         if(m!=null)for(String key:new String[]{"source","playing","canToggle","canNext","canPrevious","positionMs","durationMs"})safe.put(key,m.opt(key));
-        report.put("media",safe).put("runtimeOwnerCount",all.optInt("runtimeOwnerCount"));writer.println("UNI_GLOBAL_DOCK="+report);
+        report.put("media",safe).put("simulationMode",all.optString("simulationMode"))
+            .put("simulation",all.optJSONObject("simulation")).put("vehicleDemo",all.optBoolean("demo"))
+            .put("mediaDemo",all.optBoolean("mediaDemo")).put("runtimeOwnerCount",all.optInt("runtimeOwnerCount"));
+        if(args!=null&&java.util.Arrays.asList(args).contains("simulation"))report.put("vehicle",all.optJSONObject("vehicle"))
+            .put("climate",all.optJSONObject("climate")).put("trafficLights",all.optJSONObject("trafficLights"));
+        writer.println("UNI_GLOBAL_DOCK="+report);
         }catch(Exception e){writer.println("UNI_GLOBAL_DOCK_UNAVAILABLE");}}
 }

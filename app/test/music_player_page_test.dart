@@ -5,6 +5,7 @@ import 'package:uni_launcher/launcher_app.dart';
 import 'package:uni_launcher/model/appearance.dart';
 import 'package:uni_launcher/model/card_layout.dart';
 import 'package:uni_launcher/theme/launcher_theme.dart';
+import 'package:uni_launcher/theme/contrast.dart';
 import 'package:uni_launcher/theme/design_tokens.dart';
 import 'package:uni_launcher/widgets/audio_spectrum.dart';
 import 'package:uni_launcher/widgets/card_content.dart';
@@ -122,16 +123,17 @@ void main() {
     // 暗夜：空态刻度仍用皮肤自己的 edge。
     expect(painted().edge, SurfaceStyle.from(dark, true).edge);
 
-    // 浅色：edge 是接近白的边线色，空态那一排刻度在白底上看不见，
-    // 所以换成正文墨色的低透明度（压深一档）。
+    // 浅色空态刻度使用可见的墨色，不依赖主题边线原本是白色还是深色。
     const light = Appearance(mode: 'light', spectrumStyle: 'segments');
     await t.pumpWidget(host(c, look: light));
     await t.pumpAndSettle();
     final s = SurfaceStyle.from(light, true);
     expect(painted().style, 'segments');
     expect(painted().edge.a, closeTo(.44, .01));
-    expect(painted().edge.computeLuminance(),
-        lessThan(s.edge.computeLuminance() - .2));
+    expect(contrastRatio(painted().edge, s.contrastBase),
+        greaterThanOrEqualTo(1.5));
+    expect(contrastRatio(painted().edge, s.contrastBase),
+        greaterThan(contrastRatio(s.edge, s.contrastBase)));
 
     await t.pumpWidget(const SizedBox());
     c.dispose();
@@ -158,7 +160,8 @@ void main() {
     await t.tap(find.byKey(const ValueKey('music-card-open-panel')));
     await t.pumpAndSettle();
     expect(c.focusedCard.value, 'm');
-    expect(g.commands.map((e) => e['action']), isNot(contains('show-dock-panel')));
+    expect(
+        g.commands.map((e) => e['action']), isNot(contains('show-dock-panel')));
     // 铺满层在桌面自己这棵树里，不是另一个窗口里的旧弹层。
     expect(find.byKey(const ValueKey('card-focus-m')), findsOneWidget);
     expect(find.byType(LauncherSheet), findsNothing);
@@ -196,7 +199,8 @@ void main() {
         focused.top, greaterThan(t.getRect(find.byType(Header)).bottom - .1));
     expect(
         focused.bottom,
-        lessThan(t.getRect(find.byKey(const ValueKey('bottom-dock'))).top + .1));
+        lessThan(
+            t.getRect(find.byKey(const ValueKey('bottom-dock'))).top + .1));
     // 收起：回到原来的页面，两张卡都在原位。
     await t.tap(find.byKey(const ValueKey('card-focus-close')));
     await t.pumpAndSettle();
@@ -210,8 +214,17 @@ void main() {
 
   testWidgets('铺满档歌词只占 5 行，中间高亮行明显大于普通行', (t) async {
     final g = FakeGateway();
-    const texts = ['第零句', '第一句', '第二句', '第三句', '第四句', '第五句',
-      '第六句', '第七句', '第八句'];
+    const texts = [
+      '第零句',
+      '第一句',
+      '第二句',
+      '第三句',
+      '第四句',
+      '第五句',
+      '第六句',
+      '第七句',
+      '第八句'
+    ];
     g.state['media'] = {
       ...(g.state['media'] as Map<String, dynamic>),
       'lyrics': texts.join('\n'),
@@ -220,8 +233,8 @@ void main() {
       'positionKnown': true,
     };
     final c = await ready(t, g);
-    final view = t.widget<LyricsView>(
-        find.byKey(const ValueKey('music-player-lyrics')));
+    final view =
+        t.widget<LyricsView>(find.byKey(const ValueKey('music-player-lyrics')));
     expect(view.visibleLines, 5, reason: '用户 2026-11-15 要求从 7 行收到 5 行');
     // 两档一起抬：高亮 34 / 普通 21，比例压在 1.6 倍上下。只放高亮会变成 2 倍，
     // 看着像标题不像歌词；普通行不跟着大，五行又显得单薄。
@@ -319,8 +332,7 @@ void main() {
     final grid = t.getRect(find.byKey(const ValueKey('card-grid')));
     final focused = t.getRect(find.byKey(const ValueKey('card-focus-m')));
     expect(focused.left, greaterThan(grid.left + 1), reason: '先确认这条边距存在');
-    await t
-        .tapAt(Offset((grid.left + focused.left) / 2, focused.center.dy));
+    await t.tapAt(Offset((grid.left + focused.left) / 2, focused.center.dy));
     await t.pumpAndSettle();
     expect(c.focusedCard.value, isNull, reason: '卡片外侧的边距也要能收起');
 
