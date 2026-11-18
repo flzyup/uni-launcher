@@ -3,6 +3,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../model/appearance.dart';
 import 'design_tokens.dart';
+import 'contrast.dart';
+import 'liquid_backdrop.dart';
 import 'launcher_type.dart';
 import 'skin_material.dart';
 import 'technical_frame.dart';
@@ -58,13 +60,13 @@ abstract final class Nocturne {
 }
 
 class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
-  final bool dark, glass, technicalFrame, nocturne;
+  final bool dark, glass, technicalFrame, nocturne, liquidGlass;
 
   /// 皮肤标识。用 getter 从既有布尔位推出来，不新增构造参数——
   /// 三处工厂都已分别置位（technicalFrame 只有 blueGlass 为真、
   /// nocturne 只有 eclipse 为真），所以推出来的值与 themeStyle 一一对应，
   /// 而 `==` / hashCode 一个都不用改。
-  LauncherSkin get skin => technicalFrame
+  LauncherSkin get skin => liquidGlass || technicalFrame
       ? LauncherSkin.blueGlass
       : (nocturne ? LauncherSkin.eclipse : LauncherSkin.classic);
 
@@ -96,9 +98,10 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
       soft,
       edge,
       shadow;
-  const SurfaceStyle(
+  SurfaceStyle(
       {required this.dark,
       this.technicalFrame = false,
+      this.liquidGlass = false,
       this.nocturne = false,
       this.lowPower = false,
       this.wallpaperBacked = false,
@@ -127,43 +130,48 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
         ? a.backgroundIsDark(systemDark)
         : a.isDark(systemDark);
     if (a.themeStyle == 'blueGlass') {
-      final accent = a.palette == 'blue'
-          ? (dark ? const Color(0xFF83B6FF) : const Color(0xFF245BC1))
-          : a.accent(dark);
+      final accent = readableColor(
+          _readableAccent(
+              a.palette == 'blue'
+                  ? (dark ? const Color(0xFF83B6FF) : const Color(0xFF245BC1))
+                  : a.accent(dark),
+              dark),
+          [_liquidContrastBase(dark, a.glass)],
+          minimum: 4.7);
       return SurfaceStyle(
           lowPower: lowPower,
           dark: dark,
           glass: a.glass,
-          technicalFrame: true,
+          liquidGlass: true,
           spectrumStyle: a.spectrumStyle,
           radius: Design.px(a.radius),
           accent: accent,
-          accentText: dark ? const Color(0xFF07111F) : Colors.white,
+          accentText: foregroundOn(accent),
           seed: a.seed(),
-          text: dark ? const Color(0xFFF2F6FC) : const Color(0xFF172B42),
-          muted: dark ? const Color(0xFFA2B3C7) : const Color(0xFF52687F),
-          disabled: dark ? const Color(0xFF68808F) : const Color(0xFF93A5BA),
-          surface: dark ? const Color(0xF0102034) : const Color(0xF0F6F9FD),
-          strong: dark ? const Color(0xFA172B43) : const Color(0xFAFFFFFF),
-          soft: dark ? const Color(0xFF1B3048) : const Color(0xFFE9EFF7),
-          edge: dark ? const Color(0xFF31475E) : const Color(0xFFCAD6E4),
-          shadow: dark ? const Color(0x18000000) : const Color(0x0C263E58));
+          text: dark ? const Color(0xFFF2F6FC) : const Color(0xFF08131E),
+          muted: dark ? const Color(0xFFB5C3D2) : const Color(0xFF0B1927),
+          disabled: dark ? const Color(0xFF8394A6) : const Color(0xFF6D7D90),
+          surface: dark ? const Color(0xC51A283A) : const Color(0xD9EDF4FA),
+          strong: dark ? const Color(0xF0223041) : const Color(0xF5F2F7FC),
+          soft: dark ? const Color(0x123C546A) : const Color(0x0AFFFFFF),
+          edge: dark ? const Color(0x40D6EDFF) : const Color(0x40283B49),
+          shadow: dark ? const Color(0x50000000) : const Color(0x26364D67));
     }
+    final accent = _readableAccent(a.accent(dark), dark);
     return SurfaceStyle(
         lowPower: lowPower,
         dark: dark,
         spectrumStyle: a.spectrumStyle,
         glass: a.glass,
         radius: Design.px(a.radius),
-        accent: a.accent(dark),
-        accentText:
-            dark ? Color.lerp(a.seed(), Colors.black, .80)! : Colors.white,
+        accent: accent,
+        accentText: foregroundOn(accent),
         seed: a.seed(),
         text: dark ? const Color(0xFFF2F6F5) : const Color(0xFF182D29),
-        muted: dark ? const Color(0xFFADBDC4) : const Color(0xFF546C65),
-        disabled: dark ? const Color(0xFF668081) : const Color(0xFF93A8A2),
-        surface: dark ? const Color(0xA116232B) : const Color(0x8CFFFFFF),
-        strong: dark ? const Color(0xCC192730) : const Color(0xCCFAFFFD),
+        muted: dark ? const Color(0xFFB5C3D2) : const Color(0xFF42556B),
+        disabled: dark ? const Color(0xFF8394A6) : const Color(0xFF6D7D90),
+        surface: dark ? const Color(0xF016232B) : const Color(0xF0FFFFFF),
+        strong: dark ? const Color(0xF5192730) : const Color(0xF5FAFFFD),
         soft: dark ? const Color(0x14B3D9D9) : const Color(0x5CFFFFFF),
         edge: dark ? const Color(0x2BE0FFFC) : const Color(0xC2FFFFFF),
         shadow: dark ? const Color(0x2E000D16) : const Color(0x1A365457));
@@ -182,7 +190,7 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
   /// dead zone.
   factory SurfaceStyle._nocturne(Appearance a,
       [bool lowPower = false, bool wallpaperBacked = false]) {
-    final accent = a.accent(true);
+    final accent = _readableAccent(a.accent(true), true);
     return SurfaceStyle(
         nocturne: true,
         lowPower: lowPower,
@@ -193,11 +201,11 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
         radius: Design.dz(a.radius),
         accent: accent,
         // `--acc-d`：实心渐变上的字色，hsl(h,60%,9%) 的近黑同色系。
-        accentText: _tone(accent, .60, .09),
+        accentText: foregroundOn(accent),
         seed: a.seed(),
         text: const Color(0xFFEFF4F6),
-        muted: const Color(0x8CE9F1F5),
-        disabled: const Color(0x5E676B70),
+        muted: const Color(0xFFB5C3D2),
+        disabled: const Color(0xFF8394A6),
         // 有壁纸时：几个表层色改成「压得住照片」的近黑实底，否则按钮、底栏胶囊、
         // 面板全都半透明地浮在照片上（实车反馈）。没壁纸时保持原值。
         surface:
@@ -223,7 +231,7 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
       : (dark ? const Color(0xFF0C1929) : const Color(0xFFF5F8FC));
   Color get background => nocturne
       ? Nocturne.background
-      : technicalFrame
+      : technicalFrame || liquidGlass
           ? (dark ? const Color(0xFF07111F) : const Color(0xFFE8EEF5))
           : (dark ? const Color(0xFF0E1920) : const Color(0xFFE1ECE7));
 
@@ -252,7 +260,89 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
   /// 压同色——侧边栏选中的那一项只剩图标，字整个消失。所以选中态一律走
   /// 已经为实心底算好的 [accentText]；科技框和暗夜是低透明度描边，没有实底，
   /// 用 `accent` 反而更清楚。
-  Color get selectedText => technicalFrame || nocturne ? accent : accentText;
+  late final Color selectedText =
+      technicalFrame || liquidGlass || nocturne ? tintedText : accentText;
+
+  // Light glass reveals the wallpaper instead of painting a white panel.
+  // Ink is calibrated against the darkest composited stop, so transparency
+  // does not depend on the selected wallpaper or per-frame pixel sampling.
+  static Color _liquidTint(bool dark) =>
+      dark ? const Color(0xFF172332) : const Color(0xFFDDEAF4);
+  static double _liquidOpacity(bool dark, bool glass,
+      {bool nested = false, bool sheet = false, bool content = false}) {
+    // 嵌套面板仍有可辨识的玻璃层次；按钮只保留极薄填充。
+    if (nested) return sheet ? .035 : .012;
+    if (!glass) return .96;
+    return sheet ? .10 : (content ? .025 : .035);
+  }
+
+  LiquidBackdrop get liquidBackdrop => LiquidBackdrop.of(dark);
+  Color liquidBackground(Color background) =>
+      glass ? liquidBackdrop.apply(background) : background;
+  Color get liquidTint => _liquidTint(dark);
+  double liquidOpacity(
+          {bool nested = false, bool sheet = false, bool content = false}) =>
+      _liquidOpacity(dark, glass,
+          nested: nested, sheet: sheet, content: content);
+  static List<Color> _liquidFill(bool dark, Color base) => [
+        Color.alphaBlend(
+            Colors.white.withValues(alpha: dark ? .035 : .018), base),
+        Color.alphaBlend(Colors.white.withValues(alpha: .004), base),
+        Color.alphaBlend(
+            (dark ? Colors.black : const Color(0xFF86A7BD))
+                .withValues(alpha: dark ? .035 : .018),
+            base)
+      ];
+  List<Color> liquidFill(
+          {bool nested = false, bool sheet = false, bool content = false}) =>
+      _liquidFill(
+          dark,
+          liquidTint.withValues(
+              alpha: liquidOpacity(
+                  nested: nested, sheet: sheet, content: content)));
+  static Color _liquidContrastBase(bool dark, bool glass) {
+    final stops = [
+      for (final opacity in [
+        _liquidOpacity(dark, glass),
+        _liquidOpacity(dark, glass, content: true),
+        _liquidOpacity(dark, glass, sheet: true),
+      ])
+        ..._liquidFill(dark, _liquidTint(dark).withValues(alpha: opacity))
+    ];
+    final bases = stops
+        .map((c) => Color.alphaBlend(
+            c,
+            glass
+                ? LiquidBackdrop.of(dark)
+                    .apply(dark ? Colors.white : Colors.black)
+                : (dark ? Colors.white : Colors.black)))
+        .toList()
+      ..sort((a, b) => a.computeLuminance().compareTo(b.computeLuminance()));
+    return dark ? bases.last : bases.first;
+  }
+
+  Color get contrastBase => liquidGlass
+      ? _liquidContrastBase(dark, glass)
+      : Color.alphaBlend(strong, background);
+  Color get selectionBase {
+    var base = contrastBase;
+    if (liquidGlass) {
+      // Top highlight plus a nested lens, both behind the label.
+      base = Color.alphaBlend(
+          Colors.white.withValues(alpha: dark ? .035 : .018), base);
+      base = Color.alphaBlend(liquidTint.withValues(alpha: .012), base);
+      base = Color.alphaBlend(
+          Colors.white.withValues(alpha: dark ? .035 : .018), base);
+    }
+    return Color.alphaBlend(accent.withValues(alpha: .14), base);
+  }
+
+  late final Color tintedText = readableColor(accent, [
+    selectionBase,
+    Color.alphaBlend(accent.withValues(alpha: .14), contrastBase)
+  ]);
+  static Color _readableAccent(Color color, bool dark) => readableColor(
+      color, [dark ? const Color(0xFF414D5A) : const Color(0xFFD0D8E0)]);
 
   /// 同一色相下的一个色调，只换饱和度和明度。
   static Color _tone(Color base, double saturation, double lightness) =>
@@ -272,12 +362,16 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
   /// 不能写成 `Color.lerp(accent, white, .32)`——往白里插值会连着**饱和度一起
   /// 稀释**，青屿的实心按钮就变成一层发白的灰绿，跟稿子上那种饱和的青绿差一
   /// 整档。这里照稿子的公式算，换任意自定义色都不会跑偏。
-  Color get accentHi => nocturne
-      ? _tone(accent, .72, .72)
-      : Color.lerp(accent, Colors.white, .24)!;
-  Color get accentLo => nocturne
-      ? _tone(accent, .55, .40)
-      : Color.lerp(accent, Colors.black, .30)!;
+  late final Color accentHi = readableColor(
+      nocturne
+          ? _tone(accent, .72, .72)
+          : Color.lerp(accent, Colors.white, .24)!,
+      [accentText]);
+  late final Color accentLo = readableColor(
+      nocturne
+          ? _tone(accent, .55, .40)
+          : Color.lerp(accent, Colors.black, .30)!,
+      [accentText]);
 
   /// 实心控件底（`.opt.on` / `.chip.on` / `.seg.on` / `.diag-btn.pri`）。
   ///
@@ -301,35 +395,58 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
           side: controlSide(selected))
       : RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(controlRadius));
-  ButtonStyle selectionStyle(bool selected) => OutlinedButton.styleFrom(
-      shape: controlShape(selected: selected),
-      backgroundColor: selected
-          ? (technicalFrame || nocturne
-              ? accent.withValues(alpha: .11)
+  ButtonStyle selectionStyle(bool selected) => controlStyle(
+      foreground: selected ? selectedText : text,
+      fill: selected
+          ? (technicalFrame || liquidGlass || nocturne
+              ? accent.withValues(alpha: .14)
               : accent)
           : soft,
-      foregroundColor: selected ? selectedText : text,
-      side: technicalFrame
-          ? controlSide(selected)
-          : BorderSide(
-              color: selected
-                  ? (nocturne
-                      ? accent.withValues(alpha: .55)
-                      : Colors.transparent)
-                  : edge));
+      side: controlSide(selected),
+      selected: selected);
 
-  /// Weak control-level border for dense rows such as climate mode and seat
-  /// steps: a simple rounded outline so secondary cards keep the hierarchy.
-  ButtonStyle weakSelectionStyle(bool selected) => OutlinedButton.styleFrom(
-      shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(controlRadius)),
-      backgroundColor:
-          selected ? accent.withValues(alpha: .10) : Colors.transparent,
-      foregroundColor: selected ? accent : text,
-      side: BorderSide(
-          color: selected
-              ? accent.withValues(alpha: .55)
-              : edge.withValues(alpha: .55)));
+  ButtonStyle weakSelectionStyle(bool selected) => controlStyle(
+      foreground: selected ? tintedText : text,
+      fill: selected ? accent.withValues(alpha: .10) : Colors.transparent,
+      side: BorderSide(color: selected ? accent : edge));
+
+  ButtonStyle controlStyle(
+          {required Color foreground,
+          required Color fill,
+          BorderSide? side,
+          bool selected = false}) =>
+      ButtonStyle(
+        shape: WidgetStatePropertyAll(controlShape(selected: selected)),
+        minimumSize:
+            const WidgetStatePropertyAll(Size(0, Design.controlHeight)),
+        padding: WidgetStatePropertyAll(
+            EdgeInsets.symmetric(horizontal: Design.px(24))),
+        textStyle: WidgetStatePropertyAll(TextStyle(
+            fontSize: Design.px(21),
+            fontWeight: FontWeight.w400,
+            height: LauncherType.lineTight,
+            letterSpacing: 0)),
+        visualDensity: VisualDensity.standard,
+        foregroundColor: WidgetStateProperty.resolveWith((states) =>
+            states.contains(WidgetState.disabled) ? disabled : foreground),
+        backgroundColor: WidgetStateProperty.resolveWith((states) =>
+            states.contains(WidgetState.disabled)
+                ? Color.alphaBlend(disabled.withValues(alpha: .08), soft)
+                : fill),
+        side: WidgetStateProperty.resolveWith((states) =>
+            states.contains(WidgetState.disabled)
+                ? BorderSide(color: disabled.withValues(alpha: .24))
+                : side),
+        overlayColor: WidgetStateProperty.resolveWith(
+            (states) => states.contains(WidgetState.disabled)
+                ? Colors.transparent
+                : foreground.withValues(
+                    alpha: states.contains(WidgetState.pressed)
+                        ? .12
+                        : states.contains(WidgetState.focused)
+                            ? .10
+                            : .06)),
+      );
   @override
   SurfaceStyle copyWith() => this;
   @override
@@ -344,6 +461,7 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
       other.dark == dark &&
       other.glass == glass &&
       other.technicalFrame == technicalFrame &&
+      other.liquidGlass == liquidGlass &&
       other.nocturne == nocturne &&
       other.lowPower == lowPower &&
       other.wallpaperBacked == wallpaperBacked &&
@@ -365,6 +483,7 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
       dark,
       glass,
       technicalFrame,
+      liquidGlass,
       nocturne,
       lowPower,
       wallpaperBacked,
@@ -399,19 +518,6 @@ ThemeData launcherTheme(SurfaceStyle s) {
 /// resolved style, so the launcher builds it once per appearance instead of once
 /// per frame.
 ThemeData _buildTheme(SurfaceStyle s) {
-  final shape = s.controlShape();
-  final button = ButtonStyle(
-    shape: WidgetStatePropertyAll(shape),
-    textStyle: WidgetStatePropertyAll(TextStyle(
-        fontSize: Design.px(21),
-        fontWeight: FontWeight.w400,
-        height: LauncherType.lineTight,
-        letterSpacing: 0)),
-    minimumSize: WidgetStatePropertyAll(Size(0, Design.px(60))),
-    padding:
-        WidgetStatePropertyAll(EdgeInsets.symmetric(horizontal: Design.px(24))),
-    visualDensity: VisualDensity.standard,
-  );
   final colors = ColorScheme.fromSeed(
           seedColor: s.seed,
           brightness: s.dark ? Brightness.dark : Brightness.light)
@@ -419,12 +525,20 @@ ThemeData _buildTheme(SurfaceStyle s) {
           primary: s.accent,
           onPrimary: s.accentText,
           primaryContainer: s.soft,
-          onPrimaryContainer: s.accent,
+          onPrimaryContainer: s.tintedText,
+          secondary: s.accent,
+          onSecondary: s.accentText,
+          secondaryContainer: s.soft,
+          onSecondaryContainer: s.tintedText,
+          onSurfaceVariant: s.muted,
+          surfaceContainerHighest: s.strong,
           surface: s.strong,
           onSurface: s.text,
           outline: s.edge);
   return ThemeData(
       useMaterial3: true,
+      splashFactory:
+          s.liquidGlass ? NoSplash.splashFactory : InkRipple.splashFactory,
       brightness: colors.brightness,
       colorScheme: colors,
       scaffoldBackgroundColor: s.background,
@@ -446,21 +560,56 @@ ThemeData _buildTheme(SurfaceStyle s) {
       // 设计稿里 `.tbtn`（「打开导航应用」「立即应用驾驶模式」「立即开启无线
       // adb」都是这一类）是 `color: rgb(var(--acc))` 的纯文字链接，不是灰字。
       // 挂在 `s.muted`（白 40%）上的话，暗夜底下这些操作几乎看不见。
+      disabledColor: s.disabled,
+      iconTheme: IconThemeData(color: s.text),
       textButtonTheme: TextButtonThemeData(
-          style: button.copyWith(
-              foregroundColor: WidgetStatePropertyAll(s.accent))),
-      outlinedButtonTheme: OutlinedButtonThemeData(
-          style: button.copyWith(
-              foregroundColor: WidgetStatePropertyAll(s.text),
-              backgroundColor: WidgetStatePropertyAll(s.soft),
-              side: WidgetStatePropertyAll(BorderSide(color: s.edge)))),
+          style:
+              s.controlStyle(foreground: s.accent, fill: Colors.transparent)),
+      outlinedButtonTheme:
+          OutlinedButtonThemeData(style: s.selectionStyle(false)),
       filledButtonTheme: FilledButtonThemeData(
-          style: button.copyWith(
-              backgroundColor:
-                  WidgetStatePropertyAll(s.technicalFrame ? s.soft : s.accent),
-              foregroundColor: WidgetStatePropertyAll(
-                  s.technicalFrame ? s.text : s.accentText))),
+          style: s.controlStyle(foreground: s.accentText, fill: s.accent)),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+          style: s
+              .controlStyle(foreground: s.accentText, fill: s.accent)
+              .copyWith(elevation: const WidgetStatePropertyAll(0))),
+      iconButtonTheme: IconButtonThemeData(
+          style: s
+              .controlStyle(foreground: s.text, fill: Colors.transparent)
+              .copyWith(
+                  padding: const WidgetStatePropertyAll(EdgeInsets.zero))),
+      switchTheme: SwitchThemeData(
+          thumbColor: WidgetStateProperty.resolveWith(
+              (states) => states.contains(WidgetState.disabled)
+                  ? s.disabled
+                  : states.contains(WidgetState.selected)
+                      ? s.accentText
+                      : (s.dark ? s.text : Colors.white)),
+          trackColor: WidgetStateProperty.resolveWith(
+              (states) => states.contains(WidgetState.disabled)
+                  ? s.soft
+                  : states.contains(WidgetState.selected)
+                      ? s.accent
+                      : s.muted),
+          trackOutlineColor: WidgetStatePropertyAll(s.edge)),
+      listTileTheme: ListTileThemeData(
+          textColor: s.text,
+          iconColor: s.muted,
+          selectedColor: s.tintedText,
+          selectedTileColor: s.accent.withValues(alpha: .10)),
+      popupMenuTheme: PopupMenuThemeData(
+          color: s.strong.withValues(alpha: .98),
+          textStyle: TextStyle(color: s.text, fontSize: Design.px(21)),
+          shape: s.controlShape()),
+      dialogTheme: DialogThemeData(
+          backgroundColor: s.strong.withValues(alpha: .98),
+          shape: s.controlShape()),
+      snackBarTheme: SnackBarThemeData(
+          backgroundColor: s.strong.withValues(alpha: 1),
+          contentTextStyle: TextStyle(color: s.text)),
       inputDecorationTheme: InputDecorationTheme(
+          labelStyle: TextStyle(color: s.muted),
+          hintStyle: TextStyle(color: s.muted),
           filled: true,
           fillColor: s.soft,
           contentPadding: EdgeInsets.symmetric(

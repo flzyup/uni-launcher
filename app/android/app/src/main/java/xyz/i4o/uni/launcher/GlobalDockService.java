@@ -533,10 +533,12 @@ public final class GlobalDockService extends Service {
         android.graphics.Bitmap bitmap=null,crop=null;
         try{
             String rawDesign=runtime.prefs().getString("savedDesign","");
-            if(!rawDesign.contains("\"glass\":true")||rawDesign.contains("\"blueGlass\""))return null;
+            if(rawDesign.isEmpty())return null;
             JSONObject design=new JSONObject(rawDesign);
             JSONObject appearance=design.optJSONObject("preferences");
-            if(appearance==null||!appearance.optBoolean("glass",false)||"blueGlass".equals(appearance.optString("themeStyle")))return null;
+            // blueGlass 现为液态玻璃，也需要同场景的背景图才能在独立 Flutter
+            // 窗口内滤镜采样。旧技术框时代的跳过条件会让它只剩透明填充。
+            if(appearance==null||!appearance.optBoolean("glass",false))return null;
             DisplayMetrics real=new DisplayMetrics();windows.getDefaultDisplay().getRealMetrics(real);
             int width=Math.min(960,real.widthPixels),height=Math.max(1,real.heightPixels*width/real.widthPixels);
             bitmap=(android.graphics.Bitmap)Class.forName("android.view.SurfaceControl")

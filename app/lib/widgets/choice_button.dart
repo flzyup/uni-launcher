@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../theme/design_tokens.dart';
 import '../theme/launcher_theme.dart';
+import '../theme/technical_frame.dart';
+import 'liquid_press.dart';
+import 'liquid_material.dart';
 
 /// 设计稿里设置页的四种「可选控件」形态。选中态是四套不同的画法，不是
 /// 同一个样式换透明度——之前把这些混成一套，所以每页的选中态都跟稿子对不上。
@@ -48,7 +51,7 @@ class ChoiceButton extends StatelessWidget {
     required this.onPressed,
     required this.child,
     this.kind = ChoiceKind.filled,
-    this.height = 47,
+    this.height = Design.controlHeight,
     this.radius,
     this.padding,
     this.alignment = Alignment.center,
@@ -65,13 +68,14 @@ class ChoiceButton extends StatelessWidget {
   /// 静态是为了让调用方在自建子组件（导航项的图标 + 文字、卡片的标题行）时
   /// 取到**完全同一套**颜色，而不是各写一份 if。
   static Color foregroundOf(SurfaceStyle s, ChoiceKind kind, bool selected) {
+    if (kind == ChoiceKind.tinted) return selected ? s.tintedText : s.text;
+    if (kind == ChoiceKind.tile) return s.text;
     if (s.nocturne) {
       return switch (kind) {
-        ChoiceKind.filled =>
-          selected ? s.accentText : s.text.withValues(alpha: .86),
-        ChoiceKind.tinted => selected ? s.text : s.text.withValues(alpha: .82),
-        ChoiceKind.nav => selected ? s.accent : s.text.withValues(alpha: .58),
-        ChoiceKind.tile => s.text.withValues(alpha: .82),
+        ChoiceKind.filled => selected ? s.accentText : s.text,
+        ChoiceKind.tinted => selected ? s.selectedText : s.text,
+        ChoiceKind.nav => selected ? s.selectedText : s.muted,
+        ChoiceKind.tile => s.text,
       };
     }
     // 经典 / 蓝玻璃走 OutlinedButton 的 selectionStyle：底色与字色成对算好，
@@ -94,10 +98,11 @@ class ChoiceButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = SurfaceStyle.of(context);
     final r = radius ?? 14.0;
-    final pad = padding ??
-        EdgeInsets.symmetric(horizontal: Design.dz(14));
-    if (!s.nocturne) return _classic(s, r, pad);
-    final fg = foreground(s);
+    final pad = padding ?? EdgeInsets.symmetric(horizontal: Design.dz(14));
+    if (!s.nocturne)
+      return LiquidPress(
+          enabled: onPressed != null, child: _classic(s, r, pad));
+    final fg = onPressed == null ? s.disabled : foreground(s);
     final isFilled = kind == ChoiceKind.filled;
     final bg = selected
         ? (selectedFill ??
@@ -123,9 +128,9 @@ class ChoiceButton extends StatelessWidget {
           }
         : BorderSide(
             color: border ??
-                s.text.withValues(
-                    alpha: kind == ChoiceKind.filled ? .17 : .10));
-    final shadows = !selected
+                s.text
+                    .withValues(alpha: kind == ChoiceKind.filled ? .17 : .10));
+    final shadows = !selected || onPressed == null
         ? null
         : switch (kind) {
             // 实心选中态只留一层「隐隐的光」：贴下缘一点微光。
@@ -154,16 +159,19 @@ class ChoiceButton extends StatelessWidget {
               ],
             _ => null,
           };
-    final radiusValue = BorderRadius.circular(Design.dz(r));
+    final radiusValue = BorderRadius.circular(s.controlRadius * r / 14);
     return SizedBox(
         height: height == null ? null : Design.dz(height!),
         child: DecoratedBox(
             decoration: BoxDecoration(
                 borderRadius: radiusValue,
-                color: bg,
-                gradient: selected && isFilled ? s.accentFill : null,
-                border:
-                    side == BorderSide.none ? null : Border.fromBorderSide(side),
+                color: onPressed == null ? s.soft : bg,
+                gradient: selected && isFilled && onPressed != null
+                    ? s.accentFill
+                    : null,
+                border: side == BorderSide.none
+                    ? null
+                    : Border.fromBorderSide(side),
                 boxShadow: shadows),
             child: Material(
                 type: MaterialType.transparency,
@@ -178,7 +186,9 @@ class ChoiceButton extends StatelessWidget {
                             heightFactor: shrink ? 1 : null,
                             child: DefaultTextStyle.merge(
                                 style: TextStyle(
-                                    color: fg, fontWeight: weight),
+                                    color: fg,
+                                    fontSize: Design.px(21),
+                                    fontWeight: weight),
                                 child: IconTheme.merge(
                                     data: IconThemeData(color: fg),
                                     child: child))))))));
@@ -190,20 +200,38 @@ class ChoiceButton extends StatelessWidget {
     // 字色显式写进 DefaultTextStyle：OutlinedButton 只把前景色算在
     // ButtonStyle 里，`Text.style.color` 拿到的是 null，选中/未选中在
     // 组件树上看不出来（截图能对、契约测试对不上，改动一次就没人敢动了）。
-    final fg = foregroundOf(s, kind, selected);
-    return SizedBox(
-        height: height == null ? null : Design.dz(height!),
-        child: OutlinedButton(
-            onPressed: onPressed,
-            style: s.selectionStyle(selected).copyWith(
+    final fg = onPressed == null ? s.disabled : foregroundOf(s, kind, selected);
+    final button = OutlinedButton(
+        onPressed: onPressed,
+        style: (kind == ChoiceKind.tinted || kind == ChoiceKind.tile
+                ? s.weakSelectionStyle(selected)
+                : s.selectionStyle(selected))
+            .copyWith(
+                side: s.liquidGlass
+                    ? const WidgetStatePropertyAll(BorderSide.none)
+                    : null,
+                backgroundColor: s.liquidGlass
+                    ? WidgetStatePropertyAll(selected
+                        ? s.accent.withValues(alpha: .14)
+                        : Colors.transparent)
+                    : null,
                 padding: WidgetStatePropertyAll(pad),
                 minimumSize: const WidgetStatePropertyAll(Size.zero),
                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 alignment: alignment),
-            child: DefaultTextStyle.merge(
-                style: TextStyle(color: fg, fontWeight: weight),
-                child: IconTheme.merge(
-                    data: IconThemeData(color: fg), child: child))));
+        child: DefaultTextStyle.merge(
+            style: TextStyle(
+                color: fg, fontSize: Design.px(21), fontWeight: weight),
+            child:
+                IconTheme.merge(data: IconThemeData(color: fg), child: child)));
+    return SizedBox(
+        height: height == null ? null : Design.dz(height!),
+        child: s.liquidGlass && (kind != ChoiceKind.nav || selected)
+            ? LiquidMaterial(
+                radius: BorderRadius.circular(s.controlRadius),
+                shadow: false,
+                child: button)
+            : button);
   }
 }
 
@@ -218,22 +246,24 @@ class DesignTextAction extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = SurfaceStyle.of(context);
     final color = onPressed == null ? s.disabled : s.accent;
-    return InkWell(
-        onTap: onPressed,
-        borderRadius: BorderRadius.circular(Design.dz(8)),
-        child: Padding(
-            padding: EdgeInsets.symmetric(
-                horizontal: Design.dz(4), vertical: Design.dz(4)),
-            child: Row(mainAxisSize: MainAxisSize.min, children: [
-              Text(label,
-                  style: TextStyle(
-                      fontSize: Design.dz(15), color: color)),
-              if (chevron) ...[
-                SizedBox(width: Design.dz(4)),
-                Icon(Icons.chevron_right,
-                    size: Design.dz(16), color: color)
-              ]
-            ])));
+    return SizedBox(
+        height: Design.compactControlHeight,
+        child: LiquidPress(
+            enabled: onPressed != null,
+            child: TextButton(
+                onPressed: onPressed,
+                style: TextButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Text(label,
+                      style: TextStyle(fontSize: Design.dz(15), color: color)),
+                  if (chevron) ...[
+                    SizedBox(width: Design.dz(4)),
+                    Icon(Icons.chevron_right, size: Design.dz(16), color: color)
+                  ]
+                ]))));
   }
 }
 
@@ -242,31 +272,32 @@ class DesignSmallAction extends StatelessWidget {
   final String label;
   final IconData? icon;
   final VoidCallback? onPressed;
-  const DesignSmallAction(this.label,
-      {super.key, this.icon, this.onPressed});
+  const DesignSmallAction(this.label, {super.key, this.icon, this.onPressed});
   @override
   Widget build(BuildContext context) {
     final s = SurfaceStyle.of(context);
     final enabled = onPressed != null;
     final color = enabled ? s.accent : s.disabled;
-    return InkWell(
-        onTap: onPressed,
-        borderRadius: BorderRadius.circular(Design.dz(9)),
-        child: Container(
-            height: Design.dz(30),
-            padding: EdgeInsets.symmetric(horizontal: Design.dz(11.67)),
-            decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(Design.dz(9)),
-                color: s.accent.withValues(alpha: enabled ? .07 : .03),
-                border: Border.all(
-                    color: s.accent.withValues(alpha: enabled ? .26 : .12))),
-            child: Row(mainAxisSize: MainAxisSize.min, children: [
-              if (icon != null) ...[
-                Icon(icon, size: Design.dz(14), color: color),
-                SizedBox(width: Design.dz(5))
-              ],
-              Text(label, style: TextStyle(fontSize: Design.dz(12.5), color: color))
-            ])));
+    return SizedBox(
+        height: Design.compactControlHeight,
+        child: LiquidPress(
+            enabled: enabled,
+            child: OutlinedButton(
+                onPressed: onPressed,
+                style: s.weakSelectionStyle(false).copyWith(
+                    foregroundColor: WidgetStatePropertyAll(color),
+                    padding: const WidgetStatePropertyAll(
+                        EdgeInsets.symmetric(horizontal: 12)),
+                    minimumSize: const WidgetStatePropertyAll(Size.zero),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  if (icon != null) ...[
+                    Icon(icon, size: Design.dz(17), color: color),
+                    SizedBox(width: Design.dz(6))
+                  ],
+                  Text(label,
+                      style: TextStyle(fontSize: Design.dz(15), color: color))
+                ]))));
   }
 }
 
@@ -278,8 +309,7 @@ class DesignFieldLabel extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = SurfaceStyle.of(context);
     return Text(text,
-        style: TextStyle(
-            fontSize: Design.dz(15), color: s.text.withValues(alpha: .4)));
+        style: TextStyle(fontSize: Design.dz(15), color: s.muted));
   }
 }
 
@@ -304,45 +334,74 @@ class DesignSwitch extends StatelessWidget {
     // 圆点是「白色部件」，不能拿 s.text 当颜色：暗色皮肤下 s.text 恰好是白，
     // 所以一直看不出问题；浅色下 s.text 是深墨色，圆点就成了深蓝块。浅色改用
     // 固定白 + 一圈轻投影，否则白点压在同为浅灰的轨道上边界全糊。
-    final knob = s.dark
-        ? (value ? s.text : s.text.withValues(alpha: .75))
-        : Colors.white;
-    return Semantics(
+    final knob = value ? s.accentText : (s.dark ? s.text : Colors.white);
+    final trackRadius = s.technicalFrame
+        ? (s.radius * .25).clamp(0.0, Design.dz(8))
+        : Design.dz(Design.switchHeight / 2);
+    final control = Semantics(
         label: semanticLabel,
         toggled: value,
+        enabled: enabled,
+        button: true,
         child: Opacity(
             opacity: enabled ? 1 : .45,
-            child: GestureDetector(
-                onTap: enabled ? () => onChanged!(!value) : null,
-                child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 160),
-                    width: Design.dz(46),
-                    height: Design.dz(26),
-                    decoration: BoxDecoration(
-                        gradient: track,
-                        borderRadius: BorderRadius.circular(Design.dz(13))),
-                    child: AnimatedAlign(
+            child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                    borderRadius: BorderRadius.circular(trackRadius),
+                    onTap: enabled ? () => onChanged!(!value) : null,
+                    child: AnimatedContainer(
                         duration: const Duration(milliseconds: 160),
-                        curve: Curves.easeOut,
-                        alignment:
-                            value ? Alignment.centerRight : Alignment.centerLeft,
-                        child: Padding(
-                            padding: EdgeInsets.all(Design.dz(3)),
-                            child: Container(
-                                width: Design.dz(20),
-                                height: Design.dz(20),
-                                decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: knob,
-                                    boxShadow: s.dark
-                                        ? null
-                                        : [
-                                            BoxShadow(
-                                                color: Colors.black
-                                                    .withValues(alpha: .18),
-                                                blurRadius: Design.dz(3),
-                                                offset: Offset(0, Design.dz(1)))
-                                          ]))))))));
+                        width: Design.dz(Design.switchWidth),
+                        height: Design.dz(Design.switchHeight),
+                        decoration: s.technicalFrame
+                            ? ShapeDecoration(
+                                color: value
+                                    ? s.accent.withValues(alpha: .11)
+                                    : s.soft,
+                                shape: TechnicalFrameBorder(
+                                    radius: trackRadius,
+                                    cornerLength: Design.px(5),
+                                    cornerColor: value ? s.accent : s.corner,
+                                    side: BorderSide(color: s.edge)))
+                            : BoxDecoration(
+                                gradient: track,
+                                borderRadius:
+                                    BorderRadius.circular(trackRadius)),
+                        child: AnimatedAlign(
+                            duration: const Duration(milliseconds: 160),
+                            curve: Curves.easeOut,
+                            alignment: value
+                                ? Alignment.centerRight
+                                : Alignment.centerLeft,
+                            child: Padding(
+                                padding: EdgeInsets.all(Design.dz(3)),
+                                child: Container(
+                                    width: Design.dz(20),
+                                    height: Design.dz(20),
+                                    decoration: BoxDecoration(
+                                        shape: s.technicalFrame
+                                            ? BoxShape.rectangle
+                                            : BoxShape.circle,
+                                        borderRadius: s.technicalFrame
+                                            ? BorderRadius.circular(
+                                                (s.radius * .2)
+                                                    .clamp(0.0, Design.dz(6)))
+                                            : null,
+                                        color: s.technicalFrame
+                                            ? (value ? s.accent : s.muted)
+                                            : knob,
+                                        boxShadow: s.dark
+                                            ? null
+                                            : [
+                                                BoxShadow(
+                                                    color: Colors.black
+                                                        .withValues(alpha: .18),
+                                                    blurRadius: Design.dz(3),
+                                                    offset:
+                                                        Offset(0, Design.dz(1)))
+                                              ])))))))));
+    return LiquidPress(enabled: enabled, child: control);
   }
 }
 
@@ -398,12 +457,9 @@ class SettingRow extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                           fontSize: Design.dz(tile ? 12.5 : 12),
-                          color: s.text.withValues(alpha: .42))))
+                          color: s.muted)))
           ])),
-      if (trailing != null) ...[
-        SizedBox(width: Design.dz(12)),
-        trailing!
-      ]
+      if (trailing != null) ...[SizedBox(width: Design.dz(12)), trailing!]
     ]);
     final row = SizedBox(height: Design.dz(height), child: content);
     if (tile) {
@@ -414,7 +470,7 @@ class SettingRow extends StatelessWidget {
           padding: EdgeInsets.symmetric(horizontal: Design.dz(15)),
           decoration: BoxDecoration(
               color: s.text.withValues(alpha: .02),
-              borderRadius: BorderRadius.circular(Design.dz(14)),
+              borderRadius: BorderRadius.circular(s.controlRadius),
               border: Border.all(color: s.text.withValues(alpha: .07))),
           child: content);
       return Padding(
@@ -425,15 +481,14 @@ class SettingRow extends StatelessWidget {
                   color: Colors.transparent,
                   child: InkWell(
                       onTap: onTap,
-                      borderRadius: BorderRadius.circular(Design.dz(14)),
+                      borderRadius: BorderRadius.circular(s.controlRadius),
                       child: box)));
     }
     final withLine = divider
         ? DecoratedBox(
             decoration: BoxDecoration(
                 border: Border(
-                    bottom: BorderSide(
-                        color: s.text.withValues(alpha: .055)))),
+                    bottom: BorderSide(color: s.text.withValues(alpha: .055)))),
             child: row)
         : row;
     if (onTap == null) return withLine;

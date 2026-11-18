@@ -4,6 +4,7 @@ Future<void> showAppsPanel(BuildContext context, LauncherController c) async {
   if (await c.presentGlobalPanel('apps') || !context.mounted) return;
   final dock = DockWindowScope.of(context);
   final route = Navigator.of(context).push(PageRouteBuilder<void>(
+      opaque: !SurfaceStyle.of(context).liquidGlass,
       pageBuilder: (_, __, ___) =>
           RepaintBoundary(child: _AppsPage(controller: c)),
       transitionDuration: const Duration(milliseconds: 150),
@@ -69,11 +70,22 @@ class _AppsPage extends StatelessWidget {
   final LauncherController controller;
   const _AppsPage({required this.controller});
   @override
-  Widget build(BuildContext context) => Scaffold(
-      backgroundColor: SurfaceStyle.of(context).strong,
-      body: Padding(
-          padding: EdgeInsets.all(Design.px(32)),
-          child: AppPanel(controller: controller, fullPage: true)));
+  Widget build(BuildContext context) {
+    final s = SurfaceStyle.of(context);
+    final content = AppPanel(controller: controller, fullPage: true);
+    return Scaffold(
+        // 玻璃必须能采样后面的场景；旧实色页面底板会抹掉壁纸细节。
+        backgroundColor: s.liquidGlass ? Colors.transparent : s.strong,
+        body: Padding(
+            padding: EdgeInsets.all(Design.px(32)),
+            child: s.liquidGlass
+                ? GlassSurface(
+                    key: const ValueKey('apps-page-material'),
+                    sheet: true,
+                    padding: EdgeInsets.zero,
+                    child: content)
+                : content));
+  }
 }
 
 class AppPanel extends StatefulWidget {
@@ -86,7 +98,7 @@ class AppPanel extends StatefulWidget {
 
 class _AppPanelState extends State<AppPanel> {
   bool enabled = true;
-  bool showSystem = false;
+  bool showSystem = true;
 
   @override
   Widget build(BuildContext context) => NativeSliceBuilder(
@@ -109,9 +121,10 @@ class _AppPanelState extends State<AppPanel> {
 
         final panel = GlassSurface(
             key: const ValueKey('apps-panel'),
+            sheet: s.liquidGlass,
             // 稿子 `.ap-panel`：20.83 圆角、20/30/30 内边距——筛选和网格同住一张卡，
             // 不再有左侧那条独立筛选列。
-            radius: Design.px(25),
+            radius: s.radius,
             padding: EdgeInsets.fromLTRB(
                 Design.px(36), Design.px(24), Design.px(36), Design.px(36)),
             child: Column(
@@ -129,7 +142,7 @@ class _AppPanelState extends State<AppPanel> {
                         style: TextStyle(
                             fontSize: Design.px(15.6),
                             letterSpacing: Design.px(.24),
-                            color: s.text.withValues(alpha: .4))),
+                            color: s.muted)),
                   ]),
                   SizedBox(height: Design.px(24)),
                   Expanded(
@@ -137,8 +150,7 @@ class _AppPanelState extends State<AppPanel> {
                           ? Center(
                               child: Text(enabled ? '暂无已启用应用' : '暂无已禁用应用',
                                   style: TextStyle(
-                                      color: s.muted,
-                                      fontSize: Design.px(24))))
+                                      color: s.muted, fontSize: Design.px(24))))
                           : LayoutBuilder(builder: (context, box) {
                               if (box.maxWidth <= 1) {
                                 return const SizedBox.shrink();
@@ -191,8 +203,7 @@ class _AppPanelState extends State<AppPanel> {
                         color: s.text.withValues(alpha: .05),
                         border:
                             Border.all(color: s.text.withValues(alpha: .09)),
-                        borderRadius:
-                            BorderRadius.circular(Design.px(19.2))),
+                        borderRadius: BorderRadius.circular(Design.px(19.2))),
                     child: Center(
                         child: Icon(Icons.arrow_back_ios_new,
                             size: Design.px(28.8),
@@ -205,21 +216,14 @@ class _AppPanelState extends State<AppPanel> {
                 letterSpacing: Design.px(.36))),
         const Spacer(),
         Text('显示系统应用',
-            style: TextStyle(
-                fontSize: Design.px(20),
-                color: s.text.withValues(alpha: .55))),
+            style: TextStyle(fontSize: Design.px(20), color: s.muted)),
         SizedBox(width: Design.px(16)),
         KeyedSubtree(
             key: const ValueKey('apps-show-system'),
-            child: s.technicalFrame
-                ? DesignToggle(
-                    label: '显示系统应用',
-                    value: showSystem,
-                    onChanged: (value) => setState(() => showSystem = value))
-                : DesignSwitch(
-                    semanticLabel: '显示系统应用',
-                    value: showSystem,
-                    onChanged: (value) => setState(() => showSystem = value))),
+            child: DesignToggle(
+                label: '显示系统应用',
+                value: showSystem,
+                onChanged: (value) => setState(() => showSystem = value))),
       ]));
 }
 
@@ -278,9 +282,7 @@ class _FilterPills extends StatelessWidget {
                   style: TextStyle(
                       fontSize: Design.px(18.6),
                       fontWeight: on ? FontWeight.w600 : FontWeight.w400,
-                      color: on
-                          ? s.accentText
-                          : s.text.withValues(alpha: .62))),
+                      color: on ? s.accentText : s.muted)),
               SizedBox(width: Design.px(10.8)),
               Text('$count',
                   style: TextStyle(
@@ -309,8 +311,7 @@ class _AppTile extends StatelessWidget {
         label = controller.appName(app),
         id = app['id']?.toString(),
         keyId = app['package']?.toString() ?? id ?? 'index-$index',
-        radius = BorderRadius.circular(
-            s.technicalFrame ? s.controlRadius : Design.px(22.8)),
+        radius = BorderRadius.circular(s.controlRadius),
         frameShape = s.technicalFrame
             ? s.controlShape().copyWith(side: s.controlSide(false))
             : RoundedRectangleBorder(
@@ -375,9 +376,7 @@ class _AppTile extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                  fontSize: Design.px(18),
-                  height: 1.2,
-                  color: s.text.withValues(alpha: .62)))),
+                  fontSize: Design.px(18), height: 1.2, color: s.muted))),
     ]));
   }
 }

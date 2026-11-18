@@ -17,20 +17,20 @@ class AccentPreset {
 }
 
 const accentPresets = [
-  AccentPreset('mint', '青屿', Color(0xFF31B9A2), Color(0xFF71E4CE),
-      Color(0xFF087568),
+  AccentPreset(
+      'mint', '青屿', Color(0xFF31B9A2), Color(0xFF71E4CE), Color(0xFF087568),
       dotTop: Color(0xFF6FF0D4), dotBottom: Color(0xFF1F937D)),
-  AccentPreset('blue', '冰川', Color(0xFF4B92DE), Color(0xFF8FC8FF),
-      Color(0xFF245F9E),
+  AccentPreset(
+      'blue', '冰川', Color(0xFF4B92DE), Color(0xFF8FC8FF), Color(0xFF245F9E),
       dotTop: Color(0xFF8CC6F8), dotBottom: Color(0xFF346FB4)),
-  AccentPreset('violet', '鸢尾', Color(0xFF9570D5), Color(0xFFCEB5FF),
-      Color(0xFF7550A4),
+  AccentPreset(
+      'violet', '鸢尾', Color(0xFF9570D5), Color(0xFFCEB5FF), Color(0xFF7550A4),
       dotTop: Color(0xFFB99AEB), dotBottom: Color(0xFF7352B0)),
-  AccentPreset('amber', '琥珀', Color(0xFFD49A47), Color(0xFFF4CF8A),
-      Color(0xFF8B5E1E),
+  AccentPreset(
+      'amber', '琥珀', Color(0xFFD49A47), Color(0xFFF4CF8A), Color(0xFF8B5E1E),
       dotTop: Color(0xFFF2C877), dotBottom: Color(0xFFAE7A2E)),
-  AccentPreset('rose', '玫瑰', Color(0xFFCB748A), Color(0xFFF4B1C4),
-      Color(0xFF98465F),
+  AccentPreset(
+      'rose', '玫瑰', Color(0xFFCB748A), Color(0xFFF4B1C4), Color(0xFF98465F),
       dotTop: Color(0xFFEC9DB2), dotBottom: Color(0xFFA8566E)),
 ];
 
@@ -261,7 +261,7 @@ class Appearance {
     return null;
   }
 
-  bool get usesBackdropBlur => glass && themeStyle != 'blueGlass';
+  bool get usesBackdropBlur => glass;
 
   /// 暗夜是纯深色体系，不跟随明暗与壁纸亮度；否则浅色壁纸会把卡片拉成亮面。
   bool isDark(bool systemDark) =>

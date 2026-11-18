@@ -26,16 +26,19 @@ Future<void> main() async {
   // 而真正的桌面要等 prelude 回来后再重建一次 —— 实测这一段就是首绘之后那
   // 300 ms 的等待。prelude 只读偏好，往返几十毫秒，等得起；真慢就超时退化成
   // 老行为，不能把启动卡死。
-  await controller.initializePrelude().timeout(_preludeBudget, onTimeout: () {});
+  await controller
+      .initializePrelude()
+      .timeout(_preludeBudget, onTimeout: () {});
   runApp(LauncherApp(controller: controller));
   // 遥测、图标、事件流在首帧之后补，一个字节都不挡在第一帧前面。
   unawaited(controller.initializeRest());
   final booted = clock.elapsedMilliseconds;
   WidgetsBinding.instance.addPostFrameCallback((_) {
     final a = controller.appearance;
-    debugPrint('UNI-Startup dart bootstrap=$booted firstFrame=${clock.elapsedMilliseconds} '
+    debugPrint(
+        'UNI-Startup dart bootstrap=$booted firstFrame=${clock.elapsedMilliseconds} '
         'style=${a.themeStyle} glass=${a.glass} mode=${a.mode} radius=${a.radius} '
-        'apps=${controller.appNames.length} blur=${a.glass && a.themeStyle != 'blueGlass'}');
+        'apps=${controller.appNames.length} blur=${a.usesBackdropBlur}');
     // 把「桌面真的画出来了」回填进原生 StartupTrace：只到窗口首绘（启动底色）
     // 是不够的，用户感知的启动时间是到这一帧。失败无所谓，诊断而已。
     AndroidGateway.methods

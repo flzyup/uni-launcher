@@ -6,6 +6,8 @@ import '../theme/skin_material.dart';
 import '../theme/design_tokens.dart';
 import '../theme/technical_frame.dart';
 import 'choice_button.dart';
+import 'liquid_press.dart';
+import 'liquid_material.dart';
 import 'uni_icon.dart';
 
 /// 把浮层面板的底色抬到至少 98% 不透明。
@@ -79,6 +81,7 @@ class GlassSurface extends StatelessWidget {
         child: Padding(padding: padding, child: child));
 
     if (s.nocturne) return _nocturne(s, shape, body);
+    if (s.liquidGlass) return _liquid(s, shape, body);
     final color = dock && s.technicalFrame
         ? s.dock
         : (sheet
@@ -185,6 +188,15 @@ class GlassSurface extends StatelessWidget {
                 : null),
         child: clipped);
   }
+
+  Widget _liquid(SurfaceStyle s, BorderRadius shape, Widget body) =>
+      LiquidMaterial(
+          radius: shape,
+          // 菜单、底栏与各类面板共用 Regular 玻璃；内容卡保留较薄材质。
+          sheet: sheet || !card,
+          content: card,
+          shadow: shadow,
+          child: body);
 
   /// Nocturne surface: a hairline white-alpha gradient over the near-black
   /// canvas, an optional bottom glow, and no blur at all (the design is built
@@ -457,46 +469,47 @@ class IconAction extends StatelessWidget {
     final effectiveColor = enabled ? (foregroundColor ?? fg) : fg;
     return Tooltip(
         message: label,
-        child: Semantics(
-            button: true,
-            label: label,
+        child: LiquidPress(
             enabled: enabled,
-            child: SizedBox(
-                width: size,
-                height: size,
-                child: Material(
-                    shape: s.technicalFrame && framed && (active || solid || soft)
-                        ? s.controlShape(selected: active && enabled)
-                        : null,
-                    color: s.technicalFrame && framed && active && enabled
-                        ? s.accent.withValues(alpha: .11)
-                        : solid && s.technicalFrame
-                            ? s.soft
-                            : solid
-                                ? (enabled ? s.accent : s.soft)
-                                : (soft ? s.soft : Colors.transparent),
-                    borderRadius:
-                        s.technicalFrame && framed && (active || solid || soft)
-                            ? null
-                            : BorderRadius.circular(s.controlRadius),
-                    child: InkWell(
-                        borderRadius: BorderRadius.circular(s.controlRadius),
-                        onTap: onTap,
-                        onLongPress: onLongPress,
-                        highlightColor: s.accent.withValues(alpha: .24),
-                        hoverColor: s.accent.withValues(alpha: .08),
-                        focusColor: s.accent.withValues(alpha: .16),
-                        splashColor: s.accent.withValues(alpha: .16),
-                        overlayColor: WidgetStateProperty.resolveWith<Color>(
-                            (states) => s.accent.withValues(
-                                alpha: states.contains(WidgetState.pressed)
-                                    ? .24
-                                    : .08)),
-                        child: Center(
-                            child: child ??
-                                DesignIcon(icon,
-                                    size: iconSize,
-                                    color: effectiveColor)))))));
+            child: Semantics(
+                button: true,
+                label: label,
+                enabled: enabled,
+                child: SizedBox(
+                    width: size,
+                    height: size,
+                    child: Material(
+                        shape: s.technicalFrame && framed && (active || solid || soft)
+                            ? s.controlShape(selected: active && enabled)
+                            : null,
+                        color: s.technicalFrame && framed && active && enabled
+                            ? s.accent.withValues(alpha: .11)
+                            : solid && s.technicalFrame
+                                ? s.soft
+                                : solid
+                                    ? (enabled ? s.accent : s.soft)
+                                    : (soft ? s.soft : Colors.transparent),
+                        borderRadius:
+                            s.technicalFrame && framed && (active || solid || soft)
+                                ? null
+                                : BorderRadius.circular(s.controlRadius),
+                        child: InkWell(
+                            borderRadius:
+                                BorderRadius.circular(s.controlRadius),
+                            onTap: onTap,
+                            onLongPress: onLongPress,
+                            highlightColor: s.accent.withValues(alpha: .24),
+                            hoverColor: s.accent.withValues(alpha: .08),
+                            focusColor: s.accent.withValues(alpha: .16),
+                            splashColor: s.accent.withValues(alpha: .16),
+                            overlayColor: WidgetStateProperty.resolveWith<Color>(
+                                (states) => s.accent.withValues(
+                                    alpha: states.contains(WidgetState.pressed)
+                                        ? .24
+                                        : .08)),
+                            child: Center(
+                                child: child ??
+                                    DesignIcon(icon, size: iconSize, color: effectiveColor))))))));
   }
 }
 
@@ -533,49 +546,12 @@ class DesignToggle extends StatelessWidget {
       {super.key, required this.label, required this.value, this.onChanged});
   @override
   Widget build(BuildContext context) {
-    final s = SurfaceStyle.of(context);
-    return Semantics(
-        label: label,
-        toggled: value,
-        enabled: onChanged != null,
-        child: InkWell(
-            onTap: onChanged == null ? null : () => onChanged!(!value),
-            borderRadius: BorderRadius.circular(s.controlRadius),
-            child: AnimatedContainer(
-                duration: const Duration(milliseconds: 160),
-                width: Design.px(88),
-                height: Design.px(48),
-                padding: EdgeInsets.all(Design.px(6)),
-                decoration: s.technicalFrame
-                    ? ShapeDecoration(
-                        color: value ? s.accent.withValues(alpha: .11) : s.soft,
-                        shape: TechnicalFrameBorder(
-                            radius: (s.radius * .25).clamp(0, Design.px(8)),
-                            cornerLength: Design.px(5),
-                            cornerColor: value ? s.accent : s.corner,
-                            side: BorderSide(color: s.edge)))
-                    : BoxDecoration(
-                        color: value ? s.accent : s.soft,
-                        border: Border.all(
-                            color: value ? Colors.transparent : s.edge),
-                        borderRadius: BorderRadius.circular(s.controlRadius)),
-                child: Align(
-                    alignment:
-                        value ? Alignment.centerRight : Alignment.centerLeft,
-                    child: Container(
-                        width: Design.px(34),
-                        height: Design.px(34),
-                        decoration: BoxDecoration(
-                            color: value
-                                ? (s.technicalFrame ? s.accent : s.accentText)
-                                : s.muted,
-                            borderRadius: BorderRadius.circular(s.technicalFrame
-                                ? (s.radius * .2).clamp(0, Design.px(6))
-                                : s.radius * .42)))))));
+    return DesignSwitch(
+        semanticLabel: label, value: value, onChanged: onChanged);
   }
 }
 
-/// One switch layout across settings; classic retains the platform switch.
+/// One switch layout across settings and themes.
 class DesignSwitchTile extends StatelessWidget {
   final Widget title;
   final Widget? subtitle;
@@ -591,39 +567,20 @@ class DesignSwitchTile extends StatelessWidget {
       this.onChanged});
   @override
   Widget build(BuildContext context) {
-    final s = SurfaceStyle.of(context);
     // ListTile 把背景/水波纹画在最近的 Material 上；调用方常把它包在带底色的
     // DecoratedBox 里，debug 下会刷满 "ListTile background color or ink
     // splashes may be invisible"。自带一层透明 Material 即可，视觉零变化。
     Widget tiled(Widget child) =>
         Material(type: MaterialType.transparency, child: child);
-    // 经典主题还是 Material 的 SwitchListTile；暗夜用设计稿的 46×26 开关，
-    // 否则同一页里「外观与壁纸」的两个开关是自绘的青绿胶囊，
-    // 而这几十个 DesignSwitchTile 是 Flutter 原生的灰胶囊，一眼就不成套。
-    if (!s.technicalFrame && !s.nocturne) {
-      return tiled(SwitchListTile(
-          title: title,
-          subtitle: subtitle,
-          contentPadding: contentPadding,
-          value: value,
-          onChanged: onChanged));
-    }
     return tiled(ListTile(
         title: title,
         subtitle: subtitle,
         contentPadding: contentPadding,
         enabled: onChanged != null,
         onTap: onChanged == null ? null : () => onChanged!(!value),
-        trailing: Opacity(
-            opacity: onChanged == null ? .45 : 1,
-            child: s.technicalFrame
-                ? DesignToggle(
-                    label: title is Text ? (title as Text).data ?? '' : '',
-                    value: value,
-                    onChanged: onChanged)
-                : DesignSwitch(
-                    semanticLabel: title is Text ? (title as Text).data : null,
-                    value: value,
-                    onChanged: onChanged))));
+        trailing: DesignSwitch(
+            semanticLabel: title is Text ? (title as Text).data : null,
+            value: value,
+            onChanged: onChanged)));
   }
 }

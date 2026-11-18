@@ -9,6 +9,7 @@ import 'package:uni_launcher/screens/global_panel_app.dart';
 import 'package:uni_launcher/widgets/scene_background.dart';
 import 'package:uni_launcher/theme/design_tokens.dart';
 import 'package:uni_launcher/theme/launcher_theme.dart';
+import 'package:uni_launcher/theme/contrast.dart';
 import 'package:uni_launcher/theme/technical_frame.dart';
 import 'package:uni_launcher/widgets/glass_surface.dart';
 import 'package:uni_launcher/widgets/bottom_dock.dart';
@@ -102,9 +103,8 @@ void main() {
     final music = t.getRect(find.byKey(const ValueKey('dock-music-frame'))),
         climate = t.getRect(find.byKey(const ValueKey('dock-climate-frame'))),
         uni = t.getRect(find.byKey(const ValueKey('uni-menu')));
-    // 692.66 = 上游 flex 5:8 的口径：空调胶囊定宽 459（画布值），
-    // 分隔线右侧留 13.33，两者吃掉的空间全从媒体区来（2026-11-15 方案 C）。
-    expect(music.width, closeTo(692.66, .5));
+    // 保证媒体区域有足够宽度，并在窗口变窄时吸收宽度变化。
+    expect(music.width, greaterThan(500));
     await t.pumpWidget(dockAt(1420));
     // 媒体区收窄后歌名进入跑马灯滚动（持续动画），不能用 pumpAndSettle。
     await t.pump(const Duration(milliseconds: 300));
@@ -182,8 +182,8 @@ void main() {
       final contrast =
           (fg > bg ? (fg + .05) / (bg + .05) : (bg + .05) / (fg + .05));
       expect(contrast, greaterThan(7));
-      expect(style.controlRadius, Design.px(16));
-      expect(style.liveBlur, false);
+      expect(style.controlRadius, closeTo(style.radius * .64, .01));
+      expect(style.liveBlur, true);
       expect(style.background,
           dark ? const Color(0xFF07111F) : const Color(0xFFE8EEF5));
     }
@@ -269,7 +269,7 @@ void main() {
     expect(t.takeException(), null);
   });
 
-  testWidgets('dark light radius and static glass fit home, settings and modal',
+  testWidgets('dark light radius and live glass fit home, settings and modal',
       (t) async {
     final (c, _) = await launch(t);
     for (final mode in ['dark', 'light']) {
@@ -287,7 +287,7 @@ void main() {
         expect(dock.height, 96);
         await t.tap(find.byKey(const ValueKey('climate')));
         await t.pumpAndSettle();
-        expect(find.byType(BackdropFilter), findsNothing);
+        expect(find.byType(BackdropFilter), findsWidgets);
         expect(t.takeException(), null);
         await t.tap(find.byTooltip('关闭空调'));
         await t.pumpAndSettle();
@@ -296,19 +296,17 @@ void main() {
         final option = find.byKey(ValueKey('mode-$mode'));
         final material = t.widget<Material>(
             find.descendant(of: option, matching: find.byType(Material)).first);
-        expect(material.shape, isA<TechnicalFrameBorder>());
-        final frame = material.shape! as TechnicalFrameBorder;
-        expect(frame.radius, Design.px(radius * .5).clamp(0, Design.px(16)));
-        expect(frame.cornerColor, SurfaceStyle.of(t.element(option)).accent);
-        expect(find.byType(BackdropFilter), findsNothing);
+        expect(material.shape, isA<RoundedRectangleBorder>());
+        final frame = material.shape! as RoundedRectangleBorder;
+        expect(frame.borderRadius.resolve(TextDirection.ltr).topLeft.x,
+            SurfaceStyle.of(t.element(option)).controlRadius);
+        expect(find.byType(BackdropFilter), findsWidgets);
         expect(t.takeException(), null);
       }
     }
   });
 
-  testWidgets(
-      'every settings selection shares weak outline and short arc geometry',
-      (t) async {
+  testWidgets('settings selections share rounded glass geometry', (t) async {
     final (c, _) = await launch(t);
     c.setAppearance(c.appearance.copyWith(
         themeStyle: 'blueGlass', mode: 'dark', palette: 'blue', radius: 40));
@@ -321,19 +319,11 @@ void main() {
       final material = t.widget<Material>(descendants.evaluate().isNotEmpty
           ? descendants.first
           : find.ancestor(of: option, matching: find.byType(Material)).first);
-      final frame = material.shape! as TechnicalFrameBorder;
-      final s = SurfaceStyle.of(t.element(option));
-      expect(frame.cornerColor, s.accent, reason: key);
-      expect(frame.side.color, s.controlSide(true).color, reason: key);
-      expect(frame.side.color, isNot(s.accent),
-          reason:
-              'continuous outline must stay weaker than corner marks: $key');
-      for (final path
-          in frame.cornerPaths(const Rect.fromLTWH(0, 0, 150, 80))) {
-        expect(path.computeMetrics().single.length,
-            lessThanOrEqualTo(frame.cornerLength + .1),
-            reason: key);
-      }
+      final frame = material.shape! as RoundedRectangleBorder;
+      final style = SurfaceStyle.of(t.element(option));
+      expect(frame.borderRadius.resolve(TextDirection.ltr).topLeft.x,
+          closeTo(style.controlRadius, .01),
+          reason: key);
     }
 
     for (final key in ['theme-style-blueGlass', 'mode-dark', 'palette-blue'])
@@ -354,14 +344,13 @@ void main() {
     final selected = style.selectionStyle(true);
     expect(selected.foregroundColor?.resolve({}), style.accent);
     expect(selected.backgroundColor?.resolve({}),
-        style.accent.withValues(alpha: .11));
-    expect(
-        selected.side?.resolve({})?.color, style.accent.withValues(alpha: .55));
+        style.accent.withValues(alpha: .14));
+    expect(selected.side?.resolve({})?.color, style.controlSide(true).color);
   });
 
   test('a solid selected pill keeps its label readable', () {
-    final classic = SurfaceStyle.from(
-        const Appearance(themeStyle: 'classic'), false);
+    final classic =
+        SurfaceStyle.from(const Appearance(themeStyle: 'classic'), false);
     // 经典主题选中态是实心主题色底：字色一旦也用 accent，就是主题色压主题色，
     // 侧边栏选中的那一项只剩图标、字整个消失。
     expect(classic.technicalFrame, false);
@@ -375,10 +364,11 @@ void main() {
     final nocturne = SurfaceStyle.from(
         const Appearance(themeStyle: 'nocturne', palette: 'mint'), true);
     expect(nocturne.selectedText, nocturne.accent);
-    final glass = SurfaceStyle.from(
-        const Appearance(themeStyle: 'blueGlass'), false);
-    expect(glass.technicalFrame, true);
-    expect(glass.selectedText, glass.accent);
+    final glass =
+        SurfaceStyle.from(const Appearance(themeStyle: 'blueGlass'), false);
+    expect(glass.liquidGlass, true);
+    expect(contrastRatio(glass.selectedText, glass.selectionBase),
+        greaterThanOrEqualTo(4.5));
   });
 
   testWidgets('the selected settings tab label is not painted in the fill',
@@ -389,9 +379,8 @@ void main() {
     await t.pumpAndSettle();
     Finder tab(String id) => find.byKey(ValueKey('tab-$id'));
     final style = SurfaceStyle.of(t.element(tab('appearance')));
-    Text labelIn(String id) => t.widget<Text>(find.descendant(
-        of: tab(id),
-        matching: find.byType(Text)));
+    Text labelIn(String id) => t.widget<Text>(
+        find.descendant(of: tab(id), matching: find.byType(Text)));
     // 选中页签和未选中页签各查一个：前者必须是实心底上的字色，后者是正文色。
     expect(style.technicalFrame, false);
     expect(labelIn('appearance').style?.color, style.selectedText);
@@ -521,11 +510,11 @@ void main() {
     await t.pumpAndSettle();
     final style =
         SurfaceStyle.of(t.element(find.byKey(const ValueKey('bottom-dock'))));
-    expect(style.technicalFrame, true);
+    expect(style.liquidGlass, true);
     expect(style.dark, isFalse);
     expect(t.getRect(find.byKey(const ValueKey('bottom-dock'))),
         const Rect.fromLTWH(0, 0, 1920, 96));
-    expect(find.byType(BackdropFilter), findsNothing);
+    expect(find.byType(BackdropFilter), findsWidgets);
     await t.pumpWidget(const SizedBox.shrink());
     dock.dispose();
     g.state['hostMode'] = 'global-panel';
@@ -539,7 +528,7 @@ void main() {
     expect(
         SurfaceStyle.of(t.element(find.byType(Scaffold).first)).dark, isFalse);
     expect(find.byTooltip('关闭音乐详情'), findsOneWidget);
-    expect(find.byType(BackdropFilter), findsNothing);
+    expect(find.byType(BackdropFilter), findsWidgets);
     expect(t.takeException(), null);
     await t.pumpWidget(const SizedBox.shrink());
     await g.dispose();

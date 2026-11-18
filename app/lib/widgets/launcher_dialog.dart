@@ -16,16 +16,21 @@ Future<T?> showLauncherSheet<T>(
   String closeLabel = '关闭面板',
   required double width,
   double? height,
+
   /// 暗夜主题下弹层的底部光晕取自哪张卡片（沿用一卡一色）。null 用强调色。
   String? glowType,
+
   /// 选择器类弹层用设计稿自己那套紧凑规格（标题 19 / 关闭 36 / 内边距
   /// 26·28·22 / 头部间距 12）。其余弹层不传，保持原来的 40·34 那一套。
   bool compact = false,
+
   /// 弹层自带头部时传 false：不再画标题行与关闭键，正文拿到整块面板。
   /// 设计稿里 f20 桌面命名、f29 车辆信息都是自绘头部（居中标题 / vh-head）。
   bool showHeader = true,
+
   /// 覆盖面板内边距；null 时按 [compact] 取默认值。
   EdgeInsets? padding,
+
   /// 头部右侧、关闭键左边的附加动作（音乐弹层的「选择音乐应用」走这里）。
   Widget? actions,
   required WidgetBuilder builder,
@@ -60,18 +65,18 @@ Future<T?> showLauncherSheet<T>(
                 // 模拟器/小窗下按同比例缩，不会被裁。
                 child: CanvasScope(
                     child: LauncherSheet(
-                    title: title,
-                    titleWidget: titleWidget,
-                    subtitle: subtitle,
-                    closeLabel: closeLabel,
-                    width: width,
-                    height: height,
-                    glowType: glowType,
-                    compact: compact,
-                    showHeader: showHeader,
-                    padding: padding,
-                    actions: actions,
-                    child: Builder(builder: builder))))));
+                        title: title,
+                        titleWidget: titleWidget,
+                        subtitle: subtitle,
+                        closeLabel: closeLabel,
+                        width: width,
+                        height: height,
+                        glowType: glowType,
+                        compact: compact,
+                        showHeader: showHeader,
+                        padding: padding,
+                        actions: actions,
+                        child: Builder(builder: builder))))));
     if (dock?.onPresented != null) {
       await WidgetsBinding.instance.endOfFrame;
       if (context.mounted) await dock!.onPresented!();
@@ -155,7 +160,7 @@ class LauncherSheet extends StatelessWidget {
                       color: s.dark
                           ? const Color(0x8007151D)
                           : const Color(0x3361716B)))),
-          if (s.liveBlur)
+          if (s.liveBlur && !s.liquidGlass)
             Positioned.fill(
                 child: IgnorePointer(
                     child: BackdropFilter(
@@ -171,91 +176,103 @@ class LauncherSheet extends StatelessWidget {
                     final panel = ConstrainedBox(
                         constraints: BoxConstraints(
                             maxWidth: width,
-                            maxHeight: math.max(120,
-                                canvasHeight - Design.px(64))),
+                            maxHeight:
+                                math.max(120, canvasHeight - Design.px(64))),
                         child: SizedBox(
                             width: width,
                             height: height,
                             child: GlassSurface(
-                                                tone: SurfaceTone.strong,
-                                                sheet: true,
-                                                // 弹层沿用来源卡片的一卡一色光晕，
-                                                // 暗夜下才有；其他主题返回 null。
-                                                // 稿子里 `.dlg.pick` 是实色无光晕，
-                                                // 选择器弹层不传 glowType 即关闭。
-                                                glow: glowType == null
-                                                    ? null
-                                                    : s.cardGlow(glowType!),
-                                                padding: padding ??
-                                                    (compact
-                                                        ? EdgeInsets.only(
-                                                            left: Design.dz(28),
-                                                            right: Design.dz(28),
-                                                            top: Design.dz(26),
-                                                            bottom: Design.dz(22))
-                                                        : EdgeInsets.symmetric(
-                                                            horizontal: Design.px(40),
-                                                            vertical: Design.px(34))),
-                                                child: !showHeader
-                                                    ? child
-                                                    : Column(
-                                                    mainAxisSize:
-                                                        MainAxisSize.min,
-                                                    crossAxisAlignment:
-                                                        CrossAxisAlignment
-                                                            .stretch,
-                                                    children: [
-                                                      Row(children: [
-                                                        Expanded(
-                                                            child:
-                                                                titleWidget ??
-                                                                    Column(
-                                                                        crossAxisAlignment:
-                                                                            CrossAxisAlignment.start,
-                                                                        children: [
-                                                                          Text(
-                                                                              title,
-                                                                              style: TextStyle(
-                                                                                  fontSize: compact ? Design.dz(19) : Design.px(34),
-                                                                                  fontWeight: FontWeight.w500,
-                                                                                  letterSpacing: compact ? Design.dz(19) * .04 : null)),
-                                                                          if (subtitle !=
-                                                                              null) ...[
-                                                                            SizedBox(height: Design.px(12)),
-                                                                            Text(subtitle!,
-                                                                                style: TextStyle(fontSize: Design.px(20), color: s.muted))
-                                                                          ],
-                                                                        ])),
-                                                        if (actions != null) ...[
-                                                          actions!,
-                                                          SizedBox(
-                                                              width: Design.px(
-                                                                  compact ? 12 : 16))
-                                                        ],
-                                                        if (compact)
-                                                          _CompactClose(
-                                                              label: closeLabel,
-                                                              onTap: () =>
-                                                                  Navigator.pop(
-                                                                      context))
-                                                        else
-                                                          IconAction(
-                                                              icon: Icons.close,
-                                                              label: closeLabel,
-                                                              size: Design.px(54),
-                                                              iconSize:
-                                                                  Design.px(25),
-                                                              soft: true,
-                                                              onTap: () =>
-                                                                  Navigator.pop(
-                                                                      context))
-                                                      ]),
-                                                      SizedBox(
-                                                          height: compact
-                                                              ? Design.dz(12)
-                                                              : Design.px(28)),
-                                                      Flexible(child: child),
-                                                    ]))));
+                                tone: SurfaceTone.strong,
+                                sheet: true,
+                                // 弹层沿用来源卡片的一卡一色光晕，
+                                // 暗夜下才有；其他主题返回 null。
+                                // 稿子里 `.dlg.pick` 是实色无光晕，
+                                // 选择器弹层不传 glowType 即关闭。
+                                glow: glowType == null
+                                    ? null
+                                    : s.cardGlow(glowType!),
+                                padding: padding ??
+                                    (compact
+                                        ? EdgeInsets.only(
+                                            left: Design.dz(28),
+                                            right: Design.dz(28),
+                                            top: Design.dz(26),
+                                            bottom: Design.dz(22))
+                                        : EdgeInsets.symmetric(
+                                            horizontal: Design.px(40),
+                                            vertical: Design.px(34))),
+                                child: !showHeader
+                                    ? child
+                                    : Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.stretch,
+                                        children: [
+                                            Row(children: [
+                                              Expanded(
+                                                  child: titleWidget ??
+                                                      Column(
+                                                          crossAxisAlignment:
+                                                              CrossAxisAlignment
+                                                                  .start,
+                                                          children: [
+                                                            Text(title,
+                                                                style: TextStyle(
+                                                                    fontSize: compact
+                                                                        ? Design
+                                                                            .dz(
+                                                                                19)
+                                                                        : Design.px(
+                                                                            34),
+                                                                    fontWeight:
+                                                                        FontWeight
+                                                                            .w500,
+                                                                    letterSpacing: compact
+                                                                        ? Design.dz(19) *
+                                                                            .04
+                                                                        : null)),
+                                                            if (subtitle !=
+                                                                null) ...[
+                                                              SizedBox(
+                                                                  height:
+                                                                      Design.px(
+                                                                          12)),
+                                                              Text(subtitle!,
+                                                                  style: TextStyle(
+                                                                      fontSize:
+                                                                          Design.px(
+                                                                              20),
+                                                                      color: s
+                                                                          .muted))
+                                                            ],
+                                                          ])),
+                                              if (actions != null) ...[
+                                                actions!,
+                                                SizedBox(
+                                                    width: Design.px(
+                                                        compact ? 12 : 16))
+                                              ],
+                                              if (compact)
+                                                _CompactClose(
+                                                    label: closeLabel,
+                                                    onTap: () =>
+                                                        Navigator.pop(context))
+                                              else
+                                                IconAction(
+                                                    icon: Icons.close,
+                                                    label: closeLabel,
+                                                    size: Design.px(54),
+                                                    iconSize: Design.px(25),
+                                                    soft: true,
+                                                    onTap: () =>
+                                                        Navigator.pop(context))
+                                            ]),
+                                            SizedBox(
+                                                height: compact
+                                                    ? Design.dz(12)
+                                                    : Design.px(28)),
+                                            Flexible(child: child),
+                                          ]))));
 
                     return SizedBox.expand(
                         child: FittedBox(
@@ -290,8 +307,7 @@ class _CompactClose extends StatelessWidget {
                 decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: ink.withValues(alpha: .06),
-                    border:
-                        Border.all(color: ink.withValues(alpha: .09))),
+                    border: Border.all(color: ink.withValues(alpha: .09))),
                 child: Center(
                     child: Icon(Icons.close,
                         size: Design.dz(15),

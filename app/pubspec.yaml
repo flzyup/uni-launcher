@@ -32,3 +32,4 @@ flutter:
     - assets/wallpapers/
   shaders:
     - assets/shaders/fluid_progress.frag
+    - assets/shaders/liquid_glass.frag

@@ -3,6 +3,11 @@
 abstract final class Design {
   static const canvasWidth = 1600.0;
   static const artworkWidth = 1920.0;
+  /// Common control sizes on the 1600-unit design canvas.
+  static const controlHeight = 44.0;
+  static const compactControlHeight = 40.0;
+  static const switchWidth = 46.0;
+  static const switchHeight = 26.0;
   static double px(num value) => value * canvasWidth / artworkWidth;
 
   /// The Nocturne design board (`design/desktop-lynk05.html`) is authored on a

@@ -8,12 +8,14 @@ class SceneBackground extends StatelessWidget {
   final Appearance? appearance;
   final int wallpaperCacheWidth;
   final bool forceOverlay;
+  final bool protectText;
   const SceneBackground(
       {super.key,
       required this.child,
       this.appearance,
       this.wallpaperCacheWidth = 1920,
-      this.forceOverlay = false});
+      this.forceOverlay = false,
+      this.protectText = false});
   @override
   Widget build(BuildContext context) {
     final s = SurfaceStyle.of(context);
@@ -22,10 +24,11 @@ class SceneBackground extends StatelessWidget {
     // Keep the content at one stable parent/slot. Wrapping it in a new
     // decoration for settings (or switching wallpaper/theme) would dispose
     // the live map and release its display, bringing AMap onto the main screen.
-    final showOverlay =
-        !hasWallpaper || wallpaper.wallpaperOverlay || forceOverlay;
+    final showOverlay = !hasWallpaper ||
+        wallpaper.wallpaperOverlay ||
+        (forceOverlay && !s.liquidGlass);
     return Stack(fit: StackFit.expand, children: [
-      if (s.technicalFrame || s.nocturne)
+      if (s.technicalFrame || s.liquidGlass || s.nocturne)
         ColoredBox(color: s.background)
       else
         const SizedBox.expand(),
@@ -35,14 +38,43 @@ class SceneBackground extends StatelessWidget {
         const SizedBox.expand(),
       if (s.nocturne)
         _nocturneBackdrop(s, hasWallpaper, showOverlay)
-      else if (s.technicalFrame && !hasWallpaper)
+      else if ((s.technicalFrame || s.liquidGlass) && !hasWallpaper)
         _technicalGradient(s)
-      else if (s.technicalFrame && showOverlay)
+      else if ((s.technicalFrame || s.liquidGlass) && showOverlay)
         _technicalWallpaperOverlay(s)
-      else if (s.technicalFrame)
+      else if (s.technicalFrame || s.liquidGlass)
         const SizedBox.expand()
       else if (showOverlay)
         _classicBackdrop(s, hasWallpaper)
+      else
+        const SizedBox.expand(),
+      // Text outside cards (clock/status and settings heading) must remain
+      // readable when a fixed light/dark mode is paired with the opposite photo.
+      if (hasWallpaper && !s.liquidGlass && (protectText || forceOverlay))
+        Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            height: MediaQuery.sizeOf(context).width /
+                1920 *
+                (forceOverlay ? 220 : 96),
+            child: IgnorePointer(
+                child: DecoratedBox(
+                    key: const ValueKey('scene-text-contrast-scrim'),
+                    decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            stops: const [
+                          0,
+                          .75,
+                          1
+                        ],
+                            colors: [
+                          s.background.withValues(alpha: .96),
+                          s.background.withValues(alpha: .94),
+                          s.background.withValues(alpha: 0)
+                        ])))))
       else
         const SizedBox.expand(),
       KeyedSubtree(key: const ValueKey('scene-content'), child: child),
@@ -224,5 +256,35 @@ class WallpaperImage extends StatelessWidget {
           errorBuilder: (_, __, ___) => const SizedBox.expand());
     }
     return const SizedBox.expand();
+  }
+}
+
+/// Bare header text adapts to the wallpaper, independently of card light/dark
+/// mode. A small glyph halo handles photo detail without painting a full-width
+/// white/dark band over the wallpaper.
+class WallpaperInk extends StatelessWidget {
+  final Appearance appearance;
+  final Widget child;
+  const WallpaperInk(
+      {super.key, required this.appearance, required this.child});
+  @override
+  Widget build(BuildContext context) {
+    final s = SurfaceStyle.of(context);
+    if (!s.liquidGlass || appearance.wallpaper == 'gradient') return child;
+    final dark = appearance.backgroundIsDark(s.dark);
+    final ink = SurfaceStyle.from(
+        appearance.copyWith(mode: dark ? 'dark' : 'light'), dark,
+        lowPower: s.lowPower);
+    return Theme(
+        data: launcherTheme(ink),
+        child: DefaultTextStyle.merge(
+            style: TextStyle(color: ink.text, shadows: [
+              Shadow(
+                  color: (dark ? Colors.black : Colors.white)
+                      .withValues(alpha: .65),
+                  blurRadius: 3)
+            ]),
+            child: IconTheme.merge(
+                data: IconThemeData(color: ink.text), child: child)));
   }
 }

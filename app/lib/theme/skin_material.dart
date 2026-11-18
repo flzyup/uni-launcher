@@ -79,18 +79,18 @@ class SkinMaterial {
   );
 
   static const _glassDark = SkinMaterial(
-    cardShade: .18,
+    cardShade: 0,
     pageDot: Color(0x5583B6FF),
     pageDotActive: Color(0xE0F2F6FC),
-    capsule: Color(0x1A31475E),
-    capsuleEdge: Color(0xFF31475E),
+    capsule: Color(0x633C546A),
+    capsuleEdge: Color(0x55E4F2FF),
   );
 
   static const _glassLight = SkinMaterial(
-    cardShade: .06,
+    cardShade: 0,
     pageDot: Color(0x55245BC1),
     pageDotActive: Color(0xE0172B42),
     capsule: Color(0xCCFFFFFF),
-    capsuleEdge: Color(0xFFCAD6E4),
+    capsuleEdge: Color(0xCCFFFFFF),
   );
 }

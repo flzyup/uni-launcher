@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../theme/launcher_theme.dart';
+import '../theme/design_tokens.dart';
+import 'liquid_press.dart';
+import 'liquid_material.dart';
 
 /// 设计稿里 `.vh-g` / 温度卡 / 座椅卡共用的「平面描边块」：
 /// 3.5% 墨色底 + 7% 描边 + 16 圆角，不带玻璃高光、不带投影。
@@ -10,21 +13,28 @@ import '../theme/launcher_theme.dart';
 class SpecPanel extends StatelessWidget {
   final Widget child;
   final EdgeInsetsGeometry padding;
-  final double radius;
+  final double? radius;
   const SpecPanel(
       {super.key,
       required this.child,
       this.padding = EdgeInsets.zero,
-      this.radius = 16});
+      this.radius});
   @override
   Widget build(BuildContext context) {
-    final ink = SurfaceStyle.of(context).text;
+    final s = SurfaceStyle.of(context), ink = s.text;
+    if (s.liquidGlass) {
+      return LiquidMaterial(
+          sheet: true,
+          shadow: false,
+          radius: BorderRadius.circular(radius ?? s.controlRadius),
+          child: Padding(padding: padding, child: child));
+    }
     return Container(
         padding: padding,
         decoration: BoxDecoration(
             color: ink.withValues(alpha: .035),
             border: Border.all(color: ink.withValues(alpha: .07)),
-            borderRadius: BorderRadius.circular(radius)),
+            borderRadius: BorderRadius.circular(radius ?? s.controlRadius)),
         child: child);
   }
 }
@@ -40,7 +50,7 @@ class SpecStepButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = SurfaceStyle.of(context), ink = s.text;
     final enabled = onTap != null;
-    return Semantics(
+    final button = Semantics(
         button: true,
         enabled: enabled,
         label: label,
@@ -48,14 +58,14 @@ class SpecStepButton extends StatelessWidget {
             behavior: HitTestBehavior.opaque,
             onTap: onTap,
             child: Container(
-                width: 42,
-                height: 42,
+                width: Design.compactControlHeight,
+                height: Design.compactControlHeight,
                 decoration: BoxDecoration(
                     color: ink.withValues(alpha: .05),
                     border: Border.all(color: ink.withValues(alpha: .10)),
-                    borderRadius: BorderRadius.circular(12)),
+                    borderRadius: BorderRadius.circular(s.controlRadius)),
                 child: Icon(icon,
-                    size: 19,
-                    color: ink.withValues(alpha: enabled ? .75 : .24)))));
+                    size: 19, color: enabled ? s.text : s.disabled))));
+    return LiquidPress(enabled: enabled, child: button);
   }
 }
