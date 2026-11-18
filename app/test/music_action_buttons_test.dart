@@ -3,6 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:uni_launcher/controller/launcher_controller.dart';
 import 'package:uni_launcher/launcher_app.dart';
 import 'package:uni_launcher/model/card_layout.dart';
+import 'package:uni_launcher/theme/design_tokens.dart';
+import 'package:uni_launcher/widgets/music_action_buttons.dart';
 
 import 'fake_gateway.dart';
 
@@ -14,7 +16,8 @@ import 'fake_gateway.dart';
 /// 3. 播放模式显示的是**当前模式**，点一下切到下一个（顺序 → 单曲 → 随机）。
 void main() {
   Future<LauncherController> pumpMusicCard(
-      WidgetTester tester, Map<String, dynamic> media) async {
+      WidgetTester tester, Map<String, dynamic> media,
+      {int w = 4, int h = 4}) async {
     tester.view.physicalSize = const Size(1920, 1080);
     tester.view.devicePixelRatio = 1;
     final g = FakeGateway();
@@ -25,7 +28,7 @@ void main() {
     };
     final c = LauncherController(g);
     await c.initialize();
-    c.cards = [const LauncherCard('music-1', 'music', '正在播放', 0, 0, 4, 4, 0)];
+    c.cards = [LauncherCard('music-1', 'music', '正在播放', 0, 0, w, h, 0)];
     await tester.pumpWidget(LauncherApp(controller: c));
     await tester.pumpAndSettle();
     return c;
@@ -175,5 +178,39 @@ void main() {
             of: find.byKey(const ValueKey('music-play-mode-button')),
             matching: find.byIcon(Icons.repeat_one)),
         findsOneWidget);
+  });
+
+  testWidgets('两个按钮按 1.5 倍基准尺寸绘制', (tester) async {
+    // 4×3 走「普通」版式：scale 固定 1，按钮尺寸就是基准 × 放大倍数。
+    await pumpMusicCard(tester, {
+      'actionCaps': {'favorite': true, 'playMode': true},
+      'favorited': true,
+      'playMode': 'REPEAT_ONE',
+    }, w: 4, h: 3);
+    // 这里量到的是**画布单位**（桌面画布 1600 宽），不是 1920 视口的物理像素：
+    // 47.5 = Design.px(38) × 1.5。放到 1920 的真机上再乘 1.2 倍。
+    final expected = Design.px(38) * MusicActionButtons.sizeFactor;
+    expect(expected, 47.5, reason: '基准 38 画布单位放大 1.5 倍');
+    for (final key in const [
+      ValueKey('music-favorite-button'),
+      ValueKey('music-play-mode-button')
+    ]) {
+      final size = tester.getSize(find.byKey(key));
+      expect(size.width, closeTo(expected, .5), reason: '$key 宽度');
+      expect(size.height, closeTo(expected, .5), reason: '$key 高度');
+    }
+  });
+
+  testWidgets('放大后各版式都不溢出', (tester) async {
+    // RenderFlex 溢出在 flutter_test 里会直接判失败，这里逐个版式过一遍：
+    // 4×1（一格档，自己画歌名没有按钮）/ 4×2 两行档 / 4×3 / 4×4 稿子 f1 / 8×6 大卡。
+    for (final size in const [(4, 1), (4, 2), (4, 3), (4, 4), (8, 6)]) {
+      await pumpMusicCard(tester, {
+        'actionCaps': {'favorite': true, 'playMode': true},
+        'favorited': true,
+        'playMode': 'REPEAT_ONE',
+      }, w: size.$1, h: size.$2);
+      expect(tester.takeException(), isNull, reason: '${size.$1}×${size.$2} 版式');
+    }
   });
 }

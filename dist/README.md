@@ -6,7 +6,7 @@
 
 | 文件 | 包名 | versionCode | versionName | 签名 | SHA-256 |
 | --- | --- | --- | --- | --- | --- |
-| `UNI-Launcher-0.7.11-IP753.apk` | `xyz.i4o.uni.launcher` | **2057** | `0.7.11` | AOSP 测试签名（testkey） | `51bf2e2e052a4eec473ce2113a24ffa2ba5b6d581a105ef3c70e7d5fc5e0f6df` |
+| `UNI-Launcher-0.7.11-IP753.apk` | `xyz.i4o.uni.launcher` | **2057** | `0.7.11` | AOSP 测试签名（testkey） | `2bfe44fa63ae60192ebf5b3c8e1da56806a71a6522b681324d354c34d671d77e` |
 
 > 这是**唯一需要安装**的包。装到车机后重启桌面。
 

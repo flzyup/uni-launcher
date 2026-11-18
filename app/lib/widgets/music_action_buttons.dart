@@ -36,6 +36,13 @@ class MusicActionButtons extends StatelessWidget {
   /// 整体缩放。稿子 f1 的 4×4 版式整块按比例缩，两个按钮跟着走。
   final double scale;
 
+  /// 相对设计稿基准尺寸的**放大倍数**。
+  ///
+  /// 车机是 1920×1080 实屏、观看距离又远，19~22 画布的心形/播放模式图标
+  /// 在真机上偏小：点不准，状态（已收藏 / 单曲循环）也不够醒目。
+  /// 图标、可点区域、两个按钮之间的间距**同步**放大 1.5 倍，保持它们还是一组。
+  static const double sizeFactor = 1.5;
+
   const MusicActionButtons(
       {super.key,
       required this.media,
@@ -85,8 +92,8 @@ class MusicActionButtons extends StatelessWidget {
           key: const ValueKey('music-favorite-button'),
           icon: filled ? Icons.favorite : Icons.favorite_border,
           label: filled ? '取消收藏' : '收藏',
-          size: Design.px(38) * scale,
-          iconSize: Design.px(iconSize) * scale,
+          size: Design.px(38) * scale * sizeFactor,
+          iconSize: Design.px(iconSize) * scale * sizeFactor,
           framed: false,
           foregroundColor: color,
           onTap: () => controller.command('favorite-toggle')));
@@ -108,8 +115,8 @@ class MusicActionButtons extends StatelessWidget {
             'REPEAT_ALL' => '播放模式：顺序',
             _ => '播放模式：顺序',
           },
-          size: Design.px(38) * scale,
-          iconSize: Design.px(iconSize) * scale,
+          size: Design.px(38) * scale * sizeFactor,
+          iconSize: Design.px(iconSize) * scale * sizeFactor,
           framed: false,
           // 模式未知时用更弱的色：此时显示的是「点完会切到的模式」，不是当前模式。
           foregroundColor: mode == null ? s.disabled : s.muted,
@@ -118,7 +125,7 @@ class MusicActionButtons extends StatelessWidget {
     if (widgets.isEmpty) return const SizedBox.shrink();
     return Row(mainAxisSize: MainAxisSize.min, children: [
       for (final widget in widgets) ...[
-        SizedBox(width: Design.px(4)),
+        SizedBox(width: Design.px(4) * sizeFactor),
         widget,
       ],
     ]);
