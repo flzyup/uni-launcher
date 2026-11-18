@@ -422,14 +422,30 @@ class _MusicCard extends StatelessWidget {
                   child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        MarqueeText(
-                            key: const ValueKey('music-card-title'),
-                            data: _mediaValue(
-                                state, 'title', '午夜立交', '暂无播放'),
-                            style: TextStyle(
-                                fontSize: Design.dz(24) * k,
-                                height: 1.2,
-                                fontWeight: FontWeight.w500)),
+                        // 歌名右侧挂「收藏 / 播放模式」两个按钮（移植自 CarDesk 音乐卡）。
+                        // 原生侧按当前音源的**实际能力**决定亮不亮：不支持的按钮根本不画。
+                        //
+                        // 这一版式（稿子 f1 的 4×4）自己画歌名，不走 _MusicMetadata，
+                        // 所以按钮要在这里再挂一次 —— 导航页的音乐卡走的就是它。
+                        Row(
+                            key: const ValueKey('music-card-title-row'),
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              Expanded(
+                                  child: MarqueeText(
+                                      key: const ValueKey('music-card-title'),
+                                      data: _mediaValue(state, 'title',
+                                          '午夜立交', '暂无播放'),
+                                      style: TextStyle(
+                                          fontSize: Design.dz(24) * k,
+                                          height: 1.2,
+                                          fontWeight: FontWeight.w500))),
+                              MusicActionButtons(
+                                  media: media,
+                                  controller: controller,
+                                  iconSize: 19,
+                                  scale: k),
+                            ]),
                         SizedBox(height: Design.dz(7) * k),
                         MarqueeText(
                             key: const ValueKey('music-card-artist'),

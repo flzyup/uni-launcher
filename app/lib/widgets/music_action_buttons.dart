@@ -33,11 +33,15 @@ class MusicActionButtons extends StatelessWidget {
   final LauncherController controller;
   final double iconSize;
 
+  /// 整体缩放。稿子 f1 的 4×4 版式整块按比例缩，两个按钮跟着走。
+  final double scale;
+
   const MusicActionButtons(
       {super.key,
       required this.media,
       required this.controller,
-      this.iconSize = 22});
+      this.iconSize = 22,
+      this.scale = 1});
 
   /// 当前音源支不支持收藏。
   bool get _supportsFavorite => _caps['favorite'] == true;
@@ -81,8 +85,8 @@ class MusicActionButtons extends StatelessWidget {
           key: const ValueKey('music-favorite-button'),
           icon: filled ? Icons.favorite : Icons.favorite_border,
           label: filled ? '取消收藏' : '收藏',
-          size: Design.px(38),
-          iconSize: Design.px(iconSize),
+          size: Design.px(38) * scale,
+          iconSize: Design.px(iconSize) * scale,
           framed: false,
           foregroundColor: color,
           onTap: () => controller.command('favorite-toggle')));
@@ -104,8 +108,8 @@ class MusicActionButtons extends StatelessWidget {
             'REPEAT_ALL' => '播放模式：顺序',
             _ => '播放模式：顺序',
           },
-          size: Design.px(38),
-          iconSize: Design.px(iconSize),
+          size: Design.px(38) * scale,
+          iconSize: Design.px(iconSize) * scale,
           framed: false,
           // 模式未知时用更弱的色：此时显示的是「点完会切到的模式」，不是当前模式。
           foregroundColor: mode == null ? s.disabled : s.muted,
