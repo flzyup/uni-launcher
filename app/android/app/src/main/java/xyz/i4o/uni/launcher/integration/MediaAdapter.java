@@ -53,6 +53,8 @@ public final class MediaAdapter {
     private final ComponentName listener;
     private final Runnable changed;
     private final NeteaseMediaAdapter netease;
+    /** 「收藏 / 播放模式」的执行层：能力探测、状态下发与回报校正。 */
+    private final MediaActionBridge actions;
     private final LyricsResolver lyrics;
  private final LyricTimelineProvider timeline;
     private final Handler handler=new Handler();
@@ -150,6 +152,8 @@ public final class MediaAdapter {
         // choose() already synchronizes the selected source, including switches.
         public void onPlaybackStateChanged(PlaybackState s){choose();changed.run();}
         public void onExtrasChanged(Bundle extras){syncSteeringSession();changed.run();}
+        // 「收藏 / 播放模式」有自己专属的会话回调：那个回调只跟着**选中**的会话走，
+        // 共用这个回调会把别的播放器的评分也当成当前曲目的收藏态。
         public void onSessionDestroyed(){
             try{select(manager.getActiveSessions(listener));}catch(SecurityException e){authorized=false;select(null);}
             changed.run();
@@ -159,7 +163,7 @@ public final class MediaAdapter {
         public void onActiveSessionsChanged(List<MediaController> list){select(list);changed.run();}
     };
     public MediaAdapter(Context context,Runnable changed){
-        this.context=context;this.changed=changed;netease=new NeteaseMediaAdapter(changed);manager=(MediaSessionManager)context.getSystemService(Context.MEDIA_SESSION_SERVICE);
+        this.context=context;this.changed=changed;netease=new NeteaseMediaAdapter(changed);actions=new MediaActionBridge(context,changed);manager=(MediaSessionManager)context.getSystemService(Context.MEDIA_SESSION_SERVICE);
         lastTrackPrefs=context.getSharedPreferences("uni_last_track",Context.MODE_PRIVATE);
         lastSource=lastTrackPrefs.getString("source", "");
         lyrics=new LyricsResolver(new File(context.getFilesDir(),"media-lyrics"),changed);
@@ -289,6 +293,7 @@ if(next!=null&&isOnlinePlayer(next.getPackageName())){
             if(next==null||controller==null||!next.getSessionToken().equals(controller.getSessionToken())){lastCover=null;coverData="";artworkDirty=true;}
             controller=next;
             netease.setController(controller);
+            actions.setController(controller);
             syncSteeringSession();
     }
     /** Logs the selected session only when it changes: choose() also runs on
@@ -346,7 +351,7 @@ if(next!=null&&isOnlinePlayer(next.getPackageName())){
         for(MediaController candidate:observed){
             if(!source.equals(candidate.getPackageName()))continue;
             onlineSwitchController=candidate;onlineSwitchSource=source;onlineSwitchAttempts=0;
-            controller=candidate;netease.setController(candidate);lastSource=source;
+            controller=candidate;netease.setController(candidate);actions.setController(candidate);lastSource=source;
             officialBridge.update(candidate);officialBridge.claimCurrent();
             dispatchOnlinePlay(candidate);
             handler.removeCallbacks(onlineSwitchRetry);
@@ -363,7 +368,7 @@ if(next!=null&&isOnlinePlayer(next.getPackageName())){
             if(previous!=null&&isOnlinePlayer(previous.getPackageName()))pauseController(previous);
             clearOnlineSwitch(false);
             onlineSwitchController=candidate;onlineSwitchSource=candidate.getPackageName();onlineSwitchAttempts=0;
-            controller=candidate;netease.setController(candidate);lastSource=candidate.getPackageName();
+            controller=candidate;netease.setController(candidate);actions.setController(candidate);lastSource=candidate.getPackageName();
             officialBridge.update(candidate);officialBridge.claimCurrent();
             dispatchOnlinePlay(candidate);
             handler.removeCallbacks(onlineSwitchRetry);
@@ -550,6 +555,9 @@ if(next!=null&&isOnlinePlayer(next.getPackageName())){
                         .put("reason","播放器未连接，显示上次播放");
                 }
             }
+            // 收藏态 / 播放模式 / 能力：**有无会话都要报告**——
+            // 界面据此决定亮不亮那两个按钮（没有会话 → 一律不支持 → 按钮不画）。
+            actions.augmentSnapshot(j);
         }catch(Exception ignored){}return j;
     }
     private void saveTrack(String source,MediaTextRetention.Track track,long position){
@@ -658,6 +666,9 @@ if(next!=null&&isOnlinePlayer(next.getPackageName())){
     }
     public boolean command(String action,long positionMs){
         clearPlayFallback();
+        // 「收藏 / 播放模式」不走传输控制：它们是会话能力，不是播放动作。
+        if("favorite-toggle".equals(action))return actions.toggleFavorite();
+        if("play-mode-toggle".equals(action))return actions.cyclePlayMode();
         boolean wantsPlay="play".equals(action)||("toggle-play".equals(action)
                 &&(controller==null||controller.getPlaybackState()==null
                     ||controller.getPlaybackState().getState()!=PlaybackState.STATE_PLAYING));
