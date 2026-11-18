@@ -36,6 +36,7 @@ class _FakeClient extends ClusterLyrics {
     int rows = 3,
     int accent = 0xFF7FE3D4,
     String style = 'pill',
+    String motion = 'none',
   }) async {
     final next = current.copyWith(
       enabled: display != null,
@@ -49,6 +50,7 @@ class _FakeClient extends ClusterLyrics {
       rows: rows,
       accent: accent,
       style: style,
+      motion: motion,
     );
     calls.add(_ApplyCall(display, next));
     return next;
@@ -198,9 +200,13 @@ void main() {
     await tester.pumpAndSettle();
     expect(_FakeClient.calls.last.status.rows, 2);
 
-    await tester.tap(find.byKey(const ValueKey('cluster-width-70')));
+    // Width is a preset row (design board `.dd` 档位): tapping a preset must send it as-is.
+    await tester.tap(find.byKey(const ValueKey('cluster-width-86')));
     await tester.pumpAndSettle();
-    expect(_FakeClient.calls.last.status.widthRatio, closeTo(0.7, 1e-9));
+    final widthRatio = _FakeClient.calls.last.status.widthRatio;
+    expect(widthRatio, closeTo(0.86, 1e-9));
+    expect(widthRatio, greaterThan(ClusterLayout.minWidthRatio));
+    expect(widthRatio, lessThan(ClusterLayout.maxWidthRatio));
 
     await tester.tap(find.byKey(const ValueKey('cluster-style-plain')));
     await tester.pumpAndSettle();
@@ -209,6 +215,49 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('cluster-accent-ffffc46b')));
     await tester.pumpAndSettle();
     expect(_FakeClient.calls.last.status.accent, 0xFFFFC46B);
+  });
+
+  testWidgets('the font step buttons move the size and pin it inside the range',
+      (tester) async {
+    await tester.pumpWidget(_host(const ClusterLyricsSettingsTab(
+      client: _FakeClient([_cluster],
+          const ClusterCastStatus(
+              enabled: true, displayId: 2, displayName: '仪表', fontSp: 34)),
+    )));
+    await tester.pumpAndSettle();
+    // 设计稿把这档做成「− 44 ＋」步进：连点加号到顶，必须停在最大档而不是继续加。
+    for (var i = 0; i < 5; i++) {
+      await tester.tap(find.byKey(const ValueKey('cluster-font-up')));
+      await tester.pumpAndSettle();
+    }
+    expect(_FakeClient.calls.last.status.fontSp, 54);
+    expect(_FakeClient.calls.last.status.fontSp,
+        lessThanOrEqualTo(ClusterLayout.maxFontSp));
+    // 再连点减号到底。
+    for (var i = 0; i < 5; i++) {
+      await tester.tap(find.byKey(const ValueKey('cluster-font-down')));
+      await tester.pumpAndSettle();
+    }
+    expect(_FakeClient.calls.last.status.fontSp, 24);
+    expect(_FakeClient.calls.last.status.fontSp,
+        greaterThanOrEqualTo(ClusterLayout.minFontSp));
+  });
+
+  testWidgets('effects are off by default and can be switched on', (tester) async {
+    await tester.pumpWidget(_host(const ClusterLyricsSettingsTab(
+      client: _FakeClient([_cluster],
+          const ClusterCastStatus(enabled: true, displayId: 2, displayName: '仪表')),
+    )));
+    await tester.pumpAndSettle();
+    // Nothing has been applied yet: the default has to come from the stored status, which is
+    // `none` unless a previous choice said otherwise.
+    expect(_FakeClient.calls, isEmpty);
+    expect(find.textContaining('只在换行的那一刻重绘一次'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('cluster-motion-words')));
+    await tester.pumpAndSettle();
+    expect(_FakeClient.calls.last.status.motion, ClusterLayout.motionWords);
+    expect(find.textContaining('向上淡出'), findsOneWidget);
   });
 
   testWidgets('the reset button returns the panel to the default placement',

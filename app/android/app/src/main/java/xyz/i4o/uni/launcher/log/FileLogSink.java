@@ -78,25 +78,83 @@ final class FileLogSink {
         this.dir = new File(context.getFilesDir(), DIR_NAME);
     }
 
-    /** 写一行。返回 true 表示已落盘。 */
+    /**
+     * 待落盘的记录（已带行分隔符）。
+     *
+     * <p>有界：日志宁可丢，也绝不能阻塞调用线程 —— 大部分日志是在主线程写的。
+     */
+    private final java.util.concurrent.ConcurrentLinkedQueue<String> pending =
+            new java.util.concurrent.ConcurrentLinkedQueue<>();
+    /** 队列上限：积压到这个数说明磁盘跟不上，直接丢弃新记录。 */
+    private static final int MAX_PENDING = 4096;
+    /** 落盘线程。单线程保证顺序，最低优先级，daemon 不挡进程退出。 */
+    private static final java.util.concurrent.ExecutorService WRITER =
+            java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+                Thread t = new Thread(r, "uni-log-writer");
+                t.setDaemon(true);
+                t.setPriority(Thread.MIN_PRIORITY);
+                return t;
+            });
+    private final java.util.concurrent.atomic.AtomicBoolean draining =
+            new java.util.concurrent.atomic.AtomicBoolean();
+
+    /**
+     * 写一行。返回 true 表示已接受（入队）。
+     *
+     * <p><b>这里绝不能同步写盘。</b>每次落盘是一次 open/seek/write/close，而
+     * onStart、onResume、快照发布这些热路径上每条日志都在主线程调用它。一次
+     * 「从第三方应用返回桌面」会打出 15~20 条 INFO，以前就是 15~20 次同步文件
+     * 操作压在主线程上，正好压在用户等的那一帧前面。
+     */
     boolean write(LogLevel level, String tag, String message, Throwable error) {
         if (!level.reached(this.level)) return false;
         if (degraded) return false;
-        String line = LogFormat.line(TIME_FMT.format(new Date()), level, tag, message, error);
+        if (pending.size() >= MAX_PENDING) return false;
+        try {
+            String line = LogFormat.line(TIME_FMT.format(new Date()), level, tag, message, error);
+            pending.add(LogFormat.record(line));
+        } catch (Throwable ignored) {
+            return false;
+        }
+        scheduleDrain();
+        return true;
+    }
+
+    private void scheduleDrain() {
+        if (!draining.compareAndSet(false, true)) return;
+        try {
+            WRITER.execute(this::drain);
+        } catch (Throwable t) {
+            draining.set(false);
+        }
+    }
+
+    /** 后台线程：把队列排空。期间新到的记录由下一轮处理。 */
+    private void drain() {
+        try {
+            String record;
+            while ((record = pending.poll()) != null) append(record);
+        } finally {
+            draining.set(false);
+            if (!pending.isEmpty()) scheduleDrain();
+        }
+    }
+
+    /** 真正落盘一条（后台线程，串行）。 */
+    private void append(String record) {
         synchronized (lock) {
             try {
                 File file = target();
-                if (file == null) return false;
+                if (file == null) return;
                 try (RandomAccessFile raf = new RandomAccessFile(file, "rw")) {
                     raf.seek(raf.length());
                     // 每条记录必须带行分隔符，否则整个文件会挤成一行
-                    raf.write(LogFormat.record(line).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                    raf.write(record.getBytes(java.nio.charset.StandardCharsets.UTF_8));
                 }
                 if (++writesSinceTrim >= TRIM_INTERVAL) {
                     writesSinceTrim = 0;
                     trim();
                 }
-                return true;
             } catch (Throwable e) {
                 // 日志系统自己不能把 App 弄崩
                 if (isOutOfSpace(e)) {
@@ -105,7 +163,6 @@ final class FileLogSink {
                 } else {
                     Log.w(LogTags.LOG, "file log write failed: " + e.getMessage());
                 }
-                return false;
             }
         }
     }
@@ -241,6 +298,7 @@ final class FileLogSink {
 
     /** 清空全部日志（顺带解除降级状态，让落盘重新可用）。 */
     void clear() {
+        pending.clear();
         synchronized (lock) {
             current = null;
             writesSinceTrim = 0;

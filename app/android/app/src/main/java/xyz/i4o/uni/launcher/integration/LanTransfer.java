@@ -7,7 +7,6 @@ import android.net.wifi.WifiManager;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
-import android.util.Log;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -500,7 +499,7 @@ public final class LanTransfer {
             created.name = sanitize(name == null || name.isEmpty() ? "quark-" + fid : name);
             created.size = sizeHint;
             links.add(created);
-            Log.i(TAG, "queued quark " + created.name);
+            UniLog.i(LogTags.TRANSFER, "queued quark " + created.name, "tag", TAG);
         }
         persistAsync();
         notifyChanged();
@@ -541,7 +540,7 @@ public final class LanTransfer {
             notes.add(0, created);
             while (notes.size() > MAX_TEXTS) notes.remove(notes.size() - 1);
         }
-        Log.i(TAG, "received text (" + text.length() + " chars)");
+        UniLog.i(LogTags.TRANSFER, "received text (" + text.length() + " chars)", "tag", TAG);
         persistNotes();
         notifyChanged();
         return created.id;
@@ -592,7 +591,7 @@ public final class LanTransfer {
         try (FileOutputStream fos = new FileOutputStream(noteStore)) {
             fos.write(arr.toString().getBytes("UTF-8"));
         } catch (Exception e) {
-            Log.w(TAG, "persist texts failed", e);
+            UniLog.w(LogTags.TRANSFER, "persist texts failed", e, "tag", TAG);
         }
     }
 
@@ -611,7 +610,7 @@ public final class LanTransfer {
                 }
             }
         } catch (Exception e) {
-            Log.w(TAG, "load texts failed", e);
+            UniLog.w(LogTags.TRANSFER, "load texts failed", e, "tag", TAG);
         }
     }
 

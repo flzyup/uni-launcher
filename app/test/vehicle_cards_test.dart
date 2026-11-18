@@ -56,7 +56,7 @@ void main() {
     expect(label('charging'), '待同步');
     field(native, 'driveMode')['value'] = 'UNKNOWN';
     expect(label('driveMode'), '待同步');
-    field(native, 'driveMode')['updatedAtMs'] = vehicleGalleryNow - 6000;
+    field(native, 'driveMode')['updatedAtMs'] = vehicleGalleryNow + 2000;
     expect(label('driveMode'), '等待更新');
     field(native, 'energyFlow')['updatedAtMs'] = 'bad';
     expect(label('energyFlow'), '待同步');
@@ -96,6 +96,7 @@ void main() {
       'shortcuts',
       'vehicle',
       'air'
+      // 页 3（时钟 / 天气 / 日历）不再预置：默认只给两页
     ]);
     for (final type in ['battery', 'air', 'vehicle']) {
       final spec = specFor(type);
@@ -148,12 +149,15 @@ void main() {
   });
 
   test(
-      'freshness is per field with the existing five second and clock tolerance',
+      'freshness retains live readings while connected and respects clock skew and disconnects',
       () {
     final native = vehicleGalleryFixture();
     field(native, 'batteryPercent')['updatedAtMs'] = vehicleGalleryNow - 5000;
     expect(reading(native, 'batteryPercent').available, isTrue);
     expect(reading(native, 'batteryPercent', now: vehicleGalleryNow + 1).state,
+        VehicleReadingState.live);
+    field(native, 'batteryPercent')['stale'] = true;
+    expect(reading(native, 'batteryPercent').state,
         VehicleReadingState.stale);
     expect(reading(native, 'pm25').available, isTrue);
     field(native, 'speed')['updatedAtMs'] = vehicleGalleryNow + 1000;
@@ -211,22 +215,24 @@ void main() {
     expect(reading(native, 'pm25').display, '12');
   });
 
-  testWidgets('battery 0 95 100 and fractional levels occupy exact track width',
-      (t) async {
+  testWidgets('battery ring shows the level and the mode rows', (t) async {
     for (final value in [0.0, 95.0, 100.0, 95.5]) {
       final native = vehicleGalleryFixture();
       field(native, 'batteryPercent')['value'] = value;
       await t.pumpWidget(
           surface(BatteryCard(native: native, nowMs: () => vehicleGalleryNow)));
       await t.pumpAndSettle();
-      final track =
-          t.getSize(find.byKey(const ValueKey('battery-track'))).width;
-      final fill = t.getSize(find.byKey(const ValueKey('battery-fill'))).width;
-      expect(fill, closeTo(track * value / 100, .001));
+      // 稿子 f2 用 198 环形表表示 SOC，条形条已经去掉。
+      final ring = t.widget<CardRing>(find.byType(CardRing));
+      expect(ring.fraction, closeTo(value / 100, .001));
+      // 稿子 f2 的右列只有四段：综合续航 / 能量流 + 电力驱动 / 驾驶模式 / 总里程。
+      // 「外接充电」稿子里没有，已经删掉（有测试盯着别再长回来）。
+      expect(find.text('综合续航'), findsOneWidget);
       expect(find.text('驾驶模式'), findsOneWidget);
       expect(find.text('混动'), findsOneWidget);
       expect(find.text('电力驱动'), findsOneWidget);
-      expect(find.text('外接充电'), findsOneWidget);
+      expect(find.text('总里程'), findsOneWidget);
+      expect(find.text('外接充电'), findsNothing);
       expect(find.text('待同步'), findsNothing);
       expect(find.text('已同步'), findsNothing);
       expect(find.textContaining('充电中'), findsNothing);
@@ -237,12 +243,12 @@ void main() {
     await t.pumpAndSettle();
     expect(find.byKey(const ValueKey('vehicle-value-batteryPercent')),
         findsOneWidget);
-    expect(t.getSize(find.byKey(const ValueKey('battery-fill'))).width, 0);
+    expect(t.widget<CardRing>(find.byType(CardRing)).fraction, 0);
     await t.pumpWidget(const SizedBox.shrink());
   });
 
   testWidgets(
-      'readings expire without a new event and recover on a fresh snapshot',
+      'readings remain steady across idle ticks and disconnect on signal loss',
       (t) async {
     var now = vehicleGalleryNow;
     final native = vehicleGalleryFixture();
@@ -255,9 +261,15 @@ void main() {
     await t.pump(const Duration(milliseconds: 101));
     expect(
         t.widget<Text>(find.byKey(const ValueKey('vehicle-value-pm25'))).data,
-        '—');
+        '12');
     expect(find.text('等待更新'), findsNothing);
     expect(find.text('28'), findsOneWidget);
+    native['vehicle']['connected'] = false;
+    await t.pumpWidget(surface(AirQualityCard(native: native, nowMs: () => now)));
+    await t.pumpAndSettle();
+    expect(
+        t.widget<Text>(find.byKey(const ValueKey('vehicle-value-pm25'))).data,
+        '—');
     final next = vehicleGalleryFixture();
     field(next, 'pm25').addAll({'value': 7, 'updatedAtMs': now});
     await t.pumpWidget(surface(AirQualityCard(native: next, nowMs: () => now)));
@@ -488,9 +500,9 @@ void main() {
     await t.pump();
     expect(find.byType(FuelCard), findsOneWidget);
     expect(find.text('78.5'), findsOneWidget);
-    expect(find.text('42.4 L'), findsOneWidget);
+    expect(find.text('42.4'), findsOneWidget);
     expect(find.text('54 L'), findsOneWidget);
-    expect(find.text('480 km'), findsOneWidget);
+    expect(find.text('480'), findsOneWidget);
 
     final nativeRangeOnly = {
       'vehicle': {

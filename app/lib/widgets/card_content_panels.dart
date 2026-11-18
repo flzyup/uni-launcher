@@ -4,16 +4,44 @@ Future<void> showAppsPanel(BuildContext context, LauncherController c) async {
   if (await c.presentGlobalPanel('apps') || !context.mounted) return;
   final dock = DockWindowScope.of(context);
   final route = Navigator.of(context).push(PageRouteBuilder<void>(
-      pageBuilder: (_, __, ___) => _AppsPage(controller: c),
-      transitionDuration: const Duration(milliseconds: 220),
-      reverseTransitionDuration: const Duration(milliseconds: 180),
-      transitionsBuilder: (_, animation, __, child) =>
-          FadeTransition(opacity: animation, child: child)));
+      pageBuilder: (_, __, ___) =>
+          RepaintBoundary(child: _AppsPage(controller: c)),
+      transitionDuration: const Duration(milliseconds: 150),
+      reverseTransitionDuration: const Duration(milliseconds: 130),
+      transitionsBuilder: (_, animation, __, child) => FadeTransition(
+          opacity: CurvedAnimation(
+              parent: animation,
+              curve: Curves.easeOutCubic,
+              reverseCurve: Curves.easeInCubic),
+          child: child)));
   if (dock?.onPresented != null) {
     await WidgetsBinding.instance.endOfFrame;
     if (context.mounted) await dock!.onPresented!();
   }
   await route;
+}
+
+/// 卡片 / 底栏点进来：把这张音乐卡铺满整页（网格里只剩它一张，顶部栏与底栏照常
+/// 显示，收起就回原页）。
+///
+/// [cardId] 是被点的那张卡（底栏没有具体卡片，留空）。桌面有两张音乐卡时必须
+/// 传进来，否则会铺满 `cards` 里的第一张、顺带把桌面翻到那一页。
+///
+/// 这里**不再先转交全局底栏面板**（2026-11-13 实车反馈）：车机上底栏服务常态在跑，
+/// `presentGlobalPanel('media')` 于是总是成立，点卡片出来的是另一套 1040 宽的旧弹层，
+/// 而且它是压在桌面之上的独立 overlay —— 关掉后桌面还会僵住。桌面这一侧自己就能把
+/// 卡片铺满，不需要那个窗口。
+Future<void> showMusicPlayer(BuildContext context, LauncherController c,
+    {String? cardId}) async {
+  // 底栏窗口的引擎里没有桌面，只能请主窗口代开（原生死转发 focus-music-card）。
+  if (c.isGlobalDock) {
+    await c.command('focus-music-card');
+    return;
+  }
+  if (c.focusMusicCard(cardId: cardId)) return;
+  // 一张音乐卡都没有：退回老的媒体面板，至少还能换音源。
+  if (!context.mounted) return;
+  await showMediaPanel(context, c);
 }
 
 Future<void> showMediaPanel(BuildContext context, LauncherController c) async {
@@ -24,6 +52,16 @@ Future<void> showMediaPanel(BuildContext context, LauncherController c) async {
       closeLabel: '关闭音乐详情',
       width: Design.px(1040),
       glowType: 'music',
+      // 稿子 f5 的 `.v2-src`：换音源在播放器里换，桌面卡片上不再放这颗键。
+      actions: Builder(
+          builder: (sheet) => IconAction(
+              key: const ValueKey('media-app-picker'),
+              icon: Icons.swap_horiz,
+              label: '选择音乐应用',
+              size: Design.px(54),
+              iconSize: Design.px(25),
+              soft: true,
+              onTap: () => showMusicPicker(sheet, c))),
       builder: (context) => MediaPanel(controller: c));
 }
 
@@ -49,100 +87,209 @@ class AppPanel extends StatefulWidget {
 class _AppPanelState extends State<AppPanel> {
   bool enabled = true;
   bool showSystem = false;
+
   @override
   Widget build(BuildContext context) => NativeSliceBuilder(
       valueListenable: widget.controller.native,
       select: (state) => [state['apps'], state['appNames']],
       builder: (context, state) {
         final s = SurfaceStyle.of(context);
-        final apps = (state['apps'] is List ? state['apps'] as List : const [])
+        // 「显示系统应用」与「可启动」先落一层底表，两颗胶囊的计数和网格用同一份，
+        // 数字才对得上格子。
+        final base = (state['apps'] is List ? state['apps'] as List : const [])
             .whereType<Map>()
-            .where((app) => (app['enabled'] != false) == enabled)
             .where((app) => showSystem || app['isSystem'] != true)
             .where((app) => app['launchable'] != false)
             .toList();
-        final content =
-            Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          SizedBox(
-              width: Design.px(300),
-              child: Center(
-                  child: GlassSurface(
-                      key: const ValueKey('apps-sidebar'),
-                      padding: EdgeInsets.all(Design.px(14)),
-                      child: Column(mainAxisSize: MainAxisSize.min, children: [
-                        for (final entry in [(true, '已启用'), (false, '已禁用')])
-                          Padding(
-                              padding: EdgeInsets.only(bottom: Design.px(10)),
-                              child: SizedBox(
-                                  width: double.infinity,
-                                  height: Design.px(68),
-                                  child: OutlinedButton(
-                                      key: ValueKey(entry.$1
-                                          ? 'apps-enabled'
-                                          : 'apps-disabled'),
-                                      style:
-                                          s.selectionStyle(enabled == entry.$1),
-                                      onPressed: () =>
-                                          setState(() => enabled = entry.$1),
-                                      child: Text(entry.$2)))),
-                      ])))),
-          SizedBox(width: Design.px(22)),
-          Expanded(
-              child: apps.isEmpty
-                  ? Center(
-                      child: Text(enabled ? '暂无已启用应用' : '暂无已禁用应用',
-                          style: TextStyle(
-                              color: s.muted, fontSize: Design.px(24))))
-                  : LayoutBuilder(builder: (context, box) {
-                      if (box.maxWidth <= 1) return const SizedBox.shrink();
-                      return GridView.builder(
-                          key: ValueKey(enabled
-                              ? 'apps-enabled-grid'
-                              : 'apps-disabled-grid'),
-                          padding:
-                              EdgeInsets.symmetric(vertical: Design.px(32)),
-                          itemCount: apps.length,
-                          gridDelegate:
-                              SliverGridDelegateWithFixedCrossAxisCount(
-                                  crossAxisCount: 7,
-                                  mainAxisSpacing: Design.px(40),
-                                  crossAxisSpacing: Design.px(12),
-                                  mainAxisExtent: Design.px(156)),
-                          itemBuilder: (_, i) => _AppTile(
-                              app: mapOf(apps[i]),
-                              controller: widget.controller,
-                              index: i));
-                    })),
-        ]);
-        if (!widget.fullPage) return content;
+        final enabledApps =
+            base.where((app) => app['enabled'] != false).toList();
+        final disabledApps =
+            base.where((app) => app['enabled'] == false).toList();
+        final apps = enabled ? enabledApps : disabledApps;
+
+        final panel = GlassSurface(
+            key: const ValueKey('apps-panel'),
+            // 稿子 `.ap-panel`：20.83 圆角、20/30/30 内边距——筛选和网格同住一张卡，
+            // 不再有左侧那条独立筛选列。
+            radius: Design.px(25),
+            padding: EdgeInsets.fromLTRB(
+                Design.px(36), Design.px(24), Design.px(36), Design.px(36)),
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(children: [
+                    _FilterPills(
+                        enabled: enabled,
+                        enabledCount: enabledApps.length,
+                        disabledCount: disabledApps.length,
+                        onPick: (value) => setState(() => enabled = value)),
+                    const Spacer(),
+                    // `.ap-tools .tip`
+                    Text('长按图标可编辑',
+                        style: TextStyle(
+                            fontSize: Design.px(15.6),
+                            letterSpacing: Design.px(.24),
+                            color: s.text.withValues(alpha: .4))),
+                  ]),
+                  SizedBox(height: Design.px(24)),
+                  Expanded(
+                      child: apps.isEmpty
+                          ? Center(
+                              child: Text(enabled ? '暂无已启用应用' : '暂无已禁用应用',
+                                  style: TextStyle(
+                                      color: s.muted,
+                                      fontSize: Design.px(24))))
+                          : LayoutBuilder(builder: (context, box) {
+                              if (box.maxWidth <= 1) {
+                                return const SizedBox.shrink();
+                              }
+                              return GridView.builder(
+                                  key: ValueKey(enabled
+                                      ? 'apps-enabled-grid'
+                                      : 'apps-disabled-grid'),
+                                  padding: EdgeInsets.zero,
+                                  itemCount: apps.length,
+                                  // 稿子 `.ap-grid`：7 列，行距 20 / 列距 8。
+                                  gridDelegate:
+                                      SliverGridDelegateWithFixedCrossAxisCount(
+                                          crossAxisCount: 7,
+                                          mainAxisSpacing: Design.px(24),
+                                          crossAxisSpacing: Design.px(9.6),
+                                          mainAxisExtent: Design.px(148)),
+                                  itemBuilder: (_, i) => _AppTile(
+                                      app: mapOf(apps[i]),
+                                      controller: widget.controller,
+                                      index: i));
+                            })),
+                ]));
+
+        if (!widget.fullPage) return panel;
         return Column(children: [
-          Row(children: [
-            IconButton(
-                onPressed: () => Navigator.pop(context),
-                icon: const Icon(Icons.arrow_back),
-                tooltip: '返回'),
-            SizedBox(width: Design.px(20)),
-            Text('全部应用', style: TextStyle(fontSize: Design.px(36))),
-            const Spacer(),
-            Text('显示系统应用', style: TextStyle(fontSize: Design.px(20))),
-            SizedBox(width: Design.px(16)),
-            KeyedSubtree(
-                key: const ValueKey('apps-show-system'),
-                child: s.technicalFrame
-                    ? DesignToggle(
-                        label: '显示系统应用',
-                        value: showSystem,
-                        onChanged: (value) =>
-                            setState(() => showSystem = value))
-                    : Switch(
-                        value: showSystem,
-                        onChanged: (value) =>
-                            setState(() => showSystem = value))),
-          ]),
-          SizedBox(height: Design.px(20)),
-          Expanded(child: content),
+          _header(context, s),
+          SizedBox(height: Design.px(32)),
+          Expanded(child: panel),
         ]);
       });
+
+  /// `.ap-hd`：53.33 的返回方框 + 30 标题 + 右侧「显示系统应用」与开关。
+  ///
+  /// 原来用 IconButton + Material 默认内边距，命中区和图标位置都跟稿子对不上，
+  /// 这里按 `.ap-hd .back` 的 53.33 / 圆角 16 / 5% 底 + 9% 描边自绘。
+  Widget _header(BuildContext context, SurfaceStyle s) => SizedBox(
+      height: Design.px(64),
+      child: Row(children: [
+        Semantics(
+            button: true,
+            label: '返回',
+            child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => Navigator.pop(context),
+                child: Container(
+                    width: Design.px(64),
+                    height: Design.px(64),
+                    decoration: BoxDecoration(
+                        color: s.text.withValues(alpha: .05),
+                        border:
+                            Border.all(color: s.text.withValues(alpha: .09)),
+                        borderRadius:
+                            BorderRadius.circular(Design.px(19.2))),
+                    child: Center(
+                        child: Icon(Icons.arrow_back_ios_new,
+                            size: Design.px(28.8),
+                            color: s.text.withValues(alpha: .92)))))),
+        SizedBox(width: Design.px(19.2)),
+        Text('全部应用',
+            style: TextStyle(
+                fontSize: Design.px(36),
+                fontWeight: FontWeight.w500,
+                letterSpacing: Design.px(.36))),
+        const Spacer(),
+        Text('显示系统应用',
+            style: TextStyle(
+                fontSize: Design.px(20),
+                color: s.text.withValues(alpha: .55))),
+        SizedBox(width: Design.px(16)),
+        KeyedSubtree(
+            key: const ValueKey('apps-show-system'),
+            child: s.technicalFrame
+                ? DesignToggle(
+                    label: '显示系统应用',
+                    value: showSystem,
+                    onChanged: (value) => setState(() => showSystem = value))
+                : DesignSwitch(
+                    semanticLabel: '显示系统应用',
+                    value: showSystem,
+                    onChanged: (value) => setState(() => showSystem = value))),
+      ]));
+}
+
+/// `.apf`：已启用 / 已禁用两颗胶囊，选中态是强调色渐变实底，后面跟计数。
+///
+/// 原来是左侧一列 300 宽的选择卡；稿子把筛选收进面板顶部一行，网格才能吃满宽度。
+class _FilterPills extends StatelessWidget {
+  final bool enabled;
+  final int enabledCount, disabledCount;
+  final ValueChanged<bool> onPick;
+  const _FilterPills(
+      {required this.enabled,
+      required this.enabledCount,
+      required this.disabledCount,
+      required this.onPick});
+
+  @override
+  Widget build(BuildContext context) {
+    final s = SurfaceStyle.of(context);
+    return Container(
+        padding: EdgeInsets.all(Design.px(4.8)),
+        decoration: BoxDecoration(
+            color: s.text.withValues(alpha: .05),
+            border: Border.all(color: s.text.withValues(alpha: .075)),
+            borderRadius: BorderRadius.circular(Design.px(18))),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          _pill(s, 'apps-enabled', '已启用', enabledCount, enabled, true),
+          _pill(s, 'apps-disabled', '已禁用', disabledCount, !enabled, false),
+        ]));
+  }
+
+  Widget _pill(SurfaceStyle s, String key, String label, int count, bool on,
+      bool pickEnabled) {
+    return GestureDetector(
+        key: ValueKey(key),
+        behavior: HitTestBehavior.opaque,
+        onTap: () => onPick(pickEnabled),
+        child: AnimatedContainer(
+            duration: const Duration(milliseconds: 160),
+            height: Design.px(48),
+            padding: EdgeInsets.symmetric(horizontal: Design.px(26.4)),
+            decoration: BoxDecoration(
+                gradient: on ? s.accentFill : null,
+                borderRadius: BorderRadius.circular(Design.px(13.8)),
+                boxShadow: on
+                    ? [
+                        BoxShadow(
+                            color: s.accent.withValues(alpha: .40),
+                            offset: Offset(0, Design.px(8)),
+                            blurRadius: Design.px(20),
+                            spreadRadius: -Design.px(10))
+                      ]
+                    : null),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              Text(label,
+                  style: TextStyle(
+                      fontSize: Design.px(18.6),
+                      fontWeight: on ? FontWeight.w600 : FontWeight.w400,
+                      color: on
+                          ? s.accentText
+                          : s.text.withValues(alpha: .62))),
+              SizedBox(width: Design.px(10.8)),
+              Text('$count',
+                  style: TextStyle(
+                      fontSize: Design.px(15),
+                      fontWeight: FontWeight.w500,
+                      color: (on ? s.accentText : s.text)
+                          .withValues(alpha: on ? .6 : .45))),
+            ])));
+  }
 }
 
 /// Keeps the pressed material, clipping path and visible icon frame on the
@@ -162,11 +309,14 @@ class _AppTile extends StatelessWidget {
         label = controller.appName(app),
         id = app['id']?.toString(),
         keyId = app['package']?.toString() ?? id ?? 'index-$index',
-        radius = BorderRadius.circular(s.controlRadius),
+        radius = BorderRadius.circular(
+            s.technicalFrame ? s.controlRadius : Design.px(22.8)),
         frameShape = s.technicalFrame
             ? s.controlShape().copyWith(side: s.controlSide(false))
             : RoundedRectangleBorder(
-                side: BorderSide(color: s.edge), borderRadius: radius),
+                // 稿子 `.ap-tile .fr`：10% 墨色描边，不是主题 edge 色
+                side: BorderSide(color: s.text.withValues(alpha: .10)),
+                borderRadius: radius),
         settingsEntry = id != null &&
             (id.endsWith('/.DesktopSettings') ||
                 id.endsWith('/xyz.i4o.uni.launcher.DesktopSettings')),
@@ -180,7 +330,8 @@ class _AppTile extends StatelessWidget {
                         controller.openSettings();
                       }
                     : () => controller.command('launch-app', value: id);
-    return Column(children: [
+    return RepaintBoundary(
+        child: Column(children: [
       Semantics(
           button: true,
           label: label,
@@ -188,10 +339,11 @@ class _AppTile extends StatelessWidget {
           child: Tooltip(
               message: label,
               child: SizedBox.square(
-                  dimension: Design.px(104),
+                  // 稿子 `.ap-tile .fr` 是 96 画布（原来 104 / 1.2 ≈ 86.7，偏小）
+                  dimension: Design.px(115.2),
                   child: Material(
                       key: ValueKey('app-icon-frame-$keyId'),
-                      color: s.soft,
+                      color: s.text.withValues(alpha: .05),
                       shape: frameShape,
                       clipBehavior: Clip.antiAlias,
                       child: InkWell(
@@ -203,16 +355,18 @@ class _AppTile extends StatelessWidget {
                           child: Center(
                               child: bytes is Uint8List
                                   ? Image.memory(bytes,
-                                      width: Design.px(66),
-                                      height: Design.px(66),
+                                      width: Design.px(54),
+                                      height: Design.px(54),
+                                      gaplessPlayback: true,
+                                      filterQuality: FilterQuality.low,
                                       errorBuilder: (context, error, stack) =>
                                           UniIcon('apps',
-                                              size: Design.px(45),
+                                              size: Design.px(54),
                                               color: s.accent))
                                   : UniIcon('apps',
-                                      size: Design.px(45),
+                                      size: Design.px(54),
                                       color: s.accent))))))),
-      SizedBox(height: Design.px(18)),
+      SizedBox(height: Design.px(10.8)),
       GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTap: tap,
@@ -220,8 +374,11 @@ class _AppTile extends StatelessWidget {
           child: Text(label,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: Design.px(23), height: 1.2))),
-    ]);
+              style: TextStyle(
+                  fontSize: Design.px(18),
+                  height: 1.2,
+                  color: s.text.withValues(alpha: .62)))),
+    ]));
   }
 }
 

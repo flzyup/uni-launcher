@@ -365,7 +365,7 @@ void main() {
     await t.pumpAndSettle();
     expect(visibility.last, false,
         reason: 'A modal owns input while the map stays composited below');
-    await t.tap(find.byTooltip('关闭音乐详情'));
+    await t.tap(find.byKey(const ValueKey('card-focus-close')));
     await t.pumpAndSettle();
     expect(visibility.last, true);
     expect(creates, 1);

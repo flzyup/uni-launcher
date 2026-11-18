@@ -80,7 +80,7 @@ python tools/probe_storage.py -s <serial>                      # 实车采集（
 | 图标 | `uni_icon.dart:49` | `Icons.cleaning_services_outlined → 'broom'`，资源已存在 |
 | 权限先例 | `MainActivity` 4105（日历）/ 4106（录音） | 同一种 `requestPermissions` + `onRequestPermissionsResult` 写法，4107 沿用 |
 
-签名事实：`targetSdk=28`，车机包用 platform 证书（`build.gradle.kts` 的 `uniLocal` signing config），manifest 里 `STATUS_BAR_SERVICE`、`INSTALL_PACKAGES` 等 signature 权限实际生效 → 本应用是特权应用，`DELETE_CACHE_FILES` / `PACKAGE_USAGE_STATS` 随签名自动授予，只有 `WRITE_EXTERNAL_STORAGE` 要过一次系统弹窗。
+签名事实：`targetSdk=28`，全项目只有一张证书——AOSP 测试签名（`build.gradle.kts` 的 `aospTest` signing config，SHA-256 `C8:A2:E9:BC:…`，实车包与开发包同一张），manifest 里 `STATUS_BAR_SERVICE`、`INSTALL_PACKAGES` 等 signature 权限实际生效 → 本应用是特权应用，`DELETE_CACHE_FILES` / `PACKAGE_USAGE_STATS` 随签名自动授予，只有 `WRITE_EXTERNAL_STORAGE` 要过一次系统弹窗。
 
 ---
 
@@ -347,3 +347,27 @@ scanInto()
 | 权限被拒 | 类目 `available:false` + 写明「正在获取存储权限…」，不假装成功 |
 | 清缓存导致应用重登/重载地图 | 文案写明「登录状态不受影响，离线地图不会被清理」；`system-cache` 默认不勾 |
 | 全盘遍历把 `Android/data` 里的应用数据带走 | `Android/data/*/files`、`databases`、`shared_prefs` 均在 `never`；只有 `cache`/`code_cache` 可清 |
+
+---
+
+## 12. 实现记录
+
+### 2026-11-08 · 清理结束后的相位与取消标志复位（原生侧）
+
+**文件**：`app/android/.../integration/StorageCleaner.java`（`cleanTask` 的 `finally`，+9 行）
+
+清完一轮后原生会在原地重扫一遍，让面板直接显示新数据（不要求用户再点「扫描」）。
+这段统计本身不删东西，但当时有两个状态没复位，界面看起来像卡住：
+
+| 现象 | 原因 |
+| --- | --- |
+| 进度条停在「清理中 100%」好几秒 | `phase` 还留在 `clean`，重扫期间没有切回 `scan` |
+| 中途按过「停止清理」后，重扫被自己打断，面板跳成「已清理干净」 | `cancel` 仍是 `true`，新一轮遍历第一步就被自己取消 |
+
+修法：进入重扫前显式 `cancel = false; phase = "scan"; progress = 0;
+current = "";`，并立即 `bump()` 推一次快照，让界面当帧切到「扫描中」。
+`progress` 归零同样重要——保留 1.0 会让进度条停在满格不动。
+
+**验证**：Dart 侧 `storage_cleaner_panel_test` 覆盖「扫描进度态 / 停止语义 /
+清理完成 toast / 空闲重新扫描」，全量 `flutter test` 通过；原生侧改动为纯状态
+赋值，本机无 Gradle 发行版缓存未能编译验证，出 APK 时确认。

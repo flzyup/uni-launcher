@@ -372,6 +372,40 @@ long castPosition = Math.max(0, position(p) + LyricOffset.forTrack(title, artist
 
 ---
 
+## 12. 修「歌词总是显示上一首的」
+
+现场现象：切歌后卡片上的词还是上一首的，一直不换。根因不在取词，而在**卡片判定「文档有没有变」**。
+
+`LyricsView.refresh()` 原来用一个「形状签名」判断要不要重建歌词对象：
+
+```dart
+final next = timeline.lines.isEmpty
+    ? raw
+    : 'T${timeline.lines.length}@${timeline.lines.first.timeMs}';
+final changed = payload != next;   // 只有 changed 才重建 lyrics
+```
+
+签名只包含**行数**和**首行时间**，不含歌名。两首歌的 LRC 都以 `[00:00]作词：…` 开头、行数又恰好相同时
+（中文流行歌极常见，40–60 行区间撞行数是常态），签名完全一致 → `changed=false` → `lyrics` 保持上一首，
+`active` 也不重置，界面于是永久停在上一首的词上。这也解释了两件事：切歌瞬间标题/封面都是对的、
+只有词不对；重新进页面能恢复（组件重建后签名重算）。
+
+修法：签名带上曲目与文档身份，`title|artist|lyricsSource|lyricTimelineLabel|行数@首行-末行:首末行文本哈希`
+（`app/lib/widgets/lyrics_view.dart:98`）。回归测试
+`app/test/media_motion_test.dart` 的「a track change replaces the document even when the shapes match」
+用两首同形状不同词的文档复现：改回旧签名时该测试失败，改后通过。
+
+同一类问题在原生侧也补了一道闸：`LyricTimelineProvider.Result` 现在带上 `key`
+（`LyricTimelineProvider.java:68`, `:287`），`MediaAdapter.snapshot()` 在发布前比对
+`LyricCatalog.key(title,artist,duration)` 与文档的 `key`，不一致就丢弃文档并发
+`LYRIC lyric/mismatch`（`MediaAdapter.java:561-566`）。缓存层本来是按 key 取值的，这道闸防的是
+「迟到的一笔应答」或「被保留的旧曲目元数据」把别人的词送上屏。
+
+> 若现场仍然出现，抓一条日志过滤 `LYRIC`：`lyric/mismatch` 说明是文档串曲（已拦截，会打 want/got），
+> 没有这条而词仍不换，则是 `LyricsView` 之外的消费者（例如 `lyricLine` 直通路径）在画。
+
+---
+
 ## 本文依据
 
 - 源码：`LyricCatalog.java`（`:53` ORDER、`:281` load 并发、`:394` variants、`:453` direct、

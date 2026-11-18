@@ -5,8 +5,9 @@ import 'package:flutter/material.dart';
 import '../model/cluster_layout.dart';
 import '../platform/cluster_lyrics.dart';
 import '../theme/design_tokens.dart';
+import '../theme/launcher_type.dart';
 import '../theme/launcher_theme.dart';
-import 'glass_surface.dart';
+import 'choice_button.dart';
 import 'setting_block.dart';
 
 /// Settings for the lyric cast: which display the words land on, where exactly they sit on
@@ -27,6 +28,13 @@ class ClusterLyricsSettingsTab extends StatefulWidget {
 
   final ClusterLyrics client;
 
+  /// 本机预览的注入点。
+  ///
+  /// Windows 上没有安卓的副屏投射服务，`clusterLyrics*` 三条通道无人应答，
+  /// 整页就只剩一句「没有暴露任何副屏」，版式无从检查。`preview/main_preview.dart`
+  /// 在 `UNI_PREVIEW_CLUSTER=1` 时塞一个假客户端进来；正式运行恒为 null。
+  static ClusterLyrics? previewClient;
+
   @override
   State<ClusterLyricsSettingsTab> createState() =>
       _ClusterLyricsSettingsTabState();
@@ -37,6 +45,9 @@ class _ClusterLyricsSettingsTabState extends State<ClusterLyricsSettingsTab> {
   ClusterCastStatus _status = ClusterCastStatus.unknown;
   bool _loading = true;
   Timer? _poll;
+
+  ClusterLyrics get _client =>
+      ClusterLyricsSettingsTab.previewClient ?? widget.client;
 
   /// Live position while a drag is in flight; persisted when the finger lifts.
   double? _dragX;
@@ -61,14 +72,14 @@ class _ClusterLyricsSettingsTabState extends State<ClusterLyricsSettingsTab> {
 
   Future<void> _refreshStatus() async {
     if (!mounted) return;
-    final status = await widget.client.status();
+    final status = await _client.status();
     if (!mounted) return;
     setState(() => _status = status);
   }
 
   Future<void> _load() async {
-    final displays = await widget.client.displays();
-    final status = await widget.client.status();
+    final displays = await _client.displays();
+    final status = await _client.status();
     if (!mounted) return;
     setState(() {
       _displays = displays;
@@ -102,10 +113,47 @@ class _ClusterLyricsSettingsTabState extends State<ClusterLyricsSettingsTab> {
     int? rows,
     int? accent,
     String? style,
+    String? motion,
   }) async {
     final turnOn = enabled ?? (display != null ? true : _status.enabled);
     final target = display ?? (turnOn ? (_selected ?? _firstSecondary) : null);
-    final next = await widget.client.apply(
+    // 先本地生效再问原生。
+    //
+    // 原生投射服务连不上时（Windows 预览、或这台车机没装投射桥），apply 会退回
+    // unknown——那不是「被拒绝」，只是「问不到」。拿它覆盖界面上的值，用户点了
+    // 样式/行数/宽度全都停在旧值，看起来像「选中态切换不了」。
+    final optimistic = _status.copyWith(
+      enabled: display != null || _status.enabled,
+      displayId: target?.id ?? _status.displayId,
+      displayName: target?.name ?? _status.displayName,
+      fontSp: fontSp ?? _status.fontSp,
+      solidBackground: solidBackground ?? _status.solidBackground,
+      xRatio: xRatio ?? _dragX ?? _status.xRatio,
+      yRatio: yRatio ?? _dragY ?? _status.yRatio,
+      widthRatio: widthRatio ?? _status.widthRatio,
+      rows: rows ?? _status.rows,
+      accent: accent ?? _status.accent,
+      style: style ?? _status.style,
+      motion: motion ?? _status.motion,
+    );
+    if (optimistic.enabled != _status.enabled ||
+        optimistic.displayId != _status.displayId ||
+        optimistic.fontSp != _status.fontSp ||
+        optimistic.solidBackground != _status.solidBackground ||
+        optimistic.xRatio != _status.xRatio ||
+        optimistic.yRatio != _status.yRatio ||
+        optimistic.widthRatio != _status.widthRatio ||
+        optimistic.rows != _status.rows ||
+        optimistic.accent != _status.accent ||
+        optimistic.style != _status.style ||
+        optimistic.motion != _status.motion) {
+      setState(() {
+        _status = optimistic;
+        _dragX = null;
+        _dragY = null;
+      });
+    }
+    final next = await _client.apply(
       display: target,
       fontSp: fontSp ?? _status.fontSp,
       solidBackground: solidBackground ?? _status.solidBackground,
@@ -115,10 +163,15 @@ class _ClusterLyricsSettingsTabState extends State<ClusterLyricsSettingsTab> {
       rows: rows ?? _status.rows,
       accent: accent ?? _status.accent,
       style: style ?? _status.style,
+      motion: motion ?? _status.motion,
     );
     if (!mounted) return;
     setState(() {
-      _status = next;
+      // 桥不可用时 next 是 unknown：那是「不知道」，不是「原生说了不行」，
+      // 保留刚点下去的值，只把原因挂到 report 上显示。
+      _status = next.report == ClusterLyrics.bridgeUnavailable
+          ? _status.copyWith(report: next.report)
+          : next;
       _dragX = null;
       _dragY = null;
     });
@@ -162,54 +215,137 @@ class _ClusterLyricsSettingsTabState extends State<ClusterLyricsSettingsTab> {
   @override
   Widget build(BuildContext context) {
     final s = SurfaceStyle.of(context);
+    // 拖动中的临时值优先：手指还在屏幕上时预览必须跟手，松手才把比例写进原生。
     final x = _dragX ?? _status.xRatio;
     final y = _dragY ?? _status.yRatio;
-    return SingleChildScrollView(
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        SettingBlock(
-          title: '歌词投到仪表盘',
-          note: _status.enabled ? '已开启' : '未开启',
-          child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                DesignSwitchTile(
-                  key: const ValueKey('cluster-lyrics-switch'),
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('在当前选择的车机屏幕上显示歌词'),
-                  subtitle: const Text(
-                      '只叠加歌词窗口，不接管那个屏幕的触摸，也不修改原车机的仪表界面'),
-                  value: _status.enabled,
-                  onChanged: _loading
-                      ? null
-                      : (value) async {
-                          if (value) {
-                            final target = _selected ?? _firstSecondary;
-                            if (target == null) return;
-                            await _apply(display: target, enabled: true);
-                          } else {
-                            await _apply(enabled: false);
-                          }
-                        },
-                ),
-                SizedBox(height: Design.px(16)),
-                Text(_status.report.isEmpty ? '尚未尝试投射' : _status.report,
-                    style: TextStyle(
-                        fontSize: Design.px(17),
-                        color: _status.enabled ? s.accent : s.muted)),
-                SizedBox(height: Design.px(8)),
-                Text(_status.lyricSummary,
-                    key: const ValueKey('cluster-lyric-summary'),
-                    style: TextStyle(
-                        fontSize: Design.px(17),
-                        color: _status.lyricLines > 0 ? s.accent : s.muted)),
-              ]),
+    // sim f38：左栏四块设置、右栏预览 + 字形，两栏各自滚动（1 : 1.08）。
+    //
+    // 设计稿的块间距 12 是按「内容刚好占满一屏」画的，实机上底部有多媒体
+    // 底栏占位，可视高度只有 517 画布——原样搬过来，左栏正好切在「实现方式」
+    // 的第三行上、右栏切在「高亮色」下面。块间距与内边距各让几像素后两栏
+    // 都能一次放完，见 `cluster settings fit one screen without scrolling`。
+    final leftColumn = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _castBlock(s),
+        SizedBox(height: Design.dz(6)),
+        _placeBlock(s, x, y),
+        SizedBox(height: Design.dz(6)),
+        _displayBlock(s),
+        SizedBox(height: Design.dz(6)),
+        _howBlock(s),
+      ],
+    );
+    final rightColumn = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _previewBlock(s, x, y),
+        SizedBox(height: Design.dz(6)),
+        _typeBlock(s),
+      ],
+    );
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Expanded(
+          flex: 25,
+          child: SingleChildScrollView(
+            key: const PageStorageKey('cluster-settings-left'),
+            child: leftColumn,
+          ),
         ),
-        SizedBox(height: Design.px(18)),
-        SettingBlock(
-          title: '位置与大小',
-          note: '${(x * 100).round()}% · ${(y * 100).round()}% · '
-              '宽 ${(ClusterLayout.widthRatio(_status.widthRatio) * 100).round()}%',
-          trailing: TextButton(
+        SizedBox(width: Design.dz(12)),
+        Expanded(
+          flex: 27,
+          child: SingleChildScrollView(
+            key: const PageStorageKey('cluster-settings-right'),
+            child: rightColumn,
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// f38 的块内边距：设计稿 12/14 会把这页顶到两屏，收到 8/9 后两栏都能一次放完。
+  static final EdgeInsets _pad = EdgeInsets.fromLTRB(
+      Design.dz(17), Design.dz(8), Design.dz(17), Design.dz(9));
+
+  /// 小标签：设计稿 `.lb`，13.5 / 40% 墨色。
+  Widget _label(SurfaceStyle s, String text) => Padding(
+      padding: EdgeInsets.only(bottom: Design.dz(4)),
+      child: Text(text,
+          style: TextStyle(
+              fontSize: Design.dz(15),
+              color: s.text.withValues(alpha: .4))));
+
+  /// 开关放在标题行右侧（设计稿 `.sw` 的位置），不用整行 SwitchTile。
+  Widget _headerSwitch(String key, bool value, ValueChanged<bool>? onChanged) =>
+      DesignSwitch(
+          key: ValueKey(key), value: value, onChanged: onChanged);
+
+  Widget _castBlock(SurfaceStyle s) => SettingBlock(
+        title: '歌词投到仪表盘',
+        dense: true,
+        padding: _pad,
+        note: _status.enabled ? '已开启' : '未开启',
+        trailing: _headerSwitch(
+            'cluster-lyrics-switch',
+            _status.enabled,
+            _loading
+                ? null
+                : (value) async {
+                    if (value) {
+                      final target = _selected ?? _firstSecondary;
+                      if (target == null) return;
+                      await _apply(display: target, enabled: true);
+                    } else {
+                      await _apply(enabled: false);
+                    }
+                  }),
+        child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(children: [
+                Container(
+                    width: Design.dz(6),
+                    height: Design.dz(6),
+                    decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: _status.enabled ? s.accent : s.disabled)),
+                SizedBox(width: Design.dz(8)),
+                Expanded(
+                    child: Text(
+                        _status.report.isEmpty ? '尚未尝试投射' : _status.report,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            fontSize: Design.dz(12.5),
+                            color: _status.enabled ? s.accent : s.muted))),
+                Text('窗口随屏重建',
+                    style:
+                        TextStyle(fontSize: Design.dz(11.5), color: s.muted))
+              ]),
+              SizedBox(height: Design.dz(6)),
+              Text(
+                  '只叠加歌词窗口，不接管那个屏幕的触摸，也不修改原车机的仪表界面',
+                  style: TextStyle(
+                      fontSize: Design.dz(11.5), color: s.muted, height: LauncherType.lineLoose)),
+              SizedBox(height: Design.dz(6)),
+              Text(_status.lyricSummary,
+                  key: const ValueKey('cluster-lyric-summary'),
+                  style: TextStyle(
+                      fontSize: Design.dz(11.5),
+                      color: _status.lyricLines > 0 ? s.accent : s.muted)),
+            ]),
+      );
+
+  Widget _placeBlock(SurfaceStyle s, double x, double y) => SettingBlock(
+        title: '位置与大小',
+        dense: true,
+        padding: _pad,
+        note: '${(x * 100).round()}% · ${(y * 100).round()}% · '
+            '宽 ${(ClusterLayout.widthRatio(_status.widthRatio) * 100).round()}%',
+        trailing: TextButton(
             key: const ValueKey('cluster-position-reset'),
             onPressed: _loading
                 ? null
@@ -218,198 +354,362 @@ class _ClusterLyricsSettingsTabState extends State<ClusterLyricsSettingsTab> {
                       yRatio: ClusterLayout.defaultY,
                       widthRatio: ClusterLayout.defaultWidth,
                     ),
-            child: const Text('回到中间'),
-          ),
-          child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _CastPreview(
-                  display: _selected,
-                  status: _status,
-                  xRatio: x,
-                  yRatio: y,
-                  onDrag: _loading || !_status.enabled ? null : _drag,
-                  onCommit: _loading || !_status.enabled ? null : _commitDrag,
-                ),
-                SizedBox(height: Design.px(12)),
-                Text(
-                  _status.enabled
-                      ? '按住歌词块拖到想放的位置，松手即生效；百分比随屏幕尺寸等比生效，换分辨率也不会跑偏。'
-                      : '先打开上面的开关，再拖动预览里的歌词块。',
-                  style: TextStyle(fontSize: Design.px(17), color: s.muted, height: 1.4),
-                ),
-                SizedBox(height: Design.px(14)),
-                _LabelRow(label: '可见行数', value: _status.rows),
-                Row(children: [
-                  for (final count in const [1, 2, 3])
-                    Padding(
-                      padding: EdgeInsets.only(right: Design.px(12)),
-                      child: OutlinedButton(
-                        key: ValueKey('cluster-rows-$count'),
-                        style: s.selectionStyle(_status.rows == count),
-                        onPressed: () => _apply(rows: count),
-                        child: Text('$count 行'),
-                      ),
-                    ),
-                  const Spacer(),
-                ]),
-                SizedBox(height: Design.px(10)),
-                _LabelRow(
-                    label: '宽度',
-                    value:
-                        (ClusterLayout.widthRatio(_status.widthRatio) * 100).round()),
-                Row(children: [
-                  for (final ratio in const [0.5, 0.7, 0.86, 0.94, 1.0])
-                    Padding(
-                      padding: EdgeInsets.only(right: Design.px(12)),
-                      child: OutlinedButton(
-                        key: ValueKey('cluster-width-${(ratio * 100).round()}'),
-                        style: s.selectionStyle(
-                            (ClusterLayout.widthRatio(_status.widthRatio) - ratio)
-                                    .abs() <
-                                0.01),
-                        onPressed: () => _apply(widthRatio: ratio),
-                        child: Text('${(ratio * 100).round()}%'),
-                      ),
-                    ),
-                  const Spacer(),
-                ]),
+            child: const Text('回到中间')),
+        child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _label(s, '可见行数'),
+              Row(children: [
+                for (final (index, count) in const [1, 2, 3].indexed)
+                  Expanded(
+                      child: Padding(
+                          padding: EdgeInsets.only(
+                              right: index == 2 ? 0 : Design.dz(9)),
+                          child: ChoiceButton(
+                              key: ValueKey('cluster-rows-$count'),
+                              kind: ChoiceKind.filled,
+                              height: 40,
+                              radius: 11,
+                              selected: _status.rows == count,
+                              onPressed: () => _apply(rows: count),
+                              child: Text('$count 行',
+                                  style: TextStyle(
+                                      fontSize: Design.dz(13.5))))))
               ]),
-        ),
-        SizedBox(height: Design.px(18)),
-        SettingBlock(
-          title: '目标屏幕',
-          note: _loading ? '读取中' : '${_displays.length} 个',
-          trailing: TextButton(
+              SizedBox(height: Design.dz(9)),
+              _label(s, '宽度'),
+              Row(children: [
+                for (final (index, ratio)
+                    in const [0.5, 0.7, 0.86, 0.94, 1.0].indexed)
+                  Expanded(
+                      child: Padding(
+                          padding: EdgeInsets.only(
+                              right: index == 4 ? 0 : Design.dz(8)),
+                          child: ChoiceButton(
+                              key: ValueKey(
+                                  'cluster-width-${(ratio * 100).round()}'),
+                              kind: ChoiceKind.filled,
+                              height: 38,
+                              radius: 11,
+                              selected: (ClusterLayout.widthRatio(
+                                              _status.widthRatio) -
+                                          ratio)
+                                      .abs() <
+                                  0.01,
+                              onPressed: () => _apply(widthRatio: ratio),
+                              child: Text('${(ratio * 100).round()}%',
+                                  style: TextStyle(
+                                      fontSize: Design.dz(13.5))))))
+              ]),
+            ]),
+      );
+
+  Widget _displayBlock(SurfaceStyle s) => SettingBlock(
+        title: '目标屏幕',
+        dense: true,
+        padding: _pad,
+        note: _loading ? '读取中' : '${_displays.length} 个',
+        trailing: TextButton(
             onPressed: _loading ? null : _load,
-            child: const Text('重新扫描'),
-          ),
-          child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                if (!_loading && _displays.isEmpty)
-                  Text('这台车机没有向应用暴露任何副屏，歌词无法投出。',
-                      style: TextStyle(
-                          fontSize: Design.px(18), color: s.muted))
-                else
-                  Wrap(
-                    spacing: Design.px(14),
-                    runSpacing: Design.px(14),
-                    children: [
-                      for (final display in _displays)
-                        OutlinedButton(
-                          key: ValueKey('cluster-display-${display.id}'),
-                          style: s.selectionStyle(_selected?.id == display.id),
-                          onPressed: _loading
-                              ? null
-                              : () => _apply(
-                                  display: _status.enabled &&
-                                          _selected?.id == display.id
-                                      ? null
-                                      : display),
-                          child: Padding(
-                            padding: EdgeInsets.symmetric(
-                                horizontal: Design.px(18),
-                                vertical: Design.px(14)),
-                            child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(display.label,
-                                      style: TextStyle(
-                                          fontSize: Design.px(19),
-                                          fontWeight: FontWeight.w500)),
-                                  SizedBox(height: Design.px(6)),
-                                  Text(
-                                      display.presentation
-                                          ? '系统标记为副屏'
-                                          : '系统未标记为副屏',
-                                      style: TextStyle(
-                                          fontSize: Design.px(16),
-                                          color: s.muted)),
-                                ]),
-                          ),
-                        )
-                    ],
-                  ),
-                SizedBox(height: Design.px(14)),
-                Text('选择后立刻生效，并会被记住；重启后按屏幕名称重新匹配。',
-                    style:
-                        TextStyle(fontSize: Design.px(17), color: s.muted)),
-              ]),
-        ),
-        SizedBox(height: Design.px(18)),
-        SettingBlock(
-          title: '字形与配色',
-          note: '${_status.fontSp.round()} sp',
-          child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
+            child: const Text('重新扫描')),
+        child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (!_loading && _displays.isEmpty)
+                Text('这台车机没有向应用暴露任何副屏，歌词无法投出。',
+                    style: TextStyle(fontSize: Design.dz(13), color: s.muted))
+              else
                 Row(children: [
-                  for (final step in const [24.0, 30.0, 36.0, 44.0, 54.0])
-                    Padding(
-                      padding: EdgeInsets.only(right: Design.px(12)),
-                      child: OutlinedButton(
-                        key: ValueKey('cluster-font-${step.round()}'),
-                        style: s.selectionStyle(_status.fontSp == step),
-                        onPressed: () => _apply(fontSp: step),
-                        child: Text('${step.round()}'),
-                      ),
-                    ),
-                  const Spacer(),
+                  for (final (index, display) in _displays.indexed)
+                    Expanded(
+                        child: Padding(
+                            padding: EdgeInsets.only(
+                                right: index == _displays.length - 1
+                                    ? 0
+                                    : Design.dz(9)),
+                            child: SizedBox(
+                                height: Design.dz(44),
+                                child: ChoiceButton(
+                                    key: ValueKey('cluster-display-${display.id}'),
+                                    kind: ChoiceKind.filled,
+                                    height: 44,
+                                    radius: 11,
+                                    onPressed: _loading
+                                        ? null
+                                        : () => _apply(
+                                            display: _status.enabled &&
+                                                    _selected?.id == display.id
+                                                ? null
+                                                : display),
+                                    selected: _selected?.id == display.id,
+                                    child: Column(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        children: [
+                                          Text(display.name,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                  fontSize: Design.dz(14))),
+                                          SizedBox(height: Design.dz(2)),
+                                          Text(
+                                              display.width > 0
+                                                  ? '${display.width}×${display.height}'
+                                                  : '分辨率未知',
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                  fontSize: Design.dz(10.5),
+                                                  fontWeight: FontWeight.w400))
+                                        ])))))
                 ]),
-                SizedBox(height: Design.px(14)),
-                _LabelRow(label: '高亮色', value: null),
-                Wrap(spacing: Design.px(12), runSpacing: Design.px(12), children: [
-                  for (final swatch in _accents)
-                    _AccentSwatch(
-                      key: ValueKey('cluster-accent-${swatch.toRadixString(16)}'),
-                      color: Color(swatch),
-                      selected: _status.accent == swatch,
-                      onTap: () => _apply(accent: swatch),
-                    ),
-                ]),
-                SizedBox(height: Design.px(14)),
-                _LabelRow(label: '样式', value: null),
-                Row(children: [
-                  for (final option in _styles)
-                    Padding(
-                      padding: EdgeInsets.only(right: Design.px(12)),
-                      child: OutlinedButton(
-                        key: ValueKey('cluster-style-${option.$1}'),
-                        style: s.selectionStyle(_status.style == option.$1),
-                        onPressed: () => _apply(style: option.$1),
-                        child: Text(option.$2),
-                      ),
-                    ),
-                  const Spacer(),
-                ]),
-                SizedBox(height: Design.px(10)),
-                DesignSwitchTile(
-                  key: const ValueKey('cluster-background-switch'),
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('文字下方加深色底板'),
-                  subtitle: const Text('关闭后文字直接压在原车机画面上，适合纯黑仪表底'),
-                  value: _status.solidBackground,
-                  onChanged: (value) => _apply(solidBackground: value),
-                ),
-              ]),
+              SizedBox(height: Design.dz(9)),
+              // 把「现在（或下次打开时）会投到哪块屏」的原始身份摊开：
+              // 出问题时这是唯一能对得上的线索，也不至于让用户猜默认目标是哪块。
+              Text(
+                  (_selected ?? _firstSecondary) == null
+                      ? '选择后立刻生效，并会被记住；重启后按屏幕名称重新匹配。'
+                      : '${(_selected ?? _firstSecondary)!.label} · '
+                          '${(_selected ?? _firstSecondary)!.presentation ? '系统标记为副屏' : '系统未标记为副屏'}',
+                  style: TextStyle(
+                      fontSize: Design.dz(11.5), color: s.muted, height: LauncherType.lineLoose)),
+            ]),
+      );
+
+  Widget _howBlock(SurfaceStyle s) => SettingBlock(
+        title: '实现方式',
+        dense: true,
+        padding: _pad,
+        child: Text(
+          '系统悬浮窗直接画在目标屏上，不抢焦点、不拦截触摸；'
+          '位置按屏幕百分比保存，预览即仪表。'
+          '歌词由投射服务自行获取，桌面不在前台也照常滚动。',
+          style: TextStyle(
+              fontSize: Design.dz(11.5), color: s.muted, height: LauncherType.lineLoose),
         ),
-        SizedBox(height: Design.px(18)),
-        SettingBlock(
-          title: '实现方式',
-          note: '说明',
-          child: Text(
-            '投屏窗口由系统进程内的窗口管理器绘制在目标屏幕自己的窗口上，'
-            '使用应用悬浮窗类型，不获取焦点、不拦截触摸。位置按屏幕百分比保存，'
-            '与服务端的排版公式一致，因此预览里拖到哪里，仪表上就出现在哪里。'
-            '歌词数据由投射服务自己按固定节奏向媒体适配器取，不依赖桌面是否在前台，'
-            '所以打开音乐应用全屏时歌词照样走。',
-            style: TextStyle(fontSize: Design.px(18), color: s.muted, height: 1.5),
-          ),
-        ),
-      ]),
-    );
+      );
+
+  Widget _previewBlock(SurfaceStyle s, double x, double y) => SettingBlock(
+        title: '预览 · ${_selected?.name ?? '中控副屏'}',
+        // 原来块底还有一行「按住歌词块拖到想放的位置……」：一屏放不下时，
+        // 那 20 逻辑像素正好把「字形与配色」顶出屏幕。指引并没有丢，收进
+        // 标题右侧这行副标题里——未开启时先提示去开开关。
+        note: _status.enabled
+            ? 'x ${(x * 100).round()}% · y ${(y * 100).round()}% · 按住歌词块拖动，松手生效'
+            : '先打开上面的开关，再拖动预览里的歌词块',
+        dense: true,
+        padding: _pad,
+        child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // 高度交给 [_CastPreview] 自己按目标屏的宽高比算：固定 300 在一台
+              // 1920×720 的副屏上会上下各留 35 画布的空白，而那一截正是整页
+              // 放不下的部分。
+              _CastPreview(
+                display: _selected,
+                status: _status,
+                xRatio: x,
+                yRatio: y,
+                onDrag: _loading || !_status.enabled ? null : _drag,
+                onCommit: _loading || !_status.enabled ? null : _commitDrag,
+              ),
+            ]),
+      );
+
+  /// 字号按设计稿做成「− 44 ＋」步进，而不是五颗按钮：
+  /// 档位是给手指用的，不是给眼睛数的。
+  static const _fontSteps = [24.0, 30.0, 36.0, 44.0, 54.0];
+
+  int get _fontIndex {
+    var best = 0;
+    for (var i = 1; i < _fontSteps.length; i++) {
+      if ((_fontSteps[i] - _status.fontSp).abs() <
+          (_fontSteps[best] - _status.fontSp).abs()) best = i;
+    }
+    return best;
   }
+
+  Widget _stepButton(IconData icon, String key, VoidCallback? onTap) =>
+      SizedBox(
+          width: Design.dz(46),
+          height: Design.dz(34),
+          child: OutlinedButton(
+              key: ValueKey(key),
+              style: OutlinedButton.styleFrom(
+                  padding: EdgeInsets.zero,
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(Design.dz(12)))),
+              onPressed: onTap,
+              child: Icon(icon, size: Design.dz(16))));
+
+  /// 紧凑开关行。
+  ///
+  /// `DesignSwitchTile` 走的是 ListTile：title + subtitle 两行在 46 号开关旁边
+  /// 会撑到 71 画布，这页两个就是 142——正好把「样式」整行挤出屏幕。这里自绘
+  /// 一行 43 画布，字号与设计稿一致，只是不再吃 ListTile 的默认行高。
+  Widget _switchRow(SurfaceStyle s, String key, String title, String subtitle,
+          bool value, ValueChanged<bool>? onChanged) =>
+      InkWell(
+          key: ValueKey(key),
+          borderRadius: BorderRadius.circular(Design.dz(10)),
+          onTap: onChanged == null ? null : () => onChanged(!value),
+          child: Padding(
+              padding: EdgeInsets.symmetric(vertical: Design.dz(5)),
+              child: Row(children: [
+                Expanded(
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                      Text(title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              fontSize: Design.dz(13.5),
+                              color: s.text
+                                  .withValues(alpha: onChanged == null ? .5 : .9))),
+                      SizedBox(height: Design.dz(2)),
+                      Text(subtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              fontSize: Design.dz(11), color: s.muted)),
+                    ])),
+                SizedBox(width: Design.dz(12)),
+                DesignSwitch(value: value, onChanged: onChanged),
+              ])));
+
+  /// 动效档位行：沿用 [_switchRow] 的 43 画布行高，尾部换成两枚档位按钮。
+  ///
+  /// 这一行的副标题跟着档位变：关着说「只在换行重绘一次」，开着说「上一行向上
+  /// 淡出」。两段说明合成一行，是因为这页两栏都只剩几画布的余量，再多一行说明
+  /// 就会把「样式」挤出屏幕（design_contract 盯着这件事）。
+  Widget _motionRow(SurfaceStyle s) {
+    final enabled = ClusterLayout.motionEnabled(_status.motion);
+    return Padding(
+        padding: EdgeInsets.symmetric(vertical: Design.dz(5)),
+        child: Row(children: [
+          Expanded(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                Text('歌词动效',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        fontSize: Design.dz(13.5),
+                        color: s.text.withValues(alpha: .9))),
+                SizedBox(height: Design.dz(2)),
+                Text(
+                    enabled
+                        ? '切行时上一行向上淡出、新行从下方浮起，唱到的字跟着高亮推进'
+                        : '默认关闭：只在换行的那一刻重绘一次，两句之间完全不占帧，跑地图时最省',
+                    key: const ValueKey('cluster-motion-note'),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: Design.dz(11), color: s.muted)),
+              ])),
+          SizedBox(width: Design.dz(10)),
+          for (final (index, option) in const [
+            (ClusterLayout.motionNone, '无'),
+            (ClusterLayout.motionWords, '逐次+动效'),
+          ].indexed)
+            Padding(
+                padding: EdgeInsets.only(
+                    right: index == 1 ? 0 : Design.dz(6)),
+                child: ChoiceButton(
+                    key: ValueKey('cluster-motion-${option.$1}'),
+                    kind: ChoiceKind.filled,
+                    height: 28,
+                    radius: 9,
+                    selected:
+                        ClusterLayout.motion(_status.motion) == option.$1,
+                    onPressed: () => _apply(motion: option.$1),
+                    child: Text(option.$2,
+                        style: TextStyle(fontSize: Design.dz(11.5))))),
+        ]));
+  }
+
+  Widget _typeBlock(SurfaceStyle s) => SettingBlock(
+        title: '字形与配色',
+        note: '${_status.fontSp.round()} sp',
+        dense: true,
+        padding: _pad,
+        child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(children: [
+                SizedBox(
+                    width: Design.dz(78),
+                    child: Text('字号',
+                        style: TextStyle(
+                            fontSize: Design.dz(13.5),
+                            color: s.text.withValues(alpha: .5)))),
+                _stepButton(Icons.remove, 'cluster-font-down',
+                    _loading || _fontIndex == 0
+                        ? null
+                        : () => _apply(fontSp: _fontSteps[_fontIndex - 1])),
+                Expanded(
+                    child: Center(
+                        child: Text('${_status.fontSp.round()}',
+                            style: TextStyle(
+                                fontSize: Design.dz(17),
+                                fontWeight: FontWeight.w300,
+                                color: s.text.withValues(alpha: .9))))),
+                _stepButton(Icons.add, 'cluster-font-up',
+                    _loading || _fontIndex == _fontSteps.length - 1
+                        ? null
+                        : () => _apply(fontSp: _fontSteps[_fontIndex + 1])),
+              ]),
+              SizedBox(height: Design.dz(9)),
+              _label(s, '高亮色'),
+              Wrap(
+                  spacing: Design.dz(9),
+                  runSpacing: Design.dz(9),
+                  children: [
+                    for (final swatch in _accents)
+                      _AccentSwatch(
+                        key: ValueKey(
+                            'cluster-accent-${swatch.toRadixString(16)}'),
+                        color: Color(swatch),
+                        selected: _status.accent == swatch,
+                        onTap: () => _apply(accent: swatch),
+                      ),
+                  ]),
+              SizedBox(height: Design.dz(9)),
+              _label(s, '样式'),
+              Row(children: [
+                for (final (index, option) in _styles.indexed)
+                  Expanded(
+                      child: Padding(
+                          padding: EdgeInsets.only(
+                              right: index == _styles.length - 1
+                                  ? 0
+                                  : Design.dz(9)),
+                          child: ChoiceButton(
+                              key: ValueKey('cluster-style-${option.$1}'),
+                              kind: ChoiceKind.filled,
+                              height: 36,
+                              radius: 11,
+                              selected: _status.style == option.$1,
+                              onPressed: () => _apply(style: option.$1),
+                              child: Text(option.$2,
+                                  style: TextStyle(
+                                      fontSize: Design.dz(13.5))))))
+              ]),
+              SizedBox(height: Design.dz(4)),
+              _switchRow(s, 'cluster-background-switch', '文字下方加深色底板',
+                  '关闭后文字直接压在原车画面，适合纯黑仪表底',
+                  _status.solidBackground,
+                  (value) => _apply(solidBackground: value)),
+              // 这一行设计稿是开关，但"跟随"没有独立开关：逐字时间轴有没有
+              // 完全由音源决定，所以只把结果摊开，不摆一个骗人的开关。
+              // 动效档位就落在这一行的尾部：两者是同一件事的两端——关着只在
+              // 换行重绘一次，开着逐词推进；这页已经没有第二行说明的高度了。
+              _motionRow(s),
+            ]),
+      );
 }
 
 const List<int> _accents = [
@@ -426,28 +726,6 @@ const List<(String, String)> _styles = [
   ('plain', '纯文字'),
   ('glow', '发光'),
 ];
-
-class _LabelRow extends StatelessWidget {
-  const _LabelRow({required this.label, required this.value});
-
-  final String label;
-  final int? value;
-
-  @override
-  Widget build(BuildContext context) {
-    final s = SurfaceStyle.of(context);
-    return Padding(
-      padding: EdgeInsets.only(bottom: Design.px(8)),
-      child: Row(children: [
-        Text(label, style: TextStyle(fontSize: Design.px(18), color: s.muted)),
-        if (value != null) ...[
-          const Spacer(),
-          Text('$value', style: TextStyle(fontSize: Design.px(18), color: s.muted)),
-        ],
-      ]),
-    );
-  }
-}
 
 class _AccentSwatch extends StatelessWidget {
   const _AccentSwatch({
@@ -466,8 +744,8 @@ class _AccentSwatch extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        width: Design.px(46),
-        height: Design.px(46),
+        width: Design.px(40),
+        height: Design.px(40),
         decoration: BoxDecoration(
           color: color,
           shape: BoxShape.circle,
@@ -734,31 +1012,44 @@ class _PreviewBlock extends StatelessWidget {
                 spreadRadius: fontSize * 0.05),
         ],
       ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          for (var i = 0; i < lines.length; i++)
-            Text(
-              lines[i],
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: i == (rows >= 3 ? 1 : 0) ? fontSize : fontSize * 0.74,
-                height: ClusterLayout.rowSpacing,
-                fontWeight: FontWeight.w500,
-                color: i == (rows >= 3 ? 1 : 0) ? accent : dim,
-                shadows: [
-                  if (!plain)
-                    Shadow(
-                        color: accent.withValues(alpha: glow ? 0.5 : 0.22),
-                        blurRadius: fontSize * 0.5),
-                ],
-              ),
-            ),
-        ],
-      ),
+      // 块高必须恒定等于 rows × 行距（与真机拖拽钳制一致），而换系统字体后
+      // 每行行盒的向上取整会让总高多出 1~3px，撑出溢出条。
+      // 用 LayoutBuilder 取到实际宽度后交给 FittedBox：宽度照旧撑满
+      // （stretch + ellipsis 语义不变），高度超限时等比缩 1~2%。
+      child: LayoutBuilder(
+          builder: (context, box) => FittedBox(
+                fit: BoxFit.scaleDown,
+                child: SizedBox(
+                    width: box.maxWidth,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        for (var i = 0; i < lines.length; i++)
+                          Text(
+                            lines[i],
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: i == (rows >= 3 ? 1 : 0)
+                                  ? fontSize
+                                  : fontSize * 0.74,
+                              height: ClusterLayout.rowSpacing,
+                              fontWeight: FontWeight.w500,
+                              color: i == (rows >= 3 ? 1 : 0) ? accent : dim,
+                              shadows: [
+                                if (!plain)
+                                  Shadow(
+                                      color: accent.withValues(
+                                          alpha: glow ? 0.5 : 0.22),
+                                      blurRadius: fontSize * 0.5),
+                              ],
+                            ),
+                          ),
+                      ],
+                    )))),
     );
   }
 }

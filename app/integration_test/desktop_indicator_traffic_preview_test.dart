@@ -69,7 +69,9 @@ void main() {
     expect(find.byKey(const ValueKey('clock-weather-card-open')).hitTestable(),
         findsOneWidget);
     expect(
-        find.byKey(const ValueKey('shortcuts-edit-shortcuts-1')).hitTestable(),
+        find
+            .byKey(const ValueKey('shortcuts-add-shortcuts-1'))
+            .hitTestable(),
         findsOneWidget);
     await binding.takeScreenshot('traffic-lights-desktop-page2');
     await tester.pumpWidget(const SizedBox.shrink());

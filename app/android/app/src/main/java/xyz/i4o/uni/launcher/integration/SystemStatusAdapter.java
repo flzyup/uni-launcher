@@ -21,6 +21,7 @@ public final class SystemStatusAdapter {
     private final Handler main=new Handler(Looper.getMainLooper());
     private HandlerThread thread;private Handler worker;private volatile boolean running;private volatile int generation;
     private volatile String state="{}";
+    private volatile long lastNotifiedUsedBytes=-1;
     private final Map<String,Object> apis=new HashMap<>();private ClassLoader oemLoader;
     private volatile int signalLevel=-1;
     private volatile boolean userReady;
@@ -41,13 +42,24 @@ public final class SystemStatusAdapter {
         try{next.put("dvr",dvr());}catch(Exception|LinkageError ignored){}
         try{next.put("messages",messages());}catch(Exception|LinkageError ignored){}
         try{next.put("account",account());}catch(Exception|LinkageError ignored){}
+        long used=0;
         try{
             android.app.ActivityManager.MemoryInfo memory=new android.app.ActivityManager.MemoryInfo();
             ((android.app.ActivityManager)context.getSystemService(Context.ACTIVITY_SERVICE)).getMemoryInfo(memory);
-            next.put("memory",new JSONObject().put("totalBytes",memory.totalMem).put("usedBytes",memory.totalMem-memory.availMem));
+            used=((memory.totalMem-memory.availMem)/(16L*1024*1024))*(16L*1024*1024);
+            next.put("memory",new JSONObject().put("totalBytes",memory.totalMem).put("usedBytes",used));
         }catch(Exception|LinkageError ignored){}
         if(!running||token!=generation||owner!=worker)return;
-        String raw=next.toString();if(!raw.equals(state)){UniLog.d(LogTags.SYS,"系统状态有变化","changed",changedKeys(state,raw));state=raw;main.post(()->{if(running)changed.run();});}
+        String raw=next.toString();
+        if(!raw.equals(state)){
+            String diff=changedKeys(state,raw);
+            state=raw;
+            if(!diff.isEmpty()&&(!"memory".equals(diff)||lastNotifiedUsedBytes<0||Math.abs(used-lastNotifiedUsedBytes)>=128L*1024*1024)){
+                lastNotifiedUsedBytes=used;
+                UniLog.d(LogTags.SYS,"系统状态有变化","changed",diff);
+                main.post(()->{if(running)changed.run();});
+            }
+        }
         if(running)worker.postDelayed(this,xyz.i4o.uni.launcher.LauncherVisibility.visible()?2000:5000);
     }};
     // 只列变化的字段名：采样每 2 秒一次，整份快照落盘会把车机存储写满。

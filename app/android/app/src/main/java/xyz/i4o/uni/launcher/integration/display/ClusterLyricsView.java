@@ -46,6 +46,11 @@ public final class ClusterLyricsView extends View {
 
     private static final float EDGE_FEATHER = 0.55f;
 
+    /** How long the old line slides out and the new one slides in, in milliseconds. */
+    private static final long TRANSITION_MS = 260L;
+    /** Vertical travel of the transition, as a fraction of one row. */
+    private static final float TRANSITION_TRAVEL = 0.30f;
+
     private final TextPaint basePaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     private final TextPaint accentPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     private final Paint backgroundPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -60,7 +65,20 @@ public final class ClusterLyricsView extends View {
     private int muted = 0xFF9FB4BB;
     private int background = 0xB3000000;
     private int style = STYLE_PILL;
+    private int motion = ClusterPanelGeometry.MOTION_NONE;
     private Shader sweep;
+
+    // Line transition bookkeeping. The incoming line is only animated when the active line
+    // actually changes, so the panel stays still while one line is being sung — a transition
+    // that re-ran every frame would be a permanent wobble.
+    private long lastLineKey = -1;
+    private long transitionStartMs = Long.MIN_VALUE;
+    private String fromPrevious = "";
+    private String fromText = "";
+    private String fromThird = "";
+    private String lastPrevious = "";
+    private String lastActive = "";
+    private String lastThird = "";
 
     public ClusterLyricsView(Context context) {
         super(context);
@@ -79,18 +97,39 @@ public final class ClusterLyricsView extends View {
      * @param muted      上一行、下一行、翻译颜色
      * @param background 面板底色，alpha 为 0 时不画底
      * @param style      {@link #STYLE_PLAIN} / {@link #STYLE_PILL} / {@link #STYLE_GLOW}
+     * @param motion     {@link ClusterPanelGeometry#MOTION_NONE} 或
+     *                   {@link ClusterPanelGeometry#MOTION_FLOW}
      */
     public void configure(float textSizePx, int rows, int accent, int muted, int background,
-                          int style) {
+                          int style, int motion) {
         this.textSizePx = Math.max(10f, textSizePx);
         this.rows = ClusterPanelGeometry.rows(rows);
         this.accent = accent;
         this.muted = muted;
         this.background = background;
         this.style = style;
+        this.motion = motion == ClusterPanelGeometry.MOTION_FLOW
+                ? ClusterPanelGeometry.MOTION_FLOW
+                : ClusterPanelGeometry.MOTION_NONE;
+        if (this.motion == ClusterPanelGeometry.MOTION_NONE) {
+            // Switching the effects off must not leave a half-finished transition on the glass.
+            transitionStartMs = Long.MIN_VALUE;
+        }
         sweep = null;
         requestLayout();
         invalidate();
+    }
+
+    /** Kept for callers that only know the style; effects stay off unless asked for. */
+    public void configure(float textSizePx, int rows, int accent, int muted, int background,
+                          int style) {
+        configure(textSizePx, rows, accent, muted, background, style,
+                ClusterPanelGeometry.MOTION_NONE);
+    }
+
+    /** True when the panel needs a frame loop: only the effects mode is time driven. */
+    public boolean animates() {
+        return motion == ClusterPanelGeometry.MOTION_FLOW;
     }
 
     public void setState(LyricCast.State next, long nowMs) {
@@ -130,42 +169,119 @@ public final class ClusterLyricsView extends View {
             if (snapshot.title.isEmpty()) reason = "等待播放";
             else if (snapshot.playing) reason = "正在获取歌词";
             else reason = "当前音源未提供歌词";
-            drawText(canvas, reason, 0, width, height, rowHeight, muted, 0.82f, 0.62f, "");
+            lastLineKey = -1;
+            transitionStartMs = Long.MIN_VALUE;
+            drawText(canvas, reason, 0, width, height, rowHeight, muted, 0.82f, 0.62f, "", 0f);
             return;
         }
 
         LyricTimeline.Cursor cursor = snapshot.cursorAt(nowMs);
+        boolean effects = motion == ClusterPanelGeometry.MOTION_FLOW;
+        long key = lineKey(cursor);
+        float progress = 1f;
         if (cursor.interlude) {
             // During an interlude the cursor carries the line that just ended in previous
             // (its own 	ext is empty by design), so this used to draw nothing at all.
             String ended = !cursor.text.isEmpty() ? cursor.text : cursor.previous;
-            if (rows >= 3 && !ended.isEmpty()) {
-                // Keep the line that just ended visible above the dots instead of blanking it.
-                drawText(canvas, ended, rowFor(0), width, height, rowHeight, muted, 0.74f,
-                        0.42f, "");
+            String upcoming = rows >= 2 ? cursor.next : "";
+            if (key != lastLineKey) {
+                if (effects && lastLineKey != -1 && nowMs >= 0) {
+                    transitionStartMs = nowMs;
+                }
+                lastLineKey = key;
             }
-            // Above the dots sits what is coming. A silent intro (netease KRC starts at the first
-            // sung line, so 18 s of a 4-minute song can be empty) used to render as three dots
-            // and nothing else, which reads as "no lyrics" rather than "not yet".
-            if (rows >= 2 && !cursor.next.isEmpty()) {
-                drawText(canvas, cursor.next, rowFor(1), width, height, rowHeight, muted, 0.7f,
-                        0.5f, "");
+            if (effects && transitionStartMs != Long.MIN_VALUE) {
+                progress = Math.min(1f, (nowMs - transitionStartMs) / (float) TRANSITION_MS);
             }
+            drawInterludeRows(canvas, width, height, rowHeight, ended, upcoming,
+                    fadeIn(progress, effects), slide(progress, effects, rowHeight));
             drawInterludeDots(canvas, width, height);
             return;
         }
 
-        String sung = cursor.sungPrefix();
-        if (rows >= 3 && !cursor.previous.isEmpty()) {
-            drawText(canvas, cursor.previous, rowFor(-1), width, height, rowHeight, muted, 0.72f,
-                    0.5f, "");
-        }
-        drawText(canvas, cursor.text, rowFor(0), width, height, rowHeight, accent, 1f, 1f, sung);
+        String previous = rows >= 3 ? cursor.previous : "";
+        String active = cursor.text;
+        String third = rows >= 2
+                ? (!cursor.translation.isEmpty() ? cursor.translation : cursor.next)
+                : "";
+        float thirdAlpha = cursor.translation.isEmpty() ? 0.7f : 0.64f;
+        // Word fill is itself an animation, so it belongs to the effects mode: with the mode off
+        // the active line is simply drawn whole in the accent colour.
+        String sung = effects ? cursor.sungPrefix() : "";
 
-        String third = !cursor.translation.isEmpty() ? cursor.translation : cursor.next;
-        if (rows >= 2 && !third.isEmpty()) {
-            drawText(canvas, third, rowFor(1), width, height, rowHeight, muted,
-                    cursor.translation.isEmpty() ? 0.7f : 0.64f, 0.72f, "");
+        if (key != lastLineKey) {
+            if (effects && lastLineKey != -1) transitionStartMs = nowMs;
+            fromPrevious = lastPrevious;
+            fromText = lastActive;
+            fromThird = lastThird;
+            lastLineKey = key;
+        }
+        lastPrevious = previous;
+        lastActive = active;
+        lastThird = third;
+
+        if (effects && transitionStartMs != Long.MIN_VALUE) {
+            progress = Math.min(1f, (nowMs - transitionStartMs) / (float) TRANSITION_MS);
+            if (progress < 1f) {
+                // Outgoing line leaves upward while fading, the new one arrives from below: a
+                // hard cut on a moving panel reads as a glitch, this reads as a scroll.
+                drawRows(canvas, width, height, rowHeight, fromPrevious, fromText, fromThird, "",
+                        1f - progress, -rowHeight * TRANSITION_TRAVEL * progress, 0.7f);
+                drawRows(canvas, width, height, rowHeight, previous, active, third, sung,
+                        fadeIn(progress, effects), slide(progress, effects, rowHeight), thirdAlpha);
+                return;
+            }
+            transitionStartMs = Long.MIN_VALUE;
+        }
+        drawRows(canvas, width, height, rowHeight, previous, active, third, sung, 1f, 0f,
+                thirdAlpha);
+    }
+
+    /** Identity of the active line, so a transition fires once per line and not once per frame. */
+    private static long lineKey(LyricTimeline.Cursor cursor) {
+        if (cursor == null) return -1;
+        long key = cursor.lineStartMs * 31L + cursor.text.hashCode();
+        return cursor.interlude ? key * 17L - 1L : key;
+    }
+
+    private static float fadeIn(float progress, boolean effects) {
+        if (!effects) return 1f;
+        // Ease-out: most of the opacity arrives early, which is what hides the swap.
+        return Math.max(0f, Math.min(1f, 1f - (1f - progress) * (1f - progress)));
+    }
+
+    private static float slide(float progress, boolean effects, float rowHeight) {
+        if (!effects) return 0f;
+        return rowHeight * TRANSITION_TRAVEL * (1f - progress);
+    }
+
+    /** One full panel of text, offset vertically and scaled in opacity for the transition. */
+    private void drawRows(Canvas canvas, int width, int height, float rowHeight,
+                          String previous, String active, String third, String sung,
+                          float alpha, float dy, float thirdAlpha) {
+        if (rows >= 3 && previous != null && !previous.isEmpty()) {
+            drawText(canvas, previous, rowFor(-1), width, height, rowHeight, muted, 0.72f,
+                    0.5f * alpha, "", dy);
+        }
+        if (active != null && !active.isEmpty()) {
+            drawText(canvas, active, rowFor(0), width, height, rowHeight, accent, 1f, alpha, sung,
+                    dy);
+        }
+        if (rows >= 2 && third != null && !third.isEmpty()) {
+            drawText(canvas, third, rowFor(1), width, height, rowHeight, muted, thirdAlpha,
+                    0.72f * alpha, "", dy);
+        }
+    }
+
+    private void drawInterludeRows(Canvas canvas, int width, int height, float rowHeight,
+                                   String ended, String upcoming, float alpha, float dy) {
+        if (rows >= 3 && ended != null && !ended.isEmpty()) {
+            drawText(canvas, ended, rowFor(0), width, height, rowHeight, muted, 0.74f,
+                    0.42f * alpha, "", dy);
+        }
+        if (rows >= 2 && upcoming != null && !upcoming.isEmpty()) {
+            drawText(canvas, upcoming, rowFor(1), width, height, rowHeight, muted, 0.7f,
+                    0.5f * alpha, "", dy);
         }
     }
 
@@ -216,9 +332,13 @@ public final class ClusterLyricsView extends View {
      * Draw one row: dimmed base text, then the sung prefix in the accent colour with a feathered
      * leading edge. The prefix is a real string prefix, so {@link Paint#measureText} lands on the
      * same glyph boundary the desktop card uses.
+     *
+     * @param dy vertical offset in pixels, used by the line transition; the clip follows it so a
+     *           sliding row never smears outside its own band
      */
     private void drawText(Canvas canvas, String text, int row, int width, int height,
-                          float rowHeight, int color, float scale, float alpha, String sung) {
+                          float rowHeight, int color, float scale, float alpha, String sung,
+                          float dy) {
         if (text == null || text.isEmpty()) return;
         float size = textSizePx * scale;
         float maxWidth = width * 0.94f;
@@ -230,7 +350,7 @@ public final class ClusterLyricsView extends View {
         String shown = fit(basePaint, text, maxWidth);
         float textWidth = width(basePaint, shown, size);
         float left = Math.max(width * 0.03f, (width - textWidth) / 2f);
-        float baseline = rowHeight * row + rowHeight * 0.72f;
+        float baseline = rowHeight * row + rowHeight * 0.72f + dy;
 
         canvas.drawText(shown, left, baseline, basePaint);
 
@@ -251,8 +371,8 @@ public final class ClusterLyricsView extends View {
                 Shader.TileMode.CLAMP);
         accentPaint.setShader(sweep);
         canvas.save();
-        canvas.clipRect(left - 2f, rowHeight * row - 2f, left + sungWidth + feather,
-                rowHeight * (row + 1) + 2f);
+        canvas.clipRect(left - 2f, rowHeight * row - 2f + dy, left + sungWidth + feather,
+                rowHeight * (row + 1) + 2f + dy);
         canvas.drawText(shown, left, baseline, accentPaint);
         canvas.restore();
         accentPaint.setShader(null);

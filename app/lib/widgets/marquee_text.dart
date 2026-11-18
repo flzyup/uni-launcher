@@ -26,11 +26,63 @@ class _MarqueeTextState extends State<MarqueeText>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller = AnimationController(vsync: this);
   bool _running = false;
+  bool _tickerEnabled = true;
+  TextPainter? _cachedPainter;
+  String? _cachedData;
+  TextStyle? _cachedStyle;
+  TextAlign? _cachedAlign;
+  TextDirection? _cachedDirection;
+  TextScaler? _cachedScaler;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final enabled = TickerMode.valuesOf(context).enabled;
+    if (enabled == _tickerEnabled) return;
+    _tickerEnabled = enabled;
+    if (!_tickerEnabled && _running) {
+      _controller.stop();
+      _running = false;
+    }
+  }
 
   @override
   void dispose() {
+    _cachedPainter?.dispose();
     _controller.dispose();
     super.dispose();
+  }
+
+  TextPainter _resolvePainter(BuildContext context) {
+    final effectiveStyle = DefaultTextStyle.of(context).style.merge(widget.style);
+    final align = widget.textAlign ?? TextAlign.start;
+    final direction = Directionality.of(context);
+    final scaler =
+        MediaQuery.maybeTextScalerOf(context) ?? TextScaler.noScaling;
+    final existing = _cachedPainter;
+    if (existing != null &&
+        _cachedData == widget.data &&
+        _cachedStyle == effectiveStyle &&
+        _cachedAlign == align &&
+        _cachedDirection == direction &&
+        _cachedScaler == scaler) {
+      return existing;
+    }
+    existing?.dispose();
+    _cachedData = widget.data;
+    _cachedStyle = effectiveStyle;
+    _cachedAlign = align;
+    _cachedDirection = direction;
+    _cachedScaler = scaler;
+    final painter = TextPainter(
+      text: TextSpan(text: widget.data, style: effectiveStyle),
+      textAlign: align,
+      textDirection: direction,
+      textScaler: scaler,
+      maxLines: 1,
+    )..layout();
+    _cachedPainter = painter;
+    return painter;
   }
 
   @override
@@ -45,16 +97,7 @@ class _MarqueeTextState extends State<MarqueeText>
             textAlign: widget.textAlign);
       }
 
-      final text = TextPainter(
-        text: TextSpan(
-            text: widget.data,
-            style: DefaultTextStyle.of(context).style.merge(widget.style)),
-        textAlign: widget.textAlign ?? TextAlign.start,
-        textDirection: Directionality.of(context),
-        textScaler:
-            MediaQuery.maybeTextScalerOf(context) ?? TextScaler.noScaling,
-        maxLines: 1,
-      )..layout();
+      final text = _resolvePainter(context);
 
       if (text.width <= width + 1) {
         if (_running) {
@@ -75,47 +118,52 @@ class _MarqueeTextState extends State<MarqueeText>
           (travel / Design.px(28) * 1000).ceil().clamp(2200, 14000).toInt();
       final duration = Duration(milliseconds: milliseconds);
       if (_controller.duration != duration) _controller.duration = duration;
-      if (!_running) {
+      if (_tickerEnabled && !_running) {
         _controller.repeat();
         _running = true;
+      } else if (!_tickerEnabled && _running) {
+        _controller.stop();
+        _running = false;
       }
 
       final edge = Design.px(24).clamp(0, width / 3).toDouble();
-      return SizedBox(
-        width: width,
-        height: text.height,
-        child: ClipRect(
-          child: ShaderMask(
-              blendMode: BlendMode.dstIn,
-              shaderCallback: (bounds) => LinearGradient(
-                    begin: Alignment.centerLeft,
-                    end: Alignment.centerRight,
-                    colors: const [
-                      Colors.transparent,
-                      Colors.white,
-                      Colors.white,
-                      Colors.transparent
-                    ],
-                    stops: [
-                      0,
-                      edge == 0 ? 0 : edge / width,
-                      edge == 0 ? 1 : 1 - edge / width,
-                      1
-                    ],
-                  ).createShader(bounds),
-              child: AnimatedBuilder(
-                animation: _controller,
-                builder: (context, _) => CustomPaint(
-                  key: ValueKey('marquee-paint-' +
-                      (widget.key is ValueKey<String>
-                          ? (widget.key as ValueKey<String>).value
-                          : widget.data)),
-                  painter: MarqueePainter(
-                    text: text,
-                    offset: _controller.value * travel,
+      return RepaintBoundary(
+        child: SizedBox(
+          width: width,
+          height: text.height,
+          child: ClipRect(
+            child: ShaderMask(
+                blendMode: BlendMode.dstIn,
+                shaderCallback: (bounds) => LinearGradient(
+                      begin: Alignment.centerLeft,
+                      end: Alignment.centerRight,
+                      colors: const [
+                        Colors.transparent,
+                        Colors.white,
+                        Colors.white,
+                        Colors.transparent
+                      ],
+                      stops: [
+                        0,
+                        edge == 0 ? 0 : edge / width,
+                        edge == 0 ? 1 : 1 - edge / width,
+                        1
+                      ],
+                    ).createShader(bounds),
+                child: AnimatedBuilder(
+                  animation: _controller,
+                  builder: (context, _) => CustomPaint(
+                    key: ValueKey('marquee-paint-' +
+                        (widget.key is ValueKey<String>
+                            ? (widget.key as ValueKey<String>).value
+                            : widget.data)),
+                    painter: MarqueePainter(
+                      text: text,
+                      offset: _controller.value * travel,
+                    ),
                   ),
-                ),
-              )),
+                )),
+          ),
         ),
       );
     });

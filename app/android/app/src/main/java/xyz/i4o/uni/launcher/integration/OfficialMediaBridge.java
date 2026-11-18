@@ -5,6 +5,8 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.ComponentName;
 import android.content.ServiceConnection;
+import android.graphics.Bitmap;
+import android.net.Uri;
 import android.os.IBinder;
 import android.content.pm.PackageManager;
 import android.media.MediaMetadata;
@@ -58,6 +60,8 @@ public final class OfficialMediaBridge {
     private boolean lastPlaying;
     private int registeredType=-1;
     private long lastProgressAt;
+    /** 上次推给原车的封面版本：封面晚到（播放器后补图）时也要立刻重推一次。 */
+    private int lastArtVersion;
     /**
      * 抢占保底。原车媒体中心的焦点会被别的客户端抢走，而本地链路一个状态都没变，
      * {@link #publish} 因此不会重发，仪表上的卡片就悄悄换人了。
@@ -134,6 +138,7 @@ public final class OfficialMediaBridge {
             if(!waitingForSource){waitingForSource=true;main.postDelayed(emptySource,2500);}return;
         }
         main.removeCallbacks(emptySource);waitingForSource=false;sample=next;
+        UniLog.d(LogTags.MEDIA,"原车媒体取样","available",next.available,"playing",next.playing,"source",next.source,"title",next.title,"running",running,"registered",registered);
         if(!running)return;
         worker.execute(()->publish(next));
     }
@@ -162,6 +167,7 @@ public final class OfficialMediaBridge {
         UniLog.done(LogTags.MEDIA,"media/oem-session","action","unbind","tag","UniOemMedia");
     }
     private void notifyChanged(){main.post(changed);}
+    private final java.util.Set<String> askedMethods=java.util.Collections.synchronizedSet(new java.util.TreeSet<>());
     private void initialize(){
         if(initialized||!running)return;
         initialized=true;
@@ -183,6 +189,15 @@ public final class OfficialMediaBridge {
             playback=Proxy.newProxyInstance(loader,new Class<?>[]{playbackType},(p,m,a)->session==generation?playbackValue(p,m,a):defaultValue(m.getReturnType()));
             mediaInfo=Proxy.newProxyInstance(loader,new Class<?>[]{mediaInfoType},(p,m,a)->session==generation?playbackValue(p,m,a):defaultValue(m.getReturnType()));
             client=Proxy.newProxyInstance(loader,new Class<?>[]{clientType},(p,m,a)->session==generation?clientValue(p,m,a):defaultValue(m.getReturnType()));
+            // 原车到底会问封面相关的哪些方法，只能靠它自己调过来时记一笔。
+            for(Method m:playbackType.getMethods())askedMethods.add("info."+m.getName());
+            for(Method m:clientType.getMethods())askedMethods.add("client."+m.getName());
+            // 原车究竟暴露了哪些字段（尤其封面叫什么）只能从运行时摸，编译期没有 SDK。
+            StringBuilder info=new StringBuilder(),cli=new StringBuilder();
+            for(Method m:playbackType.getMethods())info.append(info.length()==0?"":",").append(m.getName()).append(':').append(m.getReturnType().getSimpleName());
+            for(Method m:clientType.getMethods())cli.append(cli.length()==0?"":",").append(m.getName());
+            UniLog.i(LogTags.MEDIA,"原车媒体接口清单","info",info.toString(),"client",cli.toString());
+            UniLog.d(LogTags.MEDIA,"原车媒体接口方法","playback",playbackType.getMethods().length,"client",clientType.getMethods().length);
             // IP753 declares the SDK's legacy IMusicClient wrapper constructor
             // package-private, although the wrapper itself is public.
             java.lang.reflect.Constructor<?> wrapClient=Class.forName("com.ecarx.sdk.mediacenter.MusicClientWrapper",true,loader).getDeclaredConstructor(clientType);
@@ -214,7 +229,11 @@ apiReady=false;registered=false;registeredType=-1;registeredTypes="";playbackAcc
         }catch(Exception|LinkageError e){reason="原车媒体接入失败："+root(e).getClass().getSimpleName();UniLog.w(LogTags.MEDIA,reason,e,"tag","UniOemMedia","stage","initialize");UniLog.fail(LogTags.MEDIA,"media/oem-session","reason","initialize-failed","error",root(e).getClass().getSimpleName());notifyChanged();}
     }
     private void register(){
-        if(!running||!enabled||!sample.available||registered||api==null)return;
+        if(!running||!enabled||!sample.available||registered||api==null){
+            UniLog.d(LogTags.MEDIA,"原车媒体跳过注册","running",running,"enabled",enabled,
+                "available",sample.available,"registered",registered,"api",api!=null,"apiReady",apiReady);
+            return;
+        }
         try{
             token=invoke("registerMusic",wireClient);
             registered=token!=null;
@@ -252,7 +271,8 @@ if(registered){registeredType=sample.type;invoke("updateMediaSourceTypeList",tok
                 Object queue=wrap.invoke(null,Collections.singletonList(mediaInfo));
                 invoke("updatePlaylist",token,next.type,queue);lastTrack=track;
             }
-            boolean push=trackChanged||stateChanged||acquire;
+            boolean push=trackChanged||stateChanged||acquire||lastArtVersion!=artworkVersion.get();
+            if(push)lastArtVersion=artworkVersion.get();
             if(push)UniLog.enter(LogTags.MEDIA,"media/oem-playback","source",next.source,"trackChanged",trackChanged,"stateChanged",stateChanged,"acquire",acquire);
             if(push)playbackAccepted=Boolean.TRUE.equals(invoke("updateMusicPlaybackState",token,wirePlayback));
             long now=android.os.SystemClock.elapsedRealtime();
@@ -310,9 +330,107 @@ if(registered){registeredType=sample.type;invoke("updateMediaSourceTypeList",tok
             else UniLog.fail(LogTags.MEDIA,"media/oem-transport","action",action,"source",source,"reason","not-accepted");
             changed.run();}});return true;
     }
+    /** 当前封面从哪来（MediaAdapter 注入）；原车要的是 URI，这里负责落盘 + 授权。 */
+    private static volatile java.util.function.Supplier<Bitmap> artworkSupplier;
+    /** 这张封面属于哪一首（标题|歌手|mediaId）：桥自己的 sample 可能落后半拍，命名以它为准。 */
+    private static volatile java.util.function.Supplier<String> artworkOwner;
+    static void artworkSource(java.util.function.Supplier<Bitmap> supplier,java.util.function.Supplier<String> owner){
+        artworkSupplier=supplier;artworkOwner=owner;
+    }
+    /** 曲目或封面换了一份：让下一次 getArtwork 重新落盘，别把旧图当新的发出去。 */
+    private static final java.util.concurrent.atomic.AtomicInteger artworkVersion=new java.util.concurrent.atomic.AtomicInteger(1);
+    static void invalidateArtwork(){artworkVersion.incrementAndGet();}
+    /** 可能来取封面的进程：原车媒体中心、仪表服务。 */
+    private static final String[] ARTWORK_READERS={"ecarx.xsf.mediacenter","se.cevt.dimsupportservice","ecarx.launcher3"};
+    private String artworkKey="";
+    private Uri artworkUri;
+    private Uri artworkUri(){
+        java.util.function.Supplier<Bitmap> supplier=artworkSupplier;
+        Bitmap bitmap=null;
+        try{bitmap=supplier==null?null:supplier.get();}catch(RuntimeException|OutOfMemoryError ignored){}
+        if(bitmap==null||bitmap.isRecycled())return null;
+        // 注意：不能拿位图的 identityHashCode 当 key —— MediaMetadata.getBitmap() 每次
+        // 都新建一个 Bitmap，那样每次都会写出新文件、原车跟着重新下载同一张图。
+        String owner="";
+        try{owner=artworkOwner==null?"":String.valueOf(artworkOwner.get());}catch(RuntimeException ignored){}
+        if(owner.isEmpty())owner=sample.title+"\u0000"+sample.artist;
+        String key=owner+"\u0000"+artworkVersion.get();
+        if(artworkUri!=null&&key.equals(artworkKey))return artworkUri;
+        try{
+            java.io.File dir=ArtworkFileProvider.dir(context);
+            pruneArtwork(dir);
+            String name="cover_"+Math.abs(key.hashCode())+".png";
+            java.io.File file=new java.io.File(dir,name);
+            if(!file.isFile()||file.length()==0){
+                // 原车读图的进程流量不大，但没必要塞原尺寸图：512px 已经足够清楚。
+                Bitmap scaled=bitmap;
+                int longest=Math.max(bitmap.getWidth(),bitmap.getHeight());
+                if(longest>512){
+                    float ratio=512f/longest;
+                    scaled=Bitmap.createScaledBitmap(bitmap,Math.max(1,(int)(bitmap.getWidth()*ratio)),Math.max(1,(int)(bitmap.getHeight()*ratio)),true);
+                }
+                java.io.ByteArrayOutputStream bytes=new java.io.ByteArrayOutputStream();
+                scaled.compress(Bitmap.CompressFormat.PNG,100,bytes);
+                if(scaled!=bitmap)scaled.recycle();
+                java.io.FileOutputStream out=new java.io.FileOutputStream(file);
+                try{out.write(bytes.toByteArray());}finally{out.close();}
+            }
+            Uri uri=ArtworkFileProvider.uriFor(name);
+            for(String reader:ARTWORK_READERS)
+                try{context.grantUriPermission(reader,uri,Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(RuntimeException ignored){}
+            artworkUri=uri;artworkKey=key;
+            UniLog.i(LogTags.MEDIA,"封面 URI 已就绪","name",name,"title",sample.title,"bytes",file.length());
+            return uri;
+        }catch(Exception|OutOfMemoryError e){
+            UniLog.w(LogTags.MEDIA,"封面 URI 生成失败","title",sample.title,"error",e.getClass().getSimpleName());
+            return null;
+        }
+    }
+    /** 当前歌词（MediaAdapter 注入）；原车 getLyric 要文件 URI，getLyricContent 要文本。 */
+    private static volatile java.util.function.Supplier<String> lyricSupplier;
+    static void lyricSource(java.util.function.Supplier<String> supplier){lyricSupplier=supplier;}
+    private String lyricKey="";
+    private Uri lyricUri;
+    private Uri lyricUri(){
+        java.util.function.Supplier<String> supplier=lyricSupplier;
+        String text=null;
+        try{text=supplier==null?null:supplier.get();}catch(RuntimeException ignored){}
+        if(text==null||text.isEmpty())return null;
+        String key=text.length()+"\u0000"+text.hashCode();
+        if(lyricUri!=null&&key.equals(lyricKey))return lyricUri;
+        try{
+            java.io.File dir=ArtworkFileProvider.dir(context);
+            String name="lyric_"+Math.abs(key.hashCode())+".lrc";
+            java.io.File file=new java.io.File(dir,name);
+            if(!file.isFile()||file.length()==0){
+                java.io.FileOutputStream out=new java.io.FileOutputStream(file);
+                try{out.write(text.getBytes("UTF-8"));}finally{out.close();}
+            }
+            Uri uri=ArtworkFileProvider.uriFor(name);
+            for(String reader:ARTWORK_READERS)
+                try{context.grantUriPermission(reader,uri,Intent.FLAG_GRANT_READ_URI_PERMISSION);}catch(RuntimeException ignored){}
+            lyricUri=uri;lyricKey=key;
+            UniLog.i(LogTags.MEDIA,"歌词 URI 已就绪","name",name,"chars",text.length());
+            return uri;
+        }catch(Exception e){
+            UniLog.w(LogTags.MEDIA,"歌词 URI 生成失败","error",e.getClass().getSimpleName());
+            return null;
+        }
+    }
+    /** 每换一首/每换一张图就是一个文件，顺手把旧封面清掉，别把缓存堆满。 */
+    private static void pruneArtwork(java.io.File dir){
+        java.io.File[] files=dir.listFiles();
+        if(files==null||files.length<24)return;
+        java.util.Arrays.sort(files,(a,b)->Long.compare(a.lastModified(),b.lastModified()));
+        for(int i=0;i<files.length-16;i++)if(files[i].isFile()&&!files[i].delete())break;
+    }
     private Object playbackValue(Object proxy,Method method,Object[] args){
         Object object=objectMethod(proxy,method,args);if(object!=null)return object;
         Sample s=sample;
+        // 仪表/原车要封面时会调到这里来；把真实被调用的方法名记下来（每个只记一次），
+        // 用来确定 IMusicPlaybackInfo 上封面字段到底叫什么，而不是靠猜。
+        if(askedMethods.add("called."+method.getName()))
+            UniLog.d(LogTags.MEDIA,"原车媒体问字段","name",method.getName(),"type",method.getReturnType().getSimpleName());
         switch(method.getName()){
             case "getTitle":return s.title;
             case "getArtist":return s.artist;
@@ -322,7 +440,15 @@ if(registered){registeredType=sample.type;invoke("updateMediaSourceTypeList",tok
             case "getSourceType":return s.type;
             case "getPlaybackStatus":return s.playing?1:0;
             case "getLaunchIntent":return s.launch;
-            case "getCurrentLyricSentence":case "getLyricContent":case "getRadioFrequency":case "getRadioStationName":return "";
+            case "getCurrentLyricSentence":case "getRadioFrequency":case "getRadioStationName":return "";
+            case "getLyricContent":{java.util.function.Supplier<String> supplier=lyricSupplier;
+                String text=null;try{text=supplier==null?null:supplier.get();}catch(RuntimeException ignored){}
+                return text==null?"":text;}
+            case "getLyric":return lyricUri();
+            // 原车要的是 URI：getArtwork/getNextArtwork/getPreviousArtwork 全部指到同一张
+            // content:// 上（当前只有一张封面），由 ArtworkFileProvider 只读提供，
+            // 被读时会在日志里留下调用方包名。
+            case "getArtwork":case "getNextArtwork":case "getPreviousArtwork":return artworkUri();
             default:return defaultValue(method.getReturnType());
         }
     }
@@ -365,7 +491,11 @@ if(registered){registeredType=sample.type;invoke("updateMediaSourceTypeList",tok
         static Sample from(Context context,MediaController c){
             if(c==null)return EMPTY;
             String pkg=c.getPackageName();
-            if(!"com.android.bluetooth".equals(pkg)&&!"com.netease.cloudmusic.iot".equals(pkg)&&!"com.tencent.qqmusiccar".equals(pkg)&&!"com.tencent.qqmusic".equals(pkg))return EMPTY;
+            // 以前这里只放行蓝牙 / 网易云 / QQ 音乐三家，其它播放器一律 EMPTY，
+            // 结果洛雪（cn.toside.music.*）这类第三方播放器根本不会去原车媒体中心注册，
+            // 仪表就没有媒体卡片、方控换歌也还在原车那边空转。现在除蓝牙按 BLUETOOTH
+            // 处理，别的都按 sourceType=6（自定义源）注册，和 HY 的做法一致。
+            if("".equals(pkg))return EMPTY;
             try{
                 MediaMetadata m=c.getMetadata();PlaybackState p=c.getPlaybackState();
                 Intent intent=context.getPackageManager().getLaunchIntentForPackage(pkg);

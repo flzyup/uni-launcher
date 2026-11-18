@@ -49,9 +49,22 @@ public final class RecentTasksRepository {
         }catch(RuntimeException ignored){}
     }
 
+    /**
+     * 两次 checkSelfPermission 都是一次 binder，而它们只在装机授权时才会变。
+     * 主窗口每次发包都会读这一个布尔，所以按 2 秒复用，别让权限查询替发布
+     * 付费。
+     */
+    private Boolean removeAllowed;
+    private long removeAllowedAt;
+
     public boolean canRemove(){
-        return context.checkSelfPermission("android.permission.REMOVE_TASKS")==PackageManager.PERMISSION_GRANTED
-            ||context.checkSelfPermission("android.permission.MANAGE_ACTIVITY_STACKS")==PackageManager.PERMISSION_GRANTED;
+        long now=android.os.SystemClock.elapsedRealtime();
+        if(removeAllowed==null||now-removeAllowedAt>=60000){
+            removeAllowed=context.checkSelfPermission("android.permission.REMOVE_TASKS")==PackageManager.PERMISSION_GRANTED
+                ||context.checkSelfPermission("android.permission.MANAGE_ACTIVITY_STACKS")==PackageManager.PERMISSION_GRANTED;
+            removeAllowedAt=now;
+        }
+        return removeAllowed;
     }
 
     @SuppressWarnings("deprecation")

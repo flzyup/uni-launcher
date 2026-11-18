@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -160,7 +161,7 @@ void main() {
     final texture =
         find.byKey(const ValueKey('map-live-texture'), skipOffstage: false);
     final original = t.element(texture);
-    for (final theme in ['classic', 'blueGlass', 'classic']) {
+    for (final theme in ['classic', 'blueGlass', 'nocturne', 'classic']) {
       h.controller.openSettings();
       await h.flush();
       expect(h.disposed, isEmpty,
@@ -326,5 +327,63 @@ void main() {
     expect(h.disposed, [17]);
     expect(h.platformCalls, isEmpty);
     expect(t.takeException(), isNull);
+  }, variant: TargetPlatformVariant.only(TargetPlatform.android));
+
+  // 「开机进入第 N 页」之所以能当成「不自动启动导航」的开关来用，靠的就是这条：
+  // 导航卡只在自己那一页可见时才向原生发 create，翻走之后只是 visible(false)。
+  testWidgets('开机停在别的页时导航卡不发 create，翻回去才拉起', (t) async {
+    t.view.physicalSize = const Size(1920, 1080);
+    t.view.devicePixelRatio = 1;
+    addTearDown(() {
+      t.view.resetPhysicalSize();
+      t.view.resetDevicePixelRatio();
+    });
+    final h = LiveMapHarness(t);
+    h.gateway.state['demo'] = false;
+    h.gateway.state['media'] = {'available': false, 'playing': false};
+    h.gateway.state['navigation'] = {
+      'package': 'test.map',
+      'label': '地图',
+      'canEmbed': true
+    };
+    // 导航卡在第 1 页，开机页指定第 2 页。
+    h.gateway.state['savedDesign'] = jsonEncode({
+      'version': 6,
+      'preferences': {'custom': '#38A4A0', 'bootPage': 1},
+      'ambientLight': <String, dynamic>{},
+      'cards': [
+        {
+          'id': 'nav-1',
+          'type': 'nav',
+          'title': '导航',
+          'x': 0,
+          'y': 0,
+          'w': 8,
+          'h': 6,
+          'page': 0
+        },
+        {
+          'id': 'music-1',
+          'type': 'music',
+          'title': '正在播放',
+          'x': 0,
+          'y': 0,
+          'w': 4,
+          'h': 4,
+          'page': 1
+        },
+      ],
+      'pageCount': 2,
+      'appNames': <String, dynamic>{},
+    });
+    await h.controller.initialize();
+    await t.pumpWidget(LauncherApp(controller: h.controller));
+    await h.flush();
+    expect(h.controller.page, 1);
+    expect(h.creates, isEmpty, reason: '卡在不可见的页上，不该拉起导航');
+    // 翻到导航卡那一页，它才接管地图。
+    await h.controller.switchPage(0);
+    await h.flush();
+    expect(h.creates, hasLength(1));
   }, variant: TargetPlatformVariant.only(TargetPlatform.android));
 }

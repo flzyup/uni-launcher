@@ -83,28 +83,50 @@ void paintSpectrum(Canvas canvas, Size size,
           ..strokeJoin = StrokeJoin.round);
     return;
   }
-  final segments = (size.height / 5).floor().clamp(3, 12);
-  for (var i = 0; i < count; i++) {
-    final x = (i + .5) * step, value = level(i);
-    if (style == 'segments') {
-      final cell = size.height / segments;
-      final lit = (value * segments).ceil();
-      for (var j = 0; j < segments; j++) {
+  if (style == 'segments') {
+    final segments = (size.height / 5).floor().clamp(3, 12);
+    final cell = size.height / segments;
+    final cellH = math.max(1.0, cell - 1.6);
+    // Batch all track rects in Pass 1 and all shader ink rects in Pass 2 so
+    // Skia issues 2 batched draw calls instead of switching Paint 48 times.
+    for (var i = 0; i < count; i++) {
+      final x = (i + .5) * step - width / 2;
+      final lit = (level(i) * segments).ceil();
+      for (var j = lit; j < segments; j++) {
         canvas.drawRect(
-            Rect.fromLTWH(x - width / 2, size.height - (j + 1) * cell, width,
-                math.max(1, cell - 1.6)),
-            j < lit ? ink : track);
+            Rect.fromLTWH(x, size.height - (j + 1) * cell, width, cellH),
+            track);
       }
-    } else {
-      final h = (value * (size.height - 2)).clamp(1.0, size.height);
-      final rect = Rect.fromLTWH(
-          x - width / 2,
-          style == 'mirror' ? (size.height - h) / 2 : size.height - h,
-          width,
-          h);
-      canvas.drawRRect(RRect.fromRectAndRadius(rect, const Radius.circular(1)),
-          value > .015 ? ink : track);
     }
+    for (var i = 0; i < count; i++) {
+      final x = (i + .5) * step - width / 2;
+      final lit = (level(i) * segments).ceil();
+      for (var j = 0; j < lit; j++) {
+        canvas.drawRect(
+            Rect.fromLTWH(x, size.height - (j + 1) * cell, width, cellH), ink);
+      }
+    }
+    return;
+  }
+  final mirror = style == 'mirror';
+  for (var i = 0; i < count; i++) {
+    final value = level(i);
+    if (value > .015) continue;
+    final x = (i + .5) * step - width / 2;
+    final h = (value * (size.height - 2)).clamp(1.0, size.height);
+    final rect = Rect.fromLTWH(
+        x, mirror ? (size.height - h) / 2 : size.height - h, width, h);
+    canvas.drawRect(rect, track);
+  }
+  for (var i = 0; i < count; i++) {
+    final value = level(i);
+    if (value <= .015) continue;
+    final x = (i + .5) * step - width / 2;
+    final h = (value * (size.height - 2)).clamp(1.0, size.height);
+    final rect = Rect.fromLTWH(
+        x, mirror ? (size.height - h) / 2 : size.height - h, width, h);
+    canvas.drawRRect(RRect.fromRectAndRadius(rect, const Radius.circular(1)),
+        ink);
   }
 }
 

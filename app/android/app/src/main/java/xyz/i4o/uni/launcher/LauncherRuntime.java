@@ -5,13 +5,18 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.content.res.Configuration;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.widget.Toast;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.FutureTask;
@@ -35,6 +40,8 @@ public final class LauncherRuntime {
     /** Upper bound of telemetry packets per second; 80ms is faster than a frame
      * budget but slow enough that a burst of source callbacks costs one rebuild. */
     private static final long PUBLISH_INTERVAL_MS=80;
+    /** 快照节流诊断用：当前发布间隔（毫秒）。合并上游后 MainActivity 里还在读它。 */
+    long publishInterval(){return PUBLISH_INTERVAL_MS;}
     private final Context context;
     private final SharedPreferences prefs;
     private final AppRepository apps;
@@ -76,10 +83,23 @@ public final class LauncherRuntime {
         public int apps=-1, design=-1, media=-1, settings=-1;
         /** 已经拿到的 apps 组是否带图标；只拿过 package/label 投影时为 false。 */
         public boolean icons;
-        void reset(){apps=design=media=settings=-1;icons=false;}
+        public String projectedSource="";
+        void reset(){apps=design=media=settings=-1;icons=false;projectedSource="";}
     }
     private int appsRevision=0, designRevision=0, mediaRevision=0, settingsRevision=0;
     private String designFingerprint="", mediaFingerprint="";
+    private boolean inDeliver;
+    private TurnSnapshot activeTurn;
+
+    private static final class TurnSnapshot {
+        JSONObject climate, telemetry, systemStatus, weather, calendar, navigation,
+            integrationPreferences, debugBridge, vehicleMemory, bootLaunch,
+            wirelessAdb, trafficLights, fullMedia, strippedMedia, appNames,
+            transfer, quark, cleaner;
+        String design, projectedKey;
+        JSONArray projectedApps;
+        boolean demo, hideNavigation, globalNavigation, globalNavigationGranted, dark;
+    }
     private final Runnable appsRefreshTask=()->refreshAppsInBackground();
     private boolean appsRefreshQueued;
     private final java.util.concurrent.atomic.AtomicInteger appsRefreshGeneration=new java.util.concurrent.atomic.AtomicInteger();
@@ -230,6 +250,69 @@ public final class LauncherRuntime {
         try{return current.describeAdapters();}
         catch(Throwable t){return "(读取子系统状态失败: "+t.getMessage()+")\n";}
     }
+    public static JSONArray installedHomeApps(Context context){
+        JSONArray array=new JSONArray();
+        if(context==null)return array;
+        try{
+            PackageManager pm=context.getPackageManager();
+            Intent homeIntent=new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME);
+            List<ResolveInfo> resolves=pm.queryIntentActivities(homeIntent,PackageManager.MATCH_ALL);
+            if(resolves==null||resolves.isEmpty()){
+                resolves=pm.queryIntentActivities(homeIntent,PackageManager.MATCH_DEFAULT_ONLY);
+            }
+            if(resolves==null||resolves.isEmpty()){
+                resolves=pm.queryIntentActivities(homeIntent,0);
+            }
+            Set<String> seen=new HashSet<>();
+            boolean hasEcarx=false, hasUni=false;
+            String myPkg=context.getPackageName();
+            if(resolves!=null){
+                for(ResolveInfo ri:resolves){
+                    if(ri.activityInfo!=null&&ri.activityInfo.packageName!=null){
+                        if(ri.priority<0)continue;
+                        String pkg=ri.activityInfo.packageName;
+                        if("com.android.settings".equals(pkg)||pkg.endsWith(".fallbackhome"))continue;
+                        if(ri.activityInfo.name!=null&&ri.activityInfo.name.endsWith(".FallbackHome"))continue;
+                        if(!seen.add(pkg))continue;
+                        if("ecarx.launcher3".equals(pkg))hasEcarx=true;
+                        if(myPkg.equals(pkg))hasUni=true;
+                        CharSequence labelSeq=ri.loadLabel(pm);
+                        String label=labelSeq!=null?labelSeq.toString().trim():"";
+                        if(label.isEmpty())label=pkg;
+                        if("ecarx.launcher3".equals(pkg)&&!label.contains("原车")){
+                            label="原车系统桌面 ("+label+")";
+                        }
+                        JSONObject item=new JSONObject();
+                        item.put("package",pkg);
+                        item.put("label",myPkg.equals(pkg)?label+" (当前应用)":label);
+                        item.put("isUni",myPkg.equals(pkg));
+                        array.put(item);
+                    }
+                }
+            }
+            if(!hasUni){
+                JSONObject item=new JSONObject();
+                item.put("package",myPkg);
+                item.put("label","UNI 桌面 (当前应用)");
+                item.put("isUni",true);
+                array.put(item);
+            }
+            if(!hasEcarx){
+                try{
+                    pm.getPackageInfo("ecarx.launcher3",0);
+                    JSONObject item=new JSONObject();
+                    item.put("package","ecarx.launcher3");
+                    item.put("label","原车系统桌面");
+                    item.put("isUni",false);
+                    array.put(item);
+                }catch(Throwable ignored){}
+            }
+        }catch(Throwable e){
+            UniLog.w(LogTags.APP,"获取已安装桌面失败",e);
+        }
+        return array;
+    }
+
     /** 普通快照：按游标只补发变化的分组，不携带设置目录（Dock/面板用）。 */
     public JSONObject snapshot(StaticCursor cursor){return onMain(()->buildSnapshot(cursor,false,false));}
 
@@ -258,9 +341,27 @@ public final class LauncherRuntime {
         try{
             packet.put("savedDesign",prefs.getString("savedDesign",""))
                 .put("appNames",storedAppNames())
+                // 「开机进入：上次停留」要用的那一页。放在 prelude 里是因为
+                // 页码必须在第一帧之前定下来，晚一包就会先画第 1 页再跳。
+                .put("lastDesktopPage",lastDesktopPage())
                 .put("dark",(context.getResources().getConfiguration().uiMode&Configuration.UI_MODE_NIGHT_MASK)==Configuration.UI_MODE_NIGHT_YES);
         }catch(Exception ignored){}
         return packet;
+    }
+
+    /** 上次停留的页（0 起）。 */
+    public int lastDesktopPage(){
+        return prefs.getInt("lastDesktopPage",0);
+    }
+
+    /**
+     * 记住停留页。只由 `desktopPage` 这条轻量通道调用：那条通道每次都走，
+     * 而 `saveDesign` 会回灌一整份快照，不能挂在每次翻页上。
+     */
+    public void rememberDesktopPage(int page){
+        if(page<0||page>19)return;
+        if(prefs.getInt("lastDesktopPage",0)==page)return;
+        prefs.edit().putInt("lastDesktopPage",page).apply();
     }
 
     public boolean saveDesign(String raw){return onMain(()->saveDesignOnMain(raw));}
@@ -299,20 +400,40 @@ public final class LauncherRuntime {
     public boolean handle(JSONObject request)throws Exception{return callOnMain(()->handleOnMain(request));}
 
     private long demoPosition(){return demoPositionMs+(demoPlaying?Math.max(0,android.os.SystemClock.elapsedRealtime()-demoSampleAt):0);}
-    private JSONObject buildSnapshot(StaticCursor cursor, boolean includeSettings, boolean includeApps){
-        JSONObject state=new JSONObject();try{
+    private TurnSnapshot obtainTurnSnapshot(){
+        if(inDeliver&&activeTurn!=null)return activeTurn;
+        TurnSnapshot t=new TurnSnapshot();
+        try{
+            t.demo=prefs.getBoolean("demo",false);
+            t.hideNavigation=prefs.getBoolean("hideNavigation",false);
+            t.globalNavigation=prefs.getBoolean("globalNavigation",false);
+            t.globalNavigationGranted=context.checkSelfPermission("android.permission.WRITE_SECURE_SETTINGS")==android.content.pm.PackageManager.PERMISSION_GRANTED;
+            t.dark=(context.getResources().getConfiguration().uiMode&Configuration.UI_MODE_NIGHT_MASK)==Configuration.UI_MODE_NIGHT_YES;
             JSONObject climate=new JSONObject().put("left",simulator.left).put("right",simulator.right).put("fan",simulator.fan).put("power",simulator.power)
                 .put("auto",simulator.auto).put("ac",simulator.ac).put("sync",simulator.sync).put("recirc",simulator.recirc)
                 .put("driverHeat",simulator.driverHeat).put("driverVent",simulator.driverVent).put("passengerHeat",simulator.passengerHeat);
-            JSONObject telemetry=vehicle.snapshot();
-            if(!prefs.getBoolean("demo",false))climate=telemetry.optJSONObject("climate")==null?new JSONObject():telemetry.getJSONObject("climate");
-            state.put("systemStatus",systemStatus.snapshot()).put("weather",weather.snapshot()).put("calendar",calendar.snapshot()).put("navigation",navigation.snapshot()).put("integrationPreferences",new JSONObject().put("mediaPackage",prefs.getString("mediaPackage","auto")).put("mapTextureScale",prefs.getBoolean("mapTextureScale",false)).put("navigationCardTitleHidden",prefs.getBoolean("navigationCardTitleHidden",true)).put("autoPlayMusic",prefs.getBoolean("autoPlayMusic",false)).put("steeringKeysEnabled",prefs.getBoolean("steeringKeysEnabled",true)).put("instrumentSyncEnabled",prefs.getBoolean("instrumentSyncEnabled",true)));
-            state.put("debugBridge",debugBridge.snapshot());
-            state.put("demo",prefs.getBoolean("demo",false)).put("hideNavigation",prefs.getBoolean("hideNavigation",false))
-                .put("globalNavigation",prefs.getBoolean("globalNavigation",false))
-                .put("globalNavigationGranted",context.checkSelfPermission("android.permission.WRITE_SECURE_SETTINGS")==android.content.pm.PackageManager.PERMISSION_GRANTED)
-                .put("dark",(context.getResources().getConfiguration().uiMode&Configuration.UI_MODE_NIGHT_MASK)==Configuration.UI_MODE_NIGHT_YES)
-                .put("climate",climate).put("vehicle",telemetry).put("version",xyz.i4o.uni.launcher.BuildConfig.VERSION_NAME+"-flutter");
+            t.telemetry=vehicle.snapshot();
+            if(!t.demo)climate=t.telemetry.optJSONObject("climate")==null?new JSONObject():t.telemetry.getJSONObject("climate");
+            t.climate=climate;
+            t.systemStatus=systemStatus.snapshot();
+            t.weather=weather.snapshot();
+            t.calendar=calendar.snapshot();
+            t.navigation=navigation.snapshot();
+            String homeTarget=prefs.getString("homeKeyTarget",context.getPackageName());
+            if("uni".equals(homeTarget))homeTarget=context.getPackageName();
+            else if("oem".equals(homeTarget))homeTarget="ecarx.launcher3";
+            t.integrationPreferences=new JSONObject()
+                .put("mediaPackage",prefs.getString("mediaPackage","auto"))
+                .put("mapTextureScale",prefs.getBoolean("mapTextureScale",false))
+                .put("navigationCardTitleHidden",prefs.getBoolean("navigationCardTitleHidden",true))
+                .put("autoPlayMusic",prefs.getBoolean("autoPlayMusic",false))
+                .put("steeringKeysEnabled",prefs.getBoolean("steeringKeysEnabled",true))
+                .put("instrumentSyncEnabled",prefs.getBoolean("instrumentSyncEnabled",true))
+                .put("dimClusterEnabled",prefs.getBoolean("dimClusterEnabled",false))
+                .put("bootAutostart",prefs.getBoolean("bootAutostart",true))
+                .put("homeKeyTarget",homeTarget)
+                .put("homeApps",installedHomeApps(context));
+            t.debugBridge=debugBridge.snapshot();
             JSONObject memory=new JSONObject();
             try{
                 memory.put("driveModeEnabled",prefs.getBoolean("memoryDriveModeEnabled",false))
@@ -320,47 +441,113 @@ public final class LauncherRuntime {
                     .put("startStopEnabled",prefs.getBoolean("memoryStartStopEnabled",false))
                     .put("startStop",prefs.getBoolean("memoryStartStop",true))
                     .put("driveModes",new JSONArray(java.util.Arrays.asList(CommandPolicy.DRIVE_MODES)))
-                    .put("demo",prefs.getBoolean("demo",false));
+                    .put("demo",t.demo);
             }catch(Exception ignored){}
-            state.put("vehicleMemory",memory);
-            state.put("bootLaunch",bootLaunch.snapshot());
-            state.put("wirelessAdb",wirelessAdb.snapshot());
+            t.vehicleMemory=memory;
+            t.bootLaunch=bootLaunch.snapshot();
+            t.wirelessAdb=wirelessAdb.snapshot();
+            t.trafficLights=trafficLights.snapshot();
+            t.fullMedia=t.demo?demoMedia():media.snapshot().put("preferredPackage",prefs.getString("mediaPackage","auto"));
+            t.strippedMedia=stripMediaPayload(t.fullMedia);
+            t.appNames=storedAppNames();
+            t.design=prefs.getString("savedDesign","");
+            trackDesign(t.design,t.appNames);
+            trackMedia(t.fullMedia);
+            t.projectedKey=t.fullMedia.optString("source")+"|"+prefs.getString("mediaPackage","auto");
+            t.transfer=transfer.snapshot();
+            t.quark=quark.snapshot();
+            t.cleaner=cleaner.snapshot();
+        }catch(Exception e){UniLog.e(LogTags.APP,"快照构建失败",e);}
+        if(inDeliver)activeTurn=t;
+        return t;
+    }
+
+    /**
+     * 启动窗口底色：上次外观真实的画布色。
+     *
+     * <p>窗口在进程启动时就被系统画出来了，那一段只能靠资源兜底；这时读到的必须是
+     * 上次保存的画布色，而不是浅色主题的纯白 —— 否则深色外观的用户每次冷启动都要
+     * 先看一帧白。缓存不存在（全新安装）才退回资源里的深色。
+     */
+    static int bootCanvasArgb(Context context){
+        SharedPreferences sp=context.getSharedPreferences("launcher",Context.MODE_PRIVATE);
+        int cached=sp.getInt("bootCanvasArgb",0);
+        if(cached!=0)return cached;
+        return context.getColor(R.color.uni_boot_canvas);
+    }
+
+    /** 从 savedDesign 里推出画布色：判断顺序照抄 Dart 的 Appearance.isDark。 */
+    private static int designCanvasArgb(JSONObject preferences,boolean systemDark){
+        String style=preferences.optString("themeStyle","classic");
+        if("nocturne".equals(style))return 0xFF050607;
+        String mode=preferences.optString("mode","system");
+        boolean dark;
+        if("dark".equals(mode))dark=true;
+        else if("light".equals(mode))dark=false;
+        else dark=systemDark;
+        if("blueGlass".equals(style))return dark?0xFF07111F:0xFFE8EEF5;
+        return dark?0xFF0E1920:0xFFE1ECE7;
+    }
+    private static JSONObject stripMediaPayload(JSONObject full){
+        JSONObject copy=new JSONObject();
+        if(full==null)return copy;
+        java.util.Iterator<String> keys=full.keys();
+        while(keys.hasNext()){
+            String k=keys.next();
+            if("artwork".equals(k)||"lyrics".equals(k)||"lyricTimeline".equals(k)
+                ||"lyricTimelineLabel".equals(k)||"lyricTimelineWords".equals(k))continue;
+            try{copy.put(k,full.opt(k));}catch(Exception ignored){}
+        }
+        return copy;
+    }
+
+    private JSONObject buildSnapshot(StaticCursor cursor, boolean includeSettings, boolean includeApps){
+        JSONObject state=new JSONObject();try{
+            TurnSnapshot t=obtainTurnSnapshot();
+            state.put("systemStatus",t.systemStatus).put("weather",t.weather).put("calendar",t.calendar).put("navigation",t.navigation).put("integrationPreferences",t.integrationPreferences);
+            state.put("debugBridge",t.debugBridge);
+            state.put("demo",t.demo).put("hideNavigation",t.hideNavigation)
+                .put("globalNavigation",t.globalNavigation)
+                .put("globalNavigationGranted",t.globalNavigationGranted)
+                .put("dark",t.dark)
+                .put("climate",t.climate).put("vehicle",t.telemetry).put("version",xyz.i4o.uni.launcher.BuildConfig.VERSION_NAME+"-flutter");
+            state.put("vehicleMemory",t.vehicleMemory);
+            state.put("bootLaunch",t.bootLaunch);
+            state.put("wirelessAdb",t.wirelessAdb);
             state.put("desktopSelected",homeVisible&&desktopContent);
-            state.put("trafficLights",trafficLights.snapshot());
-            JSONObject mediaState=prefs.getBoolean("demo",false)?demoMedia():media.snapshot().put("preferredPackage",prefs.getString("mediaPackage","auto"));
-            JSONObject appNames=storedAppNames();
-            String design=prefs.getString("savedDesign","");
-            trackDesign(design,appNames);
-            trackMedia(mediaState);
+            state.put("trafficLights",t.trafficLights);
 
             // 分组版本：图标、布局、媒体资源各自独立，只补发发生变化的部分。
             // 只想画底栏的窗口用「package/label 投影」代替整份 apps：查显示名
             // 不需要图标，几百个图标的 base64 没必要过一遍 JSON。真会列出应用的
             // 页面（全部应用/导航选择/播放器选择）传 includeApps=true，游标会
             // 靠 icons 位把整组补上。
-            boolean wantApps=includeApps&&(cursor.apps!=appsRevision||!cursor.icons);
-            boolean wantLabels=!includeApps&&(cursor.apps!=appsRevision||!cursor.icons);
+            String projectedKey=t.projectedKey;
+            boolean wantApps=(includeApps&&(cursor.apps!=appsRevision||!cursor.icons))||(cursor.icons&&cursor.apps!=appsRevision);
+            boolean wantLabels=!includeApps&&!cursor.icons&&(cursor.apps!=appsRevision||!projectedKey.equals(cursor.projectedSource));
             boolean wantDesign=cursor.design!=designRevision;
             boolean wantMedia=cursor.media!=mediaRevision;
             boolean wantSettings=includeSettings&&systemSettings.isWarmed()&&cursor.settings!=settingsRevision;
 
             if(wantApps)state.put("apps",installed);
-            else if(wantLabels)state.put("apps",appProjection(installed,
-                mediaState.optString("source"),prefs.getString("mediaPackage","auto")));
-            if(wantDesign){state.put("savedDesign",design).put("appNames",appNames);}
-            if(!wantMedia){mediaState.remove("artwork");mediaState.remove("lyrics");}
+            else if(wantLabels){
+                if(t.projectedApps==null)t.projectedApps=appProjection(installed,
+                    t.fullMedia.optString("source"),prefs.getString("mediaPackage","auto"));
+                state.put("apps",t.projectedApps);
+            }
+            if(wantDesign){state.put("savedDesign",t.design).put("appNames",t.appNames).put("lastDesktopPage",lastDesktopPage());}
             if(wantSettings){
                 JSONArray entries=systemSettings.snapshot();
                 if(entries!=null)state.put("systemSettings",new JSONObject().put("entries",entries).put("navigationAudio",navigationAudio.snapshot()));
             }
-            state.put("runtimeOwnerCount",listeners.size()).put("media",mediaState)
-                .put("transfer",transfer.snapshot())
-                .put("quark",quark.snapshot())
-                .put("cleaner",cleaner.snapshot())
+            state.put("runtimeOwnerCount",listeners.size()).put("media",wantMedia?t.fullMedia:t.strippedMedia)
+                .put("transfer",t.transfer)
+                .put("quark",t.quark)
+                .put("cleaner",t.cleaner)
                 .put("partial",!(wantApps&&wantDesign&&wantMedia));
 
-            if(wantApps){cursor.apps=appsRevision;cursor.icons=true;}
-            else if(wantLabels){cursor.apps=appsRevision;cursor.icons=false;}
+            if(wantApps){cursor.apps=appsRevision;cursor.icons=true;cursor.projectedSource=projectedKey;}
+            else if(wantLabels){cursor.apps=appsRevision;cursor.icons=false;cursor.projectedSource=projectedKey;}
             if(wantDesign)cursor.design=designRevision;
             if(wantMedia)cursor.media=mediaRevision;
             if(wantSettings)cursor.settings=settingsRevision;
@@ -393,15 +580,23 @@ public final class LauncherRuntime {
         if(!fingerprint.equals(designFingerprint)){designFingerprint=fingerprint;designRevision++;}
     }
     private void trackMedia(JSONObject media){
-        String fingerprint=media.optString("artwork","").hashCode()+":"+media.optString("lyrics","").hashCode();
+        String fingerprint=media.optString("title","")+"\u0000"
+            +media.optString("artist","")+"\u0000"
+            +media.optString("source","")+"\u0000"
+            +media.optString("artwork","").hashCode()+":"
+            +media.optString("lyrics","").hashCode()+":"
+            +media.optString("lyricTimeline","").hashCode()+":"
+            +media.optString("lyricTimelineLabel","");
         if(!fingerprint.equals(mediaFingerprint)){mediaFingerprint=fingerprint;mediaRevision++;}
     }
 
     private JSONObject demoMedia(){try{
         return new JSONObject().put("available",true).put("playing",demoPlaying)
-                .put("title",demoTrack%2==0?"向海而行":"山海之间").put("artist",demoTrack%2==0?"Coastline":"Northbound").put("collection","晨间驾驶歌单").put("source","simulator").put("canNext",true).put("canPrevious",true).put("canToggle",true).put("canSeek",true)
-                .put("lyrics","[00:00.00]晨光沿着海岸慢慢亮起\n[00:03.00]风把远方带进了呼吸\n[00:06.00]穿过山与海的交界\n[00:09.00]每一程都有新的风景\n[00:12.00]跟着潮声向前去\n[00:15.00]让今天从容开启")
-                .put("lyricsSource","demo").put("durationMs",258000).put("positionMs",demoPosition()).put("positionKnown",true)
+                // 示例曲目与封面（assets/art/cover-default.png）对齐稿子 f1/f5：
+                // 午夜立交 / 昼夜电台 / 环线。
+                .put("title","午夜立交").put("artist","昼夜电台").put("collection","环线").put("source","simulator").put("canNext",true).put("canPrevious",true).put("canToggle",true).put("canSeek",true)
+                .put("lyrics","[00:00.00]路灯把夜烫出一个洞\n[00:04.00]高架在头顶慢慢合拢\n[00:08.00]引擎声退成一片海\n[00:12.00]后视镜里城市在退潮\n[00:16.00]穿过环线，穿过午夜的风\n[00:20.00]电台里的人还没有睡\n[00:24.00]把方向盘握成一个句号")
+                .put("lyricsSource","demo").put("durationMs",269000).put("positionMs",demoPosition()).put("positionKnown",true)
                 .put("sampledAtMs",System.currentTimeMillis()).put("speed",1);
     }catch(Exception e){UniLog.e(LogTags.MEDIA,"演示媒体状态失败",e);return new JSONObject();}}
     private boolean saveDesignOnMain(String raw){
@@ -443,7 +638,11 @@ public final class LauncherRuntime {
                         if(key.length()==0||key.length()>255||name.length()>96||name.indexOf('\n')>=0||name.indexOf('\r')>=0)return false;
                     }
                 }
-                SharedPreferences.Editor editor=prefs.edit().putString("savedDesign",raw);
+                SharedPreferences.Editor editor=prefs.edit().putString("savedDesign",raw)
+                // 启动底色跟随外观：下次冷启动时窗口就能直接用这个色，
+                // 不必等 Flutter 把界面画出来才知道背景该是什么。
+                .putInt("bootCanvasArgb",designCanvasArgb(p,
+                    (context.getResources().getConfiguration().uiMode&Configuration.UI_MODE_NIGHT_MASK)==Configuration.UI_MODE_NIGHT_YES));
                 // 异步写盘：内存立即生效，不阻塞主线程等待磁盘提交；布局变更由
                 // trackDesign 的内容指纹在下次快照时推进 designRevision。
                 editor.apply();
@@ -494,6 +693,13 @@ public final class LauncherRuntime {
             media.setInstrumentEnabled(on);
             publish();return true;
         }
+        // 仪表自带媒体控件：第三条链路，和原车媒体中心并行，默认关。
+        if("dim-cluster".equals(action)){
+            boolean on=request.optBoolean("enabled",false);
+            prefs.edit().putBoolean("dimClusterEnabled",on).apply();
+            media.setDimClusterEnabled(on);
+            publish();return true;
+        }
         if("auto-play-music".equals(action)){prefs.edit().putBoolean("autoPlayMusic",request.optBoolean("enabled",false)).apply();publish();return true;}
         // 记忆配置：只记录偏好，真正写入由启动流程或用户点「立即应用」触发。
         if("memory-drive-mode-enabled".equals(action)){
@@ -525,6 +731,40 @@ public final class LauncherRuntime {
             publish();return true;
         }
         // 开机自启动计划：只记录计划；真正启动由开机落点窗口里的排程执行。
+        if("boot-autostart".equals(action)){
+            boolean enabled=request.optBoolean("enabled",true);
+            prefs.edit().putBoolean("bootAutostart",enabled).apply();
+            publish();return true;
+        }
+        if("home-key-target".equals(action)){
+            String target=value!=null?value.trim():"";
+            if(target.isEmpty()||"uni".equals(target)){
+                target=context.getPackageName();
+            }else if("oem".equals(target)){
+                target="ecarx.launcher3";
+            }
+            prefs.edit().putString("homeKeyTarget",target).apply();
+            try{DefaultHomeGuard.restoreIfNeeded(context);}catch(Throwable ignored){}
+            publish();return true;
+        }
+        if("open-home-settings".equals(action)){
+            try{
+                Intent intent=new Intent(android.provider.Settings.ACTION_HOME_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                if(intent.resolveActivity(context.getPackageManager())!=null){
+                    context.startActivity(intent);
+                }else{
+                    intent=new Intent(android.provider.Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    if(intent.resolveActivity(context.getPackageManager())!=null){
+                        context.startActivity(intent);
+                    }else{
+                        context.startActivity(new Intent(android.provider.Settings.ACTION_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                    }
+                }
+            }catch(Exception e){
+                toast("系统没有提供桌面设置入口");
+            }
+            return true;
+        }
         if("boot-launch-enabled".equals(action)){
             bootLaunch.setEnabled(request.optBoolean("enabled",false));publish();return true;
         }
@@ -577,7 +817,15 @@ public final class LauncherRuntime {
             refreshAppsInBackground();return true;
         }
         if("request-uninstall".equals(action)){if(!apps.requestUninstall(value))toast("该应用不可卸载");return true;}
-        if("launch-app".equals(action)){if(!apps.launch(value))toast("应用未安装或无法启动");return true;}
+        if("launch-app".equals(action)){
+            String navPkg=navigation.selected();
+            if(!navPkg.isEmpty()&&value!=null&&(value.equals(navPkg)||value.startsWith(navPkg+"/"))){
+                if(!navigation.launchFullscreen())toast("请选择已安装的导航应用");
+                return true;
+            }
+            if(!apps.launch(value))toast("应用未安装或无法启动");
+            return true;
+        }
         if("media-access".equals(action)){try{context.startActivity(new Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));}catch(Exception e){toast("系统没有提供媒体授权入口");}return true;}
         // 垃圾清理：扫描与清理都在 StorageCleaner 的后台线程，这里只做派发。
         // value 是逗号分隔的类目 id，长度与白名单由 StorageCleaner 再校验一次。
@@ -640,7 +888,7 @@ public final class LauncherRuntime {
         if("seek".equals(action)){
             long position;try{position=Long.parseLong(value);}catch(NumberFormatException e){return true;}
             if(position<0)return true;
-            if(prefs.getBoolean("demo",false)){demoPositionMs=Math.min(258000,position);demoSampleAt=android.os.SystemClock.elapsedRealtime();}
+            if(prefs.getBoolean("demo",false)){demoPositionMs=Math.min(269000,position);demoSampleAt=android.os.SystemClock.elapsedRealtime();}
             else if(!media.command(action,position))toast("当前音源不支持调整进度");
             publish();return true;
         }
@@ -672,7 +920,7 @@ public final class LauncherRuntime {
         onMain(()->{
             boolean first=listeners.isEmpty();
             listeners.put(owner,listener);
-            if(first){media.setSteeringEnabled(prefs.getBoolean("steeringKeysEnabled",true));media.setInstrumentEnabled(prefs.getBoolean("instrumentSyncEnabled",true));media.setPreferredPackage(prefs.getString("mediaPackage","auto"));vehicle.start();weather.start();systemStatus.start();calendar.start();trafficLights.start();}
+            if(first){media.setSteeringEnabled(prefs.getBoolean("steeringKeysEnabled",true));media.setInstrumentEnabled(prefs.getBoolean("instrumentSyncEnabled",true));media.setDimClusterEnabled(prefs.getBoolean("dimClusterEnabled",false));media.setPreferredPackage(prefs.getString("mediaPackage","auto"));vehicle.start();weather.start();systemStatus.start();calendar.start();trafficLights.start();}
             publish();return null;
         });
     }
@@ -689,6 +937,7 @@ public final class LauncherRuntime {
      * the rate so a chatty source cannot force a rebuild on every single event. */
     public void publish(){
         onMain(()->{
+            activeTurn=null;
             if(publishScheduled)return null;
             publishScheduled=true;
             long wait=PUBLISH_INTERVAL_MS-(android.os.SystemClock.elapsedRealtime()-publishedAt);
@@ -700,11 +949,18 @@ public final class LauncherRuntime {
     private final Runnable deliver=()->{
         publishScheduled=false;
         publishedAt=android.os.SystemClock.elapsedRealtime();
-        // An owner may remove itself/another owner during notification.
-        for(Map.Entry<Object,Runnable> entry:new IdentityHashMap<>(listeners).entrySet()){
-            if(listeners.get(entry.getKey())!=entry.getValue())continue;
-            try{entry.getValue().run();}
-            catch(RuntimeException e){UniLog.w(LogTags.APP,"快照监听器异常",e);}
+        inDeliver=true;
+        activeTurn=null;
+        try{
+            // An owner may remove itself/another owner during notification.
+            for(Map.Entry<Object,Runnable> entry:new IdentityHashMap<>(listeners).entrySet()){
+                if(listeners.get(entry.getKey())!=entry.getValue())continue;
+                try{entry.getValue().run();}
+                catch(RuntimeException e){UniLog.w(LogTags.APP,"快照监听器异常",e);}
+            }
+        }finally{
+            inDeliver=false;
+            activeTurn=null;
         }
     };
 

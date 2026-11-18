@@ -72,6 +72,12 @@ public final class SpectrumBridge {
     /** 静音保活包间隔：界面靠它区分「还在采」和「没在采」。 */
     static final long PUBLISH_KEEPALIVE_MS=500;
 
+    /** 拖动内嵌地图期间暂停主线程 FFT 采样与频谱分发，把帧预算优先让给 60fps 地图纹理。 */
+    private static volatile long touchActiveUntilMs;
+    public static void notifyMapTouch(boolean active){
+        touchActiveUntilMs=active?android.os.SystemClock.uptimeMillis()+250:0;
+    }
+
     private static Broker broker;
     private final Context context;
     private final MethodChannel methods;
@@ -141,23 +147,36 @@ public final class SpectrumBridge {
         volatile int captureSize,sampleRate;
         long startedAt;
         Runnable poll;
+        Runnable delayedRelease;
+        static final long RELEASE_GRACE_MS=3000;
         AudioManager audioManager;
         boolean sessionWarned;
+        boolean cachedGranted;
+        int cachedDemand;
+        String cachedHiddenApi="";
 
-        Broker(Context context){this.context=context;}
+        Broker(Context context){
+            this.context=context;
+            this.cachedGranted=granted();
+            this.cachedHiddenApi=xyz.i4o.uni.launcher.platform.HiddenApiCompat.status();
+        }
 
         boolean granted(){return context.checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED
             &&context.checkSelfPermission(Manifest.permission.MODIFY_AUDIO_SETTINGS)==PackageManager.PERMISSION_GRANTED;}
         int demand(){int n=0;for(SpectrumBridge c:clients.keySet())if(c.active&&c.sink!=null&&!c.closed)n++;return n;}
 
         Map<String,Object> packet(double[] levels){
-            Map<String,Object> data=new HashMap<>();
-            data.put("granted",granted());data.put("available",running&&!failed&&"listening".equals(reason));
+            final boolean isStatePacket=(levels==null);
+            final boolean permitted=isStatePacket?(cachedGranted=granted()):cachedGranted;
+            final int consumers=isStatePacket?(cachedDemand=demand()):cachedDemand;
+            final String hiddenApi=isStatePacket?(cachedHiddenApi=xyz.i4o.uni.launcher.platform.HiddenApiCompat.status()):cachedHiddenApi;
+            Map<String,Object> data=new HashMap<>(20);
+            data.put("granted",permitted);data.put("available",running&&!failed&&"listening".equals(reason));
             data.put("running",running);data.put("source",source);
-            data.put("status",!granted()?"permission-required":reason);
+            data.put("status",!permitted?"permission-required":reason);
             data.put("detail",detail);
-            data.put("hiddenApi",xyz.i4o.uni.launcher.platform.HiddenApiCompat.status());
-            data.put("activeConsumers",demand());data.put("clients",clients.size());
+            data.put("hiddenApi",hiddenApi);
+            data.put("activeConsumers",consumers);data.put("clients",clients.size());
             data.put("captureSize",captureSize);data.put("sampleRateHz",sampleRate);
             data.put("sequence",sequence);data.put("captureHz",1000/POLL_MS);
             data.put("peakLevel",running?peakLevel:0d);data.put("signalFrames",signalFrames);data.put("frames",frames);
@@ -167,7 +186,11 @@ public final class SpectrumBridge {
 
         void publish(double[] levels){
             Map<String,Object> data=packet(levels);
-            for(SpectrumBridge c:new ArrayList<>(clients.keySet()))if(c.sink!=null&&!c.closed&&(levels==null||c.active))c.sink.success(data);
+            if(levels!=null){
+                for(SpectrumBridge c:clients.keySet())if(c.active&&c.sink!=null&&!c.closed)c.sink.success(data);
+                return;
+            }
+            for(SpectrumBridge c:new ArrayList<>(clients.keySet()))if(c.sink!=null&&!c.closed)c.sink.success(data);
         }
 
         /**
@@ -182,6 +205,9 @@ public final class SpectrumBridge {
         void sync(){
             int consumers=demand();
             boolean permitted=granted();
+            cachedDemand=consumers;
+            cachedGranted=permitted;
+            cachedHiddenApi=xyz.i4o.uni.launcher.platform.HiddenApiCompat.status();
             if(consumers>0&&!permitted)UniLog.w(LogTags.SPECTRUM,"频谱权限未授予，采集不会启动","consumers",consumers,"tag",TAG);
             boolean needed=consumers>0&&permitted;
             if(needed&&!running&&!failed){
@@ -201,13 +227,20 @@ public final class SpectrumBridge {
             double capturedPeak=peakLevel;
             running=false;reason="idle";source="none";signalSeen=false;peakLevel=0;generation++;
             quietFrames=0;
-            main.post(this::releaseVisualizer);
+            if(poll!=null){main.removeCallbacks(poll);poll=null;}
+            if(delayedRelease!=null)main.removeCallbacks(delayedRelease);
+            delayedRelease=()->{
+                delayedRelease=null;
+                if(!running&&demand()==0)releaseVisualizer();
+            };
+            main.postDelayed(delayedRelease,RELEASE_GRACE_MS);
             publishState();
             if(!hadSignal)UniLog.w(LogTags.SPECTRUM,"频谱采集已停止但没有采到信号","frames",capturedFrames,"signalFrames",capturedSignalFrames,"tag",TAG);
             UniLog.done(LogTags.SPECTRUM,"spectrum/capture","action","stop","frames",capturedFrames,"signalFrames",capturedSignalFrames,"peakLevel",capturedPeak,"tag",TAG);
         }
 
         void startCapture(){
+            if(delayedRelease!=null){main.removeCallbacks(delayedRelease);delayedRelease=null;}
             running=true;reason="starting";detail="";signalSeen=false;startedAt=System.currentTimeMillis();
             quietFrames=0;
             // 新的一轮采集：上一包的电平不再有参考意义，第一帧必须推出去。
@@ -223,7 +256,12 @@ public final class SpectrumBridge {
         void attachOutputMix(int epoch){
             if(!running||epoch!=generation)return;
             try{
-                openVisualizer(0);
+                if(visualizer==null||attachedSessionId!=0){
+                    if(visualizer!=null)releaseVisualizer();
+                    openVisualizer(0);
+                }else{
+                    startedAt=System.currentTimeMillis();
+                }
                 source="output-mix";
                 reason="listening";detail="";
                 publishState();
@@ -354,6 +392,10 @@ public final class SpectrumBridge {
 
         void capture(int epoch){
             if(!running||epoch!=generation||visualizer==null)return;
+            if(android.os.SystemClock.uptimeMillis()<touchActiveUntilMs){
+                main.postDelayed(poll,POLL_MS);
+                return;
+            }
             try{
                 if(visualizer.getFft(fft)!=Visualizer.SUCCESS)throw new IllegalStateException("fft-unavailable");
                 // 复用同一块缓冲区：20 Hz 的采集不该每秒堆出 20 个 double[]。
@@ -437,6 +479,7 @@ public final class SpectrumBridge {
          * whole process down — the capture is already broken at that point.
          */
         void releaseVisualizer(){
+            if(delayedRelease!=null){main.removeCallbacks(delayedRelease);delayedRelease=null;}
             if(poll!=null)main.removeCallbacks(poll);poll=null;
             if(visualizer!=null){
                 try{visualizer.setEnabled(false);}catch(Throwable ignored){}

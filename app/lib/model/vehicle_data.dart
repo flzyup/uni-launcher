@@ -14,11 +14,26 @@ class VehicleField {
     final field = fields[key] is Map ? fields[key] as Map : const {};
     final timestamp = (field['updatedAtMs'] as num?)?.toInt() ?? 0;
     final age = (nowMs ?? DateTime.now().millisecondsSinceEpoch) - timestamp;
+    final isDrivingOrFuel = const [
+      'speed',
+      'odometer',
+      'range',
+      'maintenanceMileage',
+      'fuelPercent',
+      'fuelLiters',
+      'batteryPercent',
+      'pm25',
+      'aqi',
+      'pressureFrontLeft',
+      'pressureFrontRight',
+      'pressureRearLeft',
+      'pressureRearRight',
+    ].contains(key);
     final valid = vehicle['connected'] == true &&
         field['valid'] == true &&
         timestamp > 0 &&
         age >= -1000 &&
-        age <= 5000;
+        (isDrivingOrFuel || age <= 5000);
     return VehicleField(
         value: valid ? field['value'] : null,
         unit: '${field['unit'] ?? ''}',

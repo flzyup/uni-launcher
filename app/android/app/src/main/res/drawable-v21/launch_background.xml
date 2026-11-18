@@ -1,12 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Modify this file to customize your launch splash screen -->
+<!--
+  minSdk 24 起这份 v21 版本才是真正生效的那一份（drawable/ 下的同名文件
+  永远不会被选中）。以前它取 `?android:colorBackground`，在
+  Theme.Light.NoTitleBar 下就是纯白 —— 启动白屏的直接原因。
+-->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="?android:colorBackground" />
-
-    <!-- You can insert your own image assets here -->
-    <!-- <item>
-        <bitmap
-            android:gravity="center"
-            android:src="@mipmap/launch_image" />
-    </item> -->
+    <item android:drawable="@color/uni_boot_canvas" />
 </layer-list>

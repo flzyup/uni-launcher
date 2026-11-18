@@ -73,7 +73,7 @@
     "channel/account/road coverage",
     "greenLightLastSecond semantics and availability",
     "update cadence and invalidation signals",
-    "standard broadcast enums; cruise direction outside 1..3 / status outside 0..1",
+    "standard broadcast enums outside dir 1/4 and status 1/4",
     "multiple simultaneous directions at a real road junction"
   ],
   "rawEvidenceFiles": [
@@ -98,5 +98,34 @@
     "maxObservedBatchSize": 1,
     "countdownReceived": true,
     "ownerConfirmed": "seconds rendered; direction/multiple signals absent"
+  },
+  "standardObservation": {
+    "date": "2026-11-15",
+    "source": "three owner photos of the car screen cross-checked against diagnostic package uni-logs-20261115-161849 (log window 16:03:56-16:18:49)",
+    "package": "com.autonavi.amapautp.yh",
+    "protocol": "standard",
+    "conclusion": "standard dir/status is NOT the cruise enum table; do not share tables",
+    "directionTable": {
+      "1": "left",
+      "4": "straight"
+    },
+    "statusTable": {
+      "1": "red",
+      "4": "green"
+    },
+    "alignment": {
+      "photo": "16:13 car clock, left-turn red 20 rendered green by the card",
+      "log": "16:12:39-16:14:04 raw 1/1, countdown 85 -> 0; 16:13:44 is the 65th second, 85-65=20",
+      "cycle": "same junction alternates raw 1/1 (85s) and raw 1/4 (31s), so status 4 is the green phase"
+    },
+    "supportingPhotos": [
+      "15:38 straight red 24 with next-round green 25 -> raw 4/1 (card showed green 25)",
+      "15:40 straight green 8 -> raw 4/4 (card showed grey 9)"
+    ],
+    "stillUnknown": [
+      "dir 2 and 3",
+      "status 2 and 3",
+      "waitRound and greenLightLastSecond semantics"
+    ]
   }
 }

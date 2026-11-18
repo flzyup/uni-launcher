@@ -13,7 +13,7 @@
 ## 2. 当前工程事实
 
 - 包名 `xyz.i4o.uni.launcher`，`app/pubspec.yaml` 当前为 `0.6.19+33`；这不是所有已安装包实际 `versionCode` 的保证。
-- Android `minSdk=24`、`targetSdk=28`，主要车机为 Android 9。当前 `build.gradle.kts` 中普通 debug 和 release 使用本地 `uniLocal` 开发签名；README 同时记录 IP753 测试包曾使用单独签名，必须逐个核对实际已发布包的证书指纹。
+- Android `minSdk=24`、`targetSdk=28`，主要车机为 Android 9。全项目只有一张证书：AOSP 测试签名（`build.gradle.kts` 的 `aospTest`，SHA-256 `C8:A2:E9:BC:…`），`debug`/`profile`/`release` 与 `tools/sign_car_apk.py` 的实车包全部用它——车机只认这张。核对指纹仍然必须做，但期望值是同一个。历史包（0.7.6 之前）用过 `~/.android` 的 debug 证书，那批设备需卸载重装一次。
 - `--split-per-abi` 可让 Flutter 在构建号上追加 ABI 前缀；例如原始构建号 33 可能对应 arm64 APK 的 2033。必须以实际 APK 和已安装包信息为准，不可只比较 `pubspec` 的 `+33` 或版本字符串。参考 [Flutter 构建文档](https://docs.flutter.dev/deployment/android)。
 - 已有 `REQUEST_INSTALL_PACKAGES`、网络权限、Flutter `MethodChannel`、文件传输安装流程和 `TransferFileProvider`。更新下载目录独立于传文件目录；共享安装封装可复用，但不能直接假设现有 provider 能安全读取新目录。
 - `tools/upload_release.py` 目前只创建 GitHub Release 草稿与校验和，不会自动注册更新服务，也不能证明 APK 的构建来源或签名正确。

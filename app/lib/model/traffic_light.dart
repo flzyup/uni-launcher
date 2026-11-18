@@ -15,13 +15,13 @@ class TrafficSignal {
         'uturn': '掉头',
       }[direction] ??
       '路口信号';
-  String get lampLabel =>
-      const {
-        'red': '红灯',
-        'green': '绿灯',
-        'amber': '黄灯',
-      }[lamp] ??
-      '灯态待确认';
+  static const _lampLabels = {
+    'red': '红灯',
+    'green': '绿灯',
+    'amber': '黄灯',
+  };
+
+  String get lampLabel => _lampLabels[lamp] ?? '灯态待确认';
 
   int? remaining(int elapsedMs) {
     final seconds = countdownSeconds;
@@ -29,6 +29,20 @@ class TrafficSignal {
     final value = seconds - elapsedMs ~/ 1000;
     return value > 0 ? value : null; // Zero never implies a signal change.
   }
+
+  /// 绿灯最后 [amberLeadSeconds] 秒按黄灯展示（原车观感，用户 2026-11-14 定的规则）。
+  ///
+  /// 只动绿灯：红灯、未知灯态一律原样返回；绿灯没有倒计时（`—`）时也不切 —— 没有秒数
+  /// 就没有依据，不猜。这是**展示层**规则，数据里的灯态不变。
+  static const amberLeadSeconds = 3;
+  String lampAt(int elapsedMs) {
+    if (lamp != 'green') return lamp;
+    final left = remaining(elapsedMs);
+    return left != null && left <= amberLeadSeconds ? 'amber' : lamp;
+  }
+
+  String lampLabelAt(int elapsedMs) =>
+      _lampLabels[lampAt(elapsedMs)] ?? '灯态待确认';
 }
 
 class TrafficLightSnapshot {

@@ -31,12 +31,13 @@ void main() {
                           child: const Text('打开')),
                       Expanded(child: AboutPanel(update: u))
                     ])))));
-    expect(find.text('卢AI玩'), findsOneWidget);
-    expect(find.text('Felix'), findsOneWidget);
-    expect(find.text('十一'), findsOneWidget);
-    expect(find.text('ChainStrong'), findsOneWidget);
-    expect(find.text('冰点'), findsOneWidget);
-    expect(find.text('是鱿鱼不是犹豫'), findsOneWidget);
+    // 设计稿的贡献者块只有一行占位（`UNI Desktop Contributors`），这里换成
+    // 真实名单、用「·」连成一行，所以按「包含」断言而不是逐个子串匹配。
+    final contributors =
+        t.widget<Text>(find.textContaining('卢AI玩')).data ?? '';
+    for (final name in ['Felix', '十一', 'ChainStrong', '冰点', '是鱿鱼不是犹豫']) {
+      expect(contributors.contains(name), isTrue, reason: name);
+    }
     await t.tap(find.text('打开'));
     await t.pumpAndSettle();
     expect(find.text('当前  0.6.19'), findsOneWidget);

@@ -7,8 +7,10 @@ class CardSpec {
 
 const cardSpecs = [
   CardSpec('nav', '导航', '原车导航服务', 8, 6, 6, 3),
-  CardSpec('trafficLight', '红绿灯', '高德路口信号', 4, 2, 4, 2),
-  CardSpec('music', '音乐', '原车媒体中心', 4, 3, 3, 2),
+  // minH 放到 1：一格高时两张卡都不画卡头，只留一行内容（灯态读数 / 封面
+  // 与曲目）。默认尺寸不变，库里放进去仍是 4×2 / 4×3。
+  CardSpec('trafficLight', '红绿灯', '高德路口信号', 4, 2, 4, 1),
+  CardSpec('music', '音乐', '原车媒体中心', 4, 3, 3, 1),
   CardSpec('weather', '天气', '原车天气', 4, 2, 3, 2),
   CardSpec('calendar', '日历', '原车日历', 4, 3, 3, 2),
   CardSpec('member', '领克账号', '原车账号中心', 4, 6, 3, 3),
@@ -21,7 +23,9 @@ const cardSpecs = [
   CardSpec('ride', '出行服务', '其他车型的原厂出行服务', 4, 3, 3, 2),
   CardSpec('clock', '时钟', '系统时间', 4, 2, 3, 2),
   CardSpec('clockWeather', '时钟与天气', '系统时间与天气服务', 4, 3, 3, 2),
-  CardSpec('shortcuts', '快捷应用', '系统应用', 4, 2, 3, 2),
+  // minH 从 2 放到 1：卡片小于 4×3 时整张卡按「一行大图标」画、没有卡头，
+  // 两格高会在图标上下留一大片空。默认高度仍是 2（库里的规格不变）。
+  CardSpec('shortcuts', '快捷应用', '系统应用', 4, 2, 3, 1),
   CardSpec('vehicle', '行车信息', '原车车辆信息', 4, 3, 3, 2),
 ];
 final librarySpecs =
@@ -110,7 +114,31 @@ List<LauncherCard> defaultCards() => const [
       LauncherCard('shortcuts-1', 'shortcuts', '快捷应用', 0, 3, 4, 3, 1),
       LauncherCard('vehicle-1', 'vehicle', '行车信息', 4, 3, 4, 3, 1),
       LauncherCard('air-1', 'air', '车内空气', 8, 3, 4, 3, 1),
+      // 默认只给两页。f3 那屏（大时钟 8×6 + 天气 + 日历）不再预置：主屏铺满
+      // 三页反而显得空，谁想要自己从「添加卡片」里拖——clock / weather /
+      // calendar 三种 CardSpec 都还在目录里。编辑器翻到草稿页放卡时 pageCount
+      // 才会 +1，所以不给默认卡就不会出现第 3 页。
+      //
+      // 老布局里预置的那三张由 `_stripLegacyDefaultPage3` 清掉（仅当那一页
+      // 没有用户自己加的卡）。
     ].toList();
+
+/// 旧版本预置在第 3 页（page == 2）的默认卡。
+///
+/// 只在「第 3 页上全是这几张」时清掉——用户自己往里加过任何一张卡就整页保留，
+/// 那是他的布局，不该被我们顺手删掉。
+const legacyDefaultPage3Ids = {'clock-1', 'weather-1', 'calendar-1'};
+
+/// 返回清理后的卡片表；没有可清的就原样返回同一个 list。
+List<LauncherCard> stripLegacyDefaultPage3(List<LauncherCard> cards) {
+  final onPage3 = cards.where((c) => c.page == 2).toList();
+  if (onPage3.isEmpty) return cards;
+  if (!onPage3.every((c) => legacyDefaultPage3Ids.contains(c.id))) return cards;
+  return [
+    for (final c in cards)
+      if (c.page != 2) c
+  ];
+}
 bool validLayout(List<LauncherCard> cards) {
   if (cards.length > 200 ||
       cards.map((c) => c.id).toSet().length != cards.length) return false;

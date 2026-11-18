@@ -33,10 +33,9 @@ void main() {
       theme: launcherTheme(SurfaceStyle.from(a, true)),
       home: Scaffold(body: Center(child: child)));
 
-  testWidgets(
-      'music body opens shared panel; source title still launches player; edit suppresses panel',
+  testWidgets('music body opens the fullscreen player; edit suppresses it',
       (t) async {
-    final (c, g) = await setup(t);
+    final (c, _) = await setup(t);
     Future<void> card() => t.pumpWidget(host(SizedBox(
         width: 600,
         height: 400,
@@ -45,20 +44,19 @@ void main() {
             controller: c))));
     await card();
     await t.pumpAndSettle();
-    await t.tap(find.text('向海而行'));
+    await t.tap(find.text('午夜立交'));
     await t.pumpAndSettle();
-    expect(find.byKey(const ValueKey('media-panel-content')), findsOneWidget);
-    await t.tap(find.byTooltip('关闭音乐详情'));
+    // 稿子 f5：点进卡片就把这张卡铺满整页（铺满层在桌面里，这里断言状态）。
+    expect(c.focusedCard.value, isNotNull);
+    c.unfocusCard();
     await t.pumpAndSettle();
-    await t.tap(find.byKey(const ValueKey('media-source-entry')));
-    await t.pump();
-    expect(g.commands.last['action'], 'launch-player');
+    expect(c.focusedCard.value, isNull);
     c.editing = true;
     await card();
     await t.pumpAndSettle();
-    await t.tap(find.text('向海而行'));
+    await t.tap(find.text('午夜立交'));
     await t.pumpAndSettle();
-    expect(find.byKey(const ValueKey('media-panel-content')), findsNothing);
+    expect(c.focusedCard.value, isNull, reason: '编辑态不该铺满');
   });
 
   testWidgets(
@@ -86,39 +84,70 @@ void main() {
         findsOneWidget);
     await t.drag(pager, const Offset(500, 0));
     await t.pumpAndSettle();
-    expect(find.text('新歌词').hitTestable(), findsOneWidget);
+    // 底栏元数据槽也显示当前一句歌词，歌词页内的断言收窄到该子树。
+    expect(
+        find.descendant(
+            of: find.byKey(const ValueKey('dock-lyrics')),
+            matching: find.text('新歌词')),
+        findsOneWidget);
   });
 
   testWidgets(
-      'fan shows fresh AUTO or manual gear; stale telemetry never implies AUTO',
+      'fan flower stays a flower; fan bars light up to the current gear; AUTO pill commands auto',
       (t) async {
-    final (c, _) = await setup(t);
+    final (c, g) = await setup(t);
     final now = DateTime.now().millisecondsSinceEpoch;
-    Map<String, dynamic> n(bool auto, {bool valid = true}) => {
+    Map<String, dynamic> n({bool? auto, int? fan}) => {
           'demo': false,
-          'climate': {'auto': true, 'fan': 9},
+          'climate': const {},
           'vehicle': {
             'connected': true,
             'fields': {
-              'auto': {'valid': valid, 'value': auto, 'updatedAtMs': now},
-              'fan': {'valid': valid, 'value': 4, 'updatedAtMs': now}
+              if (auto != null)
+                'auto': {'valid': true, 'value': auto, 'updatedAtMs': now},
+              if (fan != null)
+                'fan': {'valid': true, 'value': fan, 'updatedAtMs': now},
             }
           }
         };
-    await t.pumpWidget(host(DockClimateButton(controller: c, native: n(true))));
-    expect(find.text('AUTO'), findsOneWidget);
-    expect(find.byKey(const ValueKey('dock-fan-segment-7')), findsNothing);
-    await t
-        .pumpWidget(host(DockClimateButton(controller: c, native: n(false))));
+    // 风扇单元：上面四瓣花、下面七根柱，整块只占一个 72 方格（AUTO 另起一格）。
+    await t.pumpWidget(
+        host(DockFanCluster(controller: c, native: n(auto: true, fan: 4))));
+    expect(find.byKey(const ValueKey('dock-fan-flower')), findsOneWidget);
     expect(find.text('AUTO'), findsNothing);
-    expect(find.text('4'), findsNothing);
+    // 风量柱：七档与原生 fan 一一对应，不再折成三档。
     for (var index = 1; index <= 7; index++) {
       expect(find.byKey(ValueKey('dock-fan-segment-$index')), findsOneWidget);
     }
-    await t.pumpWidget(
-        host(DockClimateButton(controller: c, native: n(true, valid: false))));
-    expect(find.text('AUTO'), findsNothing);
-    expect(find.text('—'), findsNothing);
+    expect(find.byKey(const ValueKey('dock-fan-segment-8')), findsNothing);
+    Color segColor(int index) => ((t.widget<Container>(
+                find.byKey(ValueKey('dock-fan-segment-$index'))))
+            .decoration! as BoxDecoration)
+        .color!;
+    // 4 档：前 4 根亮、后 3 根暗，且暗柱仍有可见度（实车要求，不是全透明）。
+    expect(segColor(4), isNot(segColor(5)));
+    expect(segColor(5), segColor(7));
+    expect(segColor(7).a, greaterThan(.05));
+    // 1 档只亮第一根；7 档亮满。
+    await t.pumpWidget(host(DockFanCluster(controller: c, native: n(fan: 1))));
+    expect(segColor(1), isNot(segColor(2)));
+    expect(segColor(2), segColor(7));
+    await t.pumpWidget(host(DockFanCluster(controller: c, native: n(fan: 7))));
+    expect(segColor(7), segColor(1));
+    // 遥测缺失时没有柱被点亮。
+    await t.pumpWidget(host(DockFanCluster(
+        controller: c, native: {'demo': false, 'climate': const {}})));
+    expect(segColor(1), segColor(7));
+    // 自动空调时 dock 这一格**仍是花 + 柱**，不再被 AUTO 顶替：
+    // AUTO 胶囊原来独占第七格，把六项间距全挤乱了（2026-11-15 方案 C）。
+    // AUTO 状态只体现在触摸提示里，开关挪回空调面板。
+    g.state['climate'] = {...g.state['climate'] as Map, 'auto': true};
+    g.stream.add(Map.of(g.state));
+    await t.pumpWidget(GlobalDockApp(controller: c));
+    await t.pumpAndSettle();
+    expect(find.byKey(const ValueKey('dock-auto-pill')), findsNothing);
+    expect(find.byKey(const ValueKey('dock-fan-flower')), findsOneWidget);
+    expect(find.byTooltip('空调与座椅，自动风量'), findsOneWidget);
   });
 
   testWidgets(
@@ -142,7 +171,9 @@ void main() {
     final climate = t.getRect(find.byKey(const ValueKey('dock-climate-frame')));
     final music = t.getRect(find.byKey(const ValueKey('dock-music-frame')));
     expect(climate.width, greaterThan(0));
-    expect(music.width, closeTo(866.462, .1));
+    // 831 = 720.83 - 19 - 9.17：空调胶囊按设计稿 C 定宽到画布 459（+19），
+    // 分隔线右侧由 5 改成 16（+9.17），两笔都从媒体区扣。
+    expect(music.width, closeTo(831.0, 1));
 
     c.setAppearance(c.appearance.copyWith(dockMusicProgressBackground: false));
     await t.pump(const Duration(milliseconds: 100));

@@ -28,7 +28,9 @@ export PATH="/Users/roy/development/flutter/bin:/opt/homebrew/bin:$PATH"
 export ANDROID_HOME=/Users/roy/Documents/desktopapp/toolchain/sdk
 export ANDROID_SDK_ROOT="$ANDROID_HOME"
 export JAVA_HOME=/Users/roy/Documents/desktopapp/toolchain/jdk-17.0.20.1+1/Contents/Home
-export UNI_SIGNING_STORE="$ROOT/android/uni-debug.keystore"
+# 全项目一张证书：AOSP 测试签名。keystore 在 app/android/signing 下（不入库），
+# 需要换位置时改这里或用已导出的 UNI_SIGNING_STORE。
+export UNI_SIGNING_STORE="${UNI_SIGNING_STORE:-$ROOT/android/signing/uni-debug.keystore}"
 export UNI_EMULATOR_SERIAL="$SERIAL"
 export UNI_AMBIENT_OUT="$OUT"
 

@@ -80,6 +80,40 @@ adb logcat | grep 'UNI/Vehicle.*func=0x10010300'
   日志不能把车机写满，那会影响导航、空调这些正经功能。
   降级状态会在诊断包里明确写出，否则用户看到「日志很少」会以为是 App 的问题。
 
+### 界面怎么看到这些值（`log:status` 通道）
+
+设置页「系统与调试」顶部「日志文件 N 份」和「磁盘余量」下面四行——*单文件 / 份数*、
+*总字节上限*、*余量保护*——全部来自同一条通道 `xyz.i4o.uni.launcher/log` 的
+`status` 方法。
+
+2026-11-08 之前 `LogBridge.status()` 只报七个基础字段（`level`、`bytes`、`degraded`、
+`anchors`、`initialized`、`storageWritable`、`storageReadable`），既没有份数也没有
+上面那几个常量，界面按「拿不到就显示 `—`、不拿 0 冒充」的规矩只能全部显示破折号。
+该日补齐（**只新增键，不动任何既有键**）：
+
+| 键 | 来源 | 值 |
+| --- | --- | --- |
+| `maxFileBytes` | `FileLogSink.MAX_FILE_BYTES` | 512KB |
+| `maxFiles` | `FileLogSink.MAX_FILES` | 8 |
+| `maxTotalBytes` | `FileLogSink.MAX_TOTAL_BYTES` | 4MB |
+| `minFreeBytes` | `FileLogSink.MIN_FREE_BYTES` | 16MB |
+| `files` | `UniLog.fileCount()` | 运行时实际份数 |
+
+`FileLogSink` 的几个 `MAX_*` 都是同包常量，`LogBridge` 直接读即可；但 `files()` 是
+包级**实例**方法、`sink` 是 `UniLog` 的私有静态，所以另加了一个
+`UniLog.fileCount()` 转发（`sink == null ? 0 : sink.files().size()`）。`files()` 只列
+目录、不触发截断，取值没有副作用。
+
+兼容性：老 Dart 侧读到多余键会忽略；新 Dart 侧读到老固件（没有这五个键）仍是 `—`，
+不会把缺失当成「0 份」。窗口预览里没有安卓侧日志服务，`LogTools.statusOverride`
+用一份与上表一致的快照顶上。
+
+验证范围（2026-11-08）：Dart 侧 `diagnostics_settings_test` 覆盖「有这五个键」与
+「没有」两种固件，全量 `flutter test` 522 条通过，Windows 预览逐项核对过数值与单位；
+**Java 侧在本机没有编译验证**——`~/.gradle/wrapper/dists/gradle-9.7.1-bin/` 里只有
+未完成的 `.part`/`.lck`，`./gradlew` 因离线拿不到发行版直接失败。出 APK 时需确认
+`LogBridge` / `UniLog` 编译通过。
+
 ### 锚点
 
 关键功能节点用锚点标记，渲染成：

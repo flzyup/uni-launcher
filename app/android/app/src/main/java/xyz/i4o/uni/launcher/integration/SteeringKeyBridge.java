@@ -55,9 +55,10 @@ public final class SteeringKeyBridge {
     public void start(){
         if(running)return;
         running=true;
-        if(registerAdaptApi())return;
-        if(registerDispatcher())return;
+        boolean ok=registerAdaptApi()||registerDispatcher();
         if(reason.isEmpty()||"未启动".equals(reason))reason="未发现原车方控输入接口";
+        // 一条总账：走了哪条路、拿到几个键、失败原因，实车核对只看这一行。
+        android.util.Log.i("UniSteeringKeys","start ok="+ok+" mode="+mode+" accepted="+accepted+" reason="+reason);
     }
 
     public void stop(){
@@ -87,14 +88,25 @@ public final class SteeringKeyBridge {
             Object instance=Class.forName(ADAPT_INPUT,true,loader).getMethod("create",Context.class).invoke(null,context);
             if(instance==null){reason="原车输入适配层未创建实例";return false;}
             Object handler=Proxy.newProxyInstance(type.getClassLoader(),new Class<?>[]{type},(proxy,method,args)->adaptValue(proxy,method,args));
-            int[] granted=(int[])instance.getClass().getMethod("requestKeysInterception",int[].class,type)
-                .invoke(instance,SteeringKeyPolicy.interceptKeys(),handler);
-            if(granted==null||granted.length==0){reason="原车未接受任何按键监听";return false;}
+            Method method=instance.getClass().getMethod("requestKeysInterception",int[].class,type);
+            int[] granted=(int[])method.invoke(instance,SteeringKeyPolicy.interceptKeys(),handler);
+            if(granted==null||granted.length==0){
+                // 夹着 HOME(3) 的整批申请可能被原车整体拒掉：退回只申请媒体键，
+                // 至少别把方控搞没，同时把「为什么」写进日志。
+                android.util.Log.w("UniSteeringKeys","整批申请被拒，退回媒体键");
+                granted=(int[])method.invoke(instance,SteeringKeyPolicy.mediaKeys(),handler);
+                if(granted==null||granted.length==0){reason="原车未接受任何按键监听";return false;}
+            }
             input=instance;callback=handler;callbackType=type;accepted=granted.length;mode="adaptapi";
             reason="已接入原车方控输入（"+accepted+" 个键）";
+            // 放行清单打在日志里：实车核对「申请的键有没有真给」只看这一行。
+            StringBuilder codes=new StringBuilder();
+            for(int code:granted)codes.append(codes.length()==0?"":",").append(code);
+            android.util.Log.i("UniSteeringKeys","granted="+codes+" requested="+SteeringKeyPolicy.interceptKeys().length);
             return true;
         }catch(Throwable e){
             reason="原车输入适配层不可用："+name(e);
+            android.util.Log.w("UniSteeringKeys","adaptapi 失败 "+e);
             return false;
         }
     }
@@ -141,8 +153,9 @@ public final class SteeringKeyBridge {
         boolean first;
         synchronized(seen){Integer count=seen.get(keyCode);first=count==null;seen.put(keyCode,count==null?1:count+1);}
         String action=SteeringKeyPolicy.action(keyCode);
-        // 每个键第一次出现记一条：实车核对中控那颗键派发的是哪个码，靠的就是这行。
-        if(first)android.util.Log.i("UniSteeringKeys","key="+keyCode+" action="+(action.isEmpty()?"-":action));
+        // 每个键第一次出现必记；之后只记前 50 次，避免高频键刷屏。
+        if(first||events%1==0&&events<=50)
+            android.util.Log.i("UniSteeringKeys","key="+keyCode+" action="+(action.isEmpty()?"-":action)+" n="+events);
         // 音量之类不归桌面管的键只进诊断计数，不打扰媒体适配层。
         if(action.isEmpty()||!running)return;
         main.post(()->{if(running&&sink!=null)sink.onSteeringAction(action,keyCode);});

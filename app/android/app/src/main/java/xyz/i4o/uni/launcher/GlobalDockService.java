@@ -29,6 +29,7 @@ import xyz.i4o.uni.launcher.overlay.RecentTasksRepository;
 public final class GlobalDockService extends Service {
     private static final String STOP="xyz.i4o.uni.launcher.STOP_DOCK", RESTORE="xyz.i4o.uni.launcher.RESTORE_NAV";
     private static GlobalDockService active;
+    public static GlobalDockService getActive(){return active;}
     private LauncherRuntime runtime;
     private WindowManager windows;
     private WorkspacePolicy workspace;
@@ -37,13 +38,51 @@ public final class GlobalDockService extends Service {
     private JSONArray recentTaskItems=new JSONArray();
     private boolean recentTasksReady;
     private int recentTasksRevision;
-    private boolean visible, cameraSuspended, nativeInsets;
+    private boolean visible, cameraSuspended, externalHomeSuspended, nativeInsets;
     private String panel="";
     private int panelRevision;
     private byte[] panelBackdrop;
     private boolean panelReady;
+
+    public static void suspendDockForExternalHome(){
+        GlobalDockService s=active;
+        if(s!=null){
+            s.dismissPanel();
+            s.externalHomeSuspended=true;
+            s.visible=false;
+            if(s.dockWindow!=null){
+                s.dockWindow.show(false);
+            }
+        }
+    }
+    public static void resumeDockForExternalHome(){
+        GlobalDockService s=active;
+        if(s!=null){
+            s.externalHomeSuspended=false;
+            s.update();
+        }
+    }
+    private final BroadcastReceiver closeDialogsReceiver=new BroadcastReceiver(){
+        @Override public void onReceive(Context context,Intent intent){
+            if(intent==null||!Intent.ACTION_CLOSE_SYSTEM_DIALOGS.equals(intent.getAction()))return;
+            String reason=intent.getStringExtra("reason");
+            if("homekey".equals(reason)||"recentapps".equals(reason)){
+                dismissPanel();
+                if("homekey".equals(reason)){
+                    SharedPreferences prefs=context.getSharedPreferences("launcher",Context.MODE_PRIVATE);
+                    String target=prefs.getString("homeKeyTarget",context.getPackageName());
+                    boolean isUni="uni".equals(target)||context.getPackageName().equals(target);
+                    if(!isUni){
+                        suspendDockForExternalHome();
+                    }
+                }
+            }
+        }
+    };
     private static final long PANEL_IDLE_MS=5000;
     private static final JSONArray NO_RECENTS=new JSONArray();
+    private static final java.util.regex.Pattern SIGNATURE_TIMESTAMPS=
+        java.util.regex.Pattern.compile("\"([A-Za-z]*AtMs|[A-Za-z]*AtElapsedMs|sourceTimestampNanos|ageMs)\":-?\\d+");
     private final Runnable releaseIdlePanel=()->{
         if(!panel.isEmpty()||panelWindow==null)return;
         panelWindow.suspend();
@@ -58,17 +97,42 @@ public final class GlobalDockService extends Service {
         try{Intent i=new Intent(c,GlobalDockService.class);if(Build.VERSION.SDK_INT>=26)c.startForegroundService(i);else c.startService(i);}
         catch(RuntimeException e){UniLog.w(LogTags.DOCK,"Unable to start global dock",e,"tag","UniDock");}
     }
-    public static JSONObject snapshot(Context c){
+    /**
+     * 引擎探测（是否在渲染 / 活着几个引擎）要进 Flutter 引擎取状态，实测一次
+     * 20~110ms —— 它在主窗口每次发包时都会被读，纯属让发布替渲染付费。
+     * 主窗口那条路径（allowed 非 null）按 2 秒记一次；dock 自己的窗口仍现查，
+     * 因为它靠 rendering 决定自己的呈现。
+     */
+    private static long probeAt;private static boolean probeRendering;private static int probeLive;
+
+    private static void probe(GlobalDockService s,boolean memoize){
+        long now=android.os.SystemClock.elapsedRealtime();
+        if(!memoize||now-probeAt>=2000){
+            probeRendering=s!=null&&s.dockWindow!=null&&s.dockWindow.engine.getRenderer().isDisplayingFlutterUi();
+            probeLive=LauncherEngines.liveCount();
+            probeAt=now;
+        }
+    }
+
+    public static JSONObject snapshot(Context c){return snapshot(c,null);}
+
+    /**
+     * @param allowed 调用方缓存好的悬浮窗权限结果，null 表示现查。
+     *                {@link Settings#canDrawOverlays} 走 AppOps → system_server，
+     *                实测一次几十毫秒，而它只有用户在系统设置里授权才会变。
+     */
+    public static JSONObject snapshot(Context c,Boolean allowed){
         JSONObject j=new JSONObject();try{
             GlobalDockService s=active;
+            probe(s,allowed!=null);
             j.put("enabled",c.getSharedPreferences("launcher",0).getBoolean("globalDockEnabled",false))
-             .put("allowed",Settings.canDrawOverlays(c)).put("running",s!=null&&s.dockWindow!=null)
+             .put("allowed",allowed!=null?allowed:Settings.canDrawOverlays(c)).put("running",s!=null&&s.dockWindow!=null)
              .put("visible",s!=null&&s.visible).put("expanded",s!=null&&!s.panel.isEmpty())
              .put("nativeNavigationInsets",s!=null&&s.nativeInsets)
              .put("workspaceReserved",s!=null&&(s.nativeInsets||s.workspace!=null&&s.workspace.available()))
              .put("workspaceResizes",s==null||s.workspace==null?0:s.workspace.resized())
              .put("panelReady",s!=null&&s.panelReady)
-             .put("liveFlutterEngines",LauncherEngines.liveCount())
+             .put("liveFlutterEngines",probeLive)
              .put("panelEngineAlive",s!=null&&s.panelWindow!=null)
              .put("panelWindowAttached",s!=null&&s.panelWindow!=null&&s.panelWindow.attached)
              .put("panelEngineIdentity",s==null||s.panelWindow==null?0:System.identityHashCode(s.panelWindow.engine))
@@ -78,7 +142,7 @@ public final class GlobalDockService extends Service {
              .put("recentsClearSupported",s!=null&&s.recentTasks!=null&&s.recentTasks.canRemove())
              .put("backdropAvailable",s!=null&&s.panelBackdrop!=null)
              .put("panel",s==null?"":s.panel).put("panelRevision",s==null?0:s.panelRevision)
-             .put("rendering",s!=null&&s.dockWindow!=null&&s.dockWindow.engine.getRenderer().isDisplayingFlutterUi());
+             .put("rendering",s!=null&&s.dockWindow!=null&&probeRendering);
             if(s!=null&&s.dockWindow!=null){
                 WindowManager.LayoutParams b=s.dockWindow.bounds;
                 int[] location=new int[2];s.dockWindow.view.getLocationOnScreen(location);
@@ -125,6 +189,10 @@ public final class GlobalDockService extends Service {
         if("show-dock-panel".equals(a)){
             if(active!=null)active.showPanel(r.optString("value"));return true;
         }
+        if("focus-music-card".equals(a)){
+            // 底栏引擎自己没有桌面：请主窗口把音乐卡铺满（不弹旧的面板窗口）。
+            MainActivity.requestMusicCard();return true;
+        }
         if("panel-ready".equals(a)){
             if(active!=null&&!active.panel.isEmpty()&&r.optString("value").equals(""+active.panelRevision)){
                 active.panelReady=true;active.publish();
@@ -152,9 +220,10 @@ public final class GlobalDockService extends Service {
             if(active!=null&&"recents".equals(active.panel))active.handleRecentTask(a,r.optString("value"));return true;
         }
         if("show-home".equals(a)||"show-desktop-settings".equals(a)){
-            if(active!=null){active.dismissPanel();active.cameraSuspended=false;}
+            if(active!=null){active.dismissPanel();active.cameraSuspended=false;active.externalHomeSuspended=false;}
             c.startActivity(new Intent(c,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
-                .putExtra("uniSettings","show-desktop-settings".equals(a)));return true;
+                .putExtra("uniSettings","show-desktop-settings".equals(a))
+                .putExtra("uniSettingsTab",r.optString("value","")));return true;
         }
         if("open-official".equals(a)&&"camera".equals(r.optString("value"))&&active!=null){active.dismissPanel();active.cameraSuspended=true;active.update();}
         // Launching an external app must always collapse the glass panel first.
@@ -200,15 +269,27 @@ public final class GlobalDockService extends Service {
         super.onCreate();active=this;runtime=LauncherRuntime.get(this);runtime.scheduleBootAutoPlay();runtime.scheduleBootLaunch();runtime.scheduleWirelessAdb();recentTasks=new RecentTasksRepository(this);
         if(!Settings.canDrawOverlays(this)||!runtime.prefs().getBoolean("globalDockEnabled",false)){stopSelf();return;}
         startForeground(753,notification());
+        try{registerReceiver(closeDialogsReceiver,new IntentFilter(Intent.ACTION_CLOSE_SYSTEM_DIALOGS));}catch(Throwable ignored){}
         windows=(WindowManager)getSystemService(WINDOW_SERVICE);
         NavigationInsets.prepare(this,()->{if(active==this)startWindows();});
+    }
+    /** 全屏沉浸规则会把导航栏 inset 归零；读不到时按「会清零」处理，宁可多预留。 */
+    private static boolean immersiveFull(Context c){
+        try{
+            String policy=android.provider.Settings.Global.getString(c.getContentResolver(),"policy_control");
+            return policy==null||policy.contains("immersive.full");
+        }catch(RuntimeException e){return true;}
     }
     private void startWindows(){
         if(dockWindow!=null)return;
         enableBarModifications(this,runtime.prefs());nativeInsets=NavigationInsets.applied(this);
         workspace=new WorkspacePolicy(this,runtime.prefs());
-        if(nativeInsets)workspace.stopAndRestore();
-        workspace.start();
+        // insets 资源包生效 ≠ 系统真的在底部留了 96px：`policy_control` 里只要还有
+        // `immersive.full`，原厂导航栏就连 inset 一起被清掉，任务照样铺满 1080，
+        // 底栏会压住它最后一条。所以按「策略有没有清零 inset」决定要不要缩放任务，
+        // 而不是只看资源包是否启用（用户 2026-11-15 反馈应用底部被底栏遮挡）。
+        if(nativeInsets&&!immersiveFull(this))workspace.stopAndRestore();
+        else workspace.start();
         UniLog.enter(LogTags.DOCK,"dock/attach","surface","dock");
         try{dockWindow=new OverlayWindow(false);}catch(RuntimeException e){
             UniLog.fail(LogTags.DOCK,"dock/engine","surface","dock","error",String.valueOf(e.getMessage()));
@@ -218,7 +299,18 @@ public final class GlobalDockService extends Service {
         }
         UniLog.done(LogTags.DOCK,"dock/attach","surface","dock");
         UniLog.i(LogTags.DOCK,"底栏窗口已创建","nativeInsets",nativeInsets,"workspace",workspace.available());
-        runtime.addListener(this,this::update);update();
+        externalHomeSuspended=isExternalHomeVisible();
+        runtime.addListener(this,this::onRuntimeChanged);update();
+        main.postDelayed(externalHomeCheck,1000);
+        main.postDelayed(this::prewarmPanel,1800);
+    }
+    private void prewarmPanel(){
+        if(dockWindow==null||panelWindow!=null||!panel.isEmpty())return;
+        try{
+            panelWindow=new OverlayWindow(true);
+            main.removeCallbacks(releaseIdlePanel);
+            main.postDelayed(releaseIdlePanel,1500);
+        }catch(RuntimeException ignored){}
     }
     /** Each view retains its size for its entire lifetime. In particular a
      * dialog never reallocates the dock's Flutter texture or changes its focus. */
@@ -309,13 +401,13 @@ public final class GlobalDockService extends Service {
             requestedVisible=show;
             view.animate().cancel();
             if(show){
+                view.setAlpha(1f);
                 view.setVisibility(View.VISIBLE);
                 engine.getLifecycleChannel().appIsResumed();
-                if(isPanel){view.requestFocus();view.setAlpha(0f);view.animate().alpha(1f).setDuration(180).start();}
-                else view.setAlpha(1f);
+                if(isPanel)view.requestFocus();
             }else if(isPanel&&visible){
-                view.animate().alpha(0f).setDuration(180).withEndAction(()->{
-                    if(!requestedVisible&&attached){view.setVisibility(View.INVISIBLE);engine.getLifecycleChannel().appIsPaused();}
+                view.animate().alpha(0f).setDuration(140).withEndAction(()->{
+                    if(!requestedVisible&&attached){view.setVisibility(View.INVISIBLE);view.setAlpha(1f);engine.getLifecycleChannel().appIsPaused();}
                 }).start();
             }else{
                 view.setVisibility(View.INVISIBLE);view.setAlpha(1f);
@@ -327,7 +419,7 @@ public final class GlobalDockService extends Service {
             String text=packet().toString();
             // Same reasoning as MainActivity.emit(): timestamp-only differences must
             // not wake the dock/panel engine while nothing it renders has changed.
-            String sig=text.replaceAll("\"([A-Za-z]*AtMs|[A-Za-z]*AtElapsedMs)\":-?\\d+","\"t\":0");
+            String sig=SIGNATURE_TIMESTAMPS.matcher(text).replaceAll("\"t\":0");
             if(sig.equals(sentSignature))return;
             sentSignature=sig;
             sink.success(text);
@@ -344,8 +436,6 @@ public final class GlobalDockService extends Service {
         void suspend(){
             if(!attached)return;
             show(false);view.detachFromFlutterEngine();windows.removeViewImmediate(view);attached=false;
-            engine.getSystemChannel().sendMemoryPressureWarning();
-            engine.getRenderer().onTrimMemory(android.content.ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN);
         }
         void close(){
             spectrumBridge.close();
@@ -380,6 +470,9 @@ public final class GlobalDockService extends Service {
         if(!panel.isEmpty())UniLog.done(LogTags.DOCK,"dock/attach","surface","panel","panel",kind);
         if(!panel.isEmpty())startForegroundCheck();
         update();
+        // 桌面整块被 globalDock.expanded 门控（面板展开时关 TickerMode），而它不在
+        // 本服务的 publish 链路里 —— 不显式叫它补一份，桌面就停在「面板还开着」。
+        if(!panel.isEmpty())MainActivity.requestPublish();
     }
     /** Ephemeral, in-memory backdrop only while a glass panel is open. Flutter
      * cannot blur another process's Surface; the platform build can capture it.
@@ -387,7 +480,9 @@ public final class GlobalDockService extends Service {
     private byte[] captureBackdrop(){
         android.graphics.Bitmap bitmap=null,crop=null;
         try{
-            JSONObject design=new JSONObject(runtime.prefs().getString("savedDesign","{}"));
+            String rawDesign=runtime.prefs().getString("savedDesign","");
+            if(!rawDesign.contains("\"glass\":true")||rawDesign.contains("\"blueGlass\""))return null;
+            JSONObject design=new JSONObject(rawDesign);
             JSONObject appearance=design.optJSONObject("preferences");
             if(appearance==null||!appearance.optBoolean("glass",false)||"blueGlass".equals(appearance.optString("themeStyle")))return null;
             DisplayMetrics real=new DisplayMetrics();windows.getDefaultDisplay().getRealMetrics(real);
@@ -406,6 +501,9 @@ public final class GlobalDockService extends Service {
     private void dismissPanel(){
         if(panel.isEmpty())return;
         panel="";panelReady=false;panelBackdrop=null;panelRevision++;main.removeCallbacks(foregroundCheck);update();
+        // 同上：关面板这一步必须让桌面立刻收到 expanded=false，否则 TickerMode 一直关着，
+        // 翻页不落位、卡片动画全停 —— 用户感受就是「弹窗关掉以后整个桌面卡住」。
+        MainActivity.requestPublish();
         resetRecentItems();
         final OverlayWindow closing=panelWindow;
         if(closing!=null)main.postDelayed(()->{
@@ -414,6 +512,21 @@ public final class GlobalDockService extends Service {
         main.removeCallbacks(releaseIdlePanel);main.postDelayed(releaseIdlePanel,PANEL_IDLE_MS);
     }
     private void resetRecentItems(){recentTaskItems=new JSONArray();recentTasksReady=false;recentTasksRevision++;}
+    /**
+     * HOME 回首屏：直接收起面板窗口（全部应用 / 最近任务 / 媒体 / 空调都是它）。
+     *
+     * 面板是压在本 Activity 之上的独立 overlay 窗口，只把桌面翻回第一页不够 ——
+     * 窗口还在最上面盖着。这条不走 Dart 往返，按 HOME 时立刻生效。
+     */
+    public static boolean dismissPanelNow(String reason){
+        GlobalDockService service=active;
+        if(service==null)return false;
+        String closing=service.panel;
+        if(closing.isEmpty())return false;
+        service.dismissPanel();
+        UniLog.event(LogTags.DOCK,"HOME 收起面板","panel",closing,"by",reason);
+        return true;
+    }
     private void toggleRecents(){
         if("recents".equals(panel)){dismissPanel();return;}
         dismissPanel();
@@ -479,19 +592,89 @@ public final class GlobalDockService extends Service {
         }
         main.postDelayed(foregroundCheck,500);
     }
+    private final Runnable externalHomeCheck=new Runnable(){
+        @Override public void run(){
+            if(dockWindow!=null){
+                boolean ext=isExternalHomeVisible();
+                if(ext!=externalHomeSuspended){
+                    externalHomeSuspended=ext;
+                    update();
+                }
+            }
+            main.postDelayed(this,500);
+        }
+    };
     private String topTaskPackage(){
         return xyz.i4o.uni.launcher.overlay.DisplayTasks.topPackage(this);
+    }
+    private boolean isExternalHomePackage(String pkg){
+        if(pkg==null||pkg.isEmpty()||pkg.equals(getPackageName()))return false;
+        if("ecarx.launcher3".equals(pkg)||"com.android.car.carlauncher".equals(pkg)||"com.android.launcher3".equals(pkg))return true;
+        SharedPreferences prefs=getSharedPreferences("launcher",Context.MODE_PRIVATE);
+        String target=prefs.getString("homeKeyTarget","");
+        if(!target.isEmpty()&&!"uni".equals(target)&&pkg.equals(target))return true;
+        try{
+            Intent home=new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME);
+            java.util.List<android.content.pm.ResolveInfo> homes=getPackageManager().queryIntentActivities(home,0);
+            if(homes!=null){
+                for(android.content.pm.ResolveInfo ri:homes){
+                    if(ri.activityInfo!=null&&pkg.equals(ri.activityInfo.packageName)){
+                        if(!getPackageName().equals(ri.activityInfo.packageName)
+                            &&!"com.android.settings".equals(ri.activityInfo.packageName)
+                            &&!ri.activityInfo.packageName.endsWith(".fallbackhome")){
+                            return true;
+                        }
+                    }
+                }
+            }
+        }catch(Throwable ignored){}
+        return false;
+    }
+    private boolean isExternalHomeVisible(){
+        if(LauncherVisibility.visible()){
+            return false;
+        }
+        try{
+            java.util.List<xyz.i4o.uni.launcher.overlay.DisplayTasks.Task> tasks=xyz.i4o.uni.launcher.overlay.DisplayTasks.visible(this);
+            if(tasks!=null&&!tasks.isEmpty()){
+                for(xyz.i4o.uni.launcher.overlay.DisplayTasks.Task t:tasks){
+                    if(getPackageName().equals(t.packageName)){
+                        return false;
+                    }
+                    if(isExternalHomePackage(t.packageName))return true;
+                }
+            }
+        }catch(Throwable ignored){}
+        try{
+            String top=topTaskPackage();
+            if(getPackageName().equals(top)){
+                return false;
+            }
+            if(isExternalHomePackage(top))return true;
+        }catch(Throwable ignored){}
+        return false;
+    }
+    private void onRuntimeChanged(){
+        if(dockWindow==null)return;
+        if(isExternalHomeVisible()){
+            externalHomeSuspended=true;
+            update();
+            return;
+        }
+        publish();
     }
     private void update(){
         if(dockWindow==null)return;
         if(!Settings.canDrawOverlays(this)){stopSelf();return;}
-        if(runtime.homeVisible())cameraSuspended=false;
-        visible=!cameraSuspended;
+        if(isExternalHomeVisible()){
+            externalHomeSuspended=true;
+        }
+        visible=!cameraSuspended&&!externalHomeSuspended;
         dockWindow.updateBounds();dockWindow.show(visible);
         if(panelWindow!=null){panelWindow.updateBounds();panelWindow.show(visible&&!panel.isEmpty());}
         publish();
     }
-    private void publish(){if(dockWindow!=null)dockWindow.publish();if(panelWindow!=null&&!panel.isEmpty())panelWindow.publish();}
+    private void publish(){if(panelWindow!=null&&!panel.isEmpty())panelWindow.publish();if(dockWindow!=null)dockWindow.publish();}
     @Override public void onTrimMemory(int level){
         super.onTrimMemory(level);
         if(dockWindow!=null){dockWindow.engine.getSystemChannel().sendMemoryPressureWarning();dockWindow.engine.getRenderer().onTrimMemory(level);}
@@ -541,6 +724,7 @@ public final class GlobalDockService extends Service {
     @Override public void onConfigurationChanged(android.content.res.Configuration config){super.onConfigurationChanged(config);update();}
     @Override public void onDestroy(){
         UniLog.enter(LogTags.DOCK,"dock/detach","surface","dock");
+        try{unregisterReceiver(closeDialogsReceiver);}catch(Throwable ignored){}
         if(runtime!=null)runtime.removeListener(this);
         main.removeCallbacksAndMessages(null);
         if(workspace!=null)workspace.stopAndRestore();

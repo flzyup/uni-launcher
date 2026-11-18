@@ -1,7 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import '../model/appearance.dart';
-import '../theme/design_tokens.dart';
 import '../theme/launcher_theme.dart';
 
 class SceneBackground extends StatelessWidget {
@@ -35,7 +34,7 @@ class SceneBackground extends StatelessWidget {
       else
         const SizedBox.expand(),
       if (s.nocturne)
-        _nocturneBackdrop(s, hasWallpaper)
+        _nocturneBackdrop(s, hasWallpaper, showOverlay)
       else if (s.technicalFrame && !hasWallpaper)
         _technicalGradient(s)
       else if (s.technicalFrame && showOverlay)
@@ -50,15 +49,42 @@ class SceneBackground extends StatelessWidget {
     ]);
   }
 
-  /// 暗夜画布：纯黑铺底 + 80px 网格 + 左上强调色、右下暖色的两处环境光，
+  /// 暗夜画布：纯黑铺底 + 左上强调色、右下暖色的两处环境光，
   /// 与 design/desktop-lynk05.html 的画板底一致。有壁纸时只做压暗。
-  Widget _nocturneBackdrop(SurfaceStyle s, bool hasWallpaper) {
+  ///
+  /// 画板上那层 80px 的淡网格**不再画**：1920 宽下一屏 24 根线，把留白切成
+  /// 一格一格，卡片压上去像贴在作业本上；而且它和「无边界黑」的设计意图
+  /// 相反。暗角已经够给出距离感。
+  Widget _nocturneBackdrop(SurfaceStyle s, bool hasWallpaper, bool overlay) {
     if (hasWallpaper) {
-      return const DecoratedBox(
-          decoration: BoxDecoration(color: Color(0x99050506)));
+      // 暗夜 + 壁纸：
+      //  · 压暗从 60% 黑收到 40% —— 原来那层把照片吃得只剩一点灰影，选壁纸等于
+      //    选了个黑底（用户 2026-11-13 实车截图就是这个观感）；
+      //  · 「叠加主题渐变」这个开关以前在暗夜完全没读，拨了没反应。现在打开时在
+      //    照片上再叠一层主题色渐变（左上亮、右下暗，跟 blueGlass 那条同一套做法），
+      //    让照片跟主题同调；关掉就是纯照片 + 压暗。
+      return Stack(fit: StackFit.expand, children: [
+        const DecoratedBox(decoration: BoxDecoration(color: Color(0x66050506))),
+        if (overlay)
+          DecoratedBox(
+              key: const ValueKey('nocturne-wallpaper-overlay'),
+              decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      stops: const [
+                    0,
+                    .58,
+                    1
+                  ],
+                      colors: [
+                    s.accent.withValues(alpha: .22),
+                    s.accent.withValues(alpha: .04),
+                    const Color(0x8C050506)
+                  ]))),
+      ]);
     }
     return Stack(fit: StackFit.expand, children: [
-      const RepaintBoundary(child: CustomPaint(painter: _NightGridPainter())),
       DecoratedBox(
           decoration: BoxDecoration(
               gradient: RadialGradient(
@@ -102,14 +128,18 @@ class SceneBackground extends StatelessWidget {
           gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              stops: const [0, .63, 1],
+              stops: const [
+            0,
+            .63,
+            1
+          ],
               colors: [
-                Color.lerp(s.background, s.seed, s.dark ? .42 : .32)!
-                    .withValues(alpha: s.dark ? .52 : .38),
-                s.background.withValues(alpha: s.dark ? .25 : .18),
-                Color.lerp(s.background, s.seed, s.dark ? .28 : .22)!
-                    .withValues(alpha: s.dark ? .42 : .30),
-              ])));
+            Color.lerp(s.background, s.seed, s.dark ? .42 : .32)!
+                .withValues(alpha: s.dark ? .52 : .38),
+            s.background.withValues(alpha: s.dark ? .25 : .18),
+            Color.lerp(s.background, s.seed, s.dark ? .28 : .22)!
+                .withValues(alpha: s.dark ? .42 : .30),
+          ])));
 
   Widget _classicBackdrop(SurfaceStyle s, bool hasWallpaper) => DecoratedBox(
       decoration: BoxDecoration(
@@ -162,28 +192,6 @@ class SceneBackground extends StatelessWidget {
                     const Color(0x0079A2B7)
                   ])),
               child: const SizedBox.expand())));
-}
-
-/// 80 设计像素的极淡网格：只是让纯黑有一点点距离感，不参与交互也不重绘。
-class _NightGridPainter extends CustomPainter {
-  const _NightGridPainter();
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = const Color(0x0DFFFFFF)
-      ..strokeWidth = 1;
-    final step = Design.px(80);
-    if (step <= 0) return;
-    for (var x = 0.0; x <= size.width; x += step) {
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
-    }
-    for (var y = 0.0; y <= size.height; y += step) {
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _NightGridPainter oldDelegate) => false;
 }
 
 class WallpaperImage extends StatelessWidget {
