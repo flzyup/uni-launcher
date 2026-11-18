@@ -908,6 +908,12 @@ public final class LauncherRuntime {
             else if(!media.command(action,position))toast("当前音源不支持调整进度");
             publish();return true;
         }
+        if("favorite-toggle".equals(action)||"play-mode-toggle".equals(action)){
+            // 收藏 / 播放模式是**会话能力**，播放器不支持时按钮本身就不该亮。
+            if(prefs.getBoolean("demo",false)){toast("演示模式下收藏与播放模式不可用");publish();return true;}
+            if(!media.command(action))toast("当前音源不支持此操作，或尚未授权媒体访问");
+            publish();return true;
+        }
         if("toggle-play".equals(action)||"previous".equals(action)||"next".equals(action)){
             if(simulationMode().mediaDemo){if("toggle-play".equals(action)){demoPositionMs=demoPosition();demoPlaying=!demoPlaying;}
                 else {demoTrack+="previous".equals(action)?-1:1;demoPositionMs=0;}

@@ -143,16 +143,27 @@ class _MusicCardFull extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title,
-              key: const ValueKey('music-player-title'),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                  fontSize: Design.px(42),
-                  height: 1.1,
-                  letterSpacing: Design.px(.5),
-                  fontWeight: FontWeight.w300,
-                  color: s.text.withValues(alpha: .96))),
+          // 歌名右侧挂「收藏 / 播放模式」两个按钮 —— 与卡片同一套实现，
+          // 原生侧按当前音源的**实际能力**报 actionCaps，不支持的按钮根本不画。
+          Row(
+              key: const ValueKey('music-player-title-row'),
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(
+                    child: Text(title,
+                        key: const ValueKey('music-player-title'),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            fontSize: Design.px(42),
+                            height: 1.1,
+                            letterSpacing: Design.px(.5),
+                            fontWeight: FontWeight.w300,
+                            color: s.text.withValues(alpha: .96)))),
+                // 这一版的控制键是 54 的圆、24 的图标，按钮跟着这个量级走。
+                MusicActionButtons(
+                    media: media, controller: controller, iconSize: 24),
+              ]),
           SizedBox(height: Design.px(11)),
           Text(subtitle,
               key: const ValueKey('music-player-subtitle'),

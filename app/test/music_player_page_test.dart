@@ -85,6 +85,53 @@ void main() {
     await g.dispose();
   });
 
+  testWidgets('铺满档：歌名右侧有收藏 / 播放模式按钮（按音源能力画）', (t) async {
+    final g = FakeGateway();
+    g.state['media'] = {
+      ...(g.state['media'] as Map<String, dynamic>),
+      'actionCaps': {'favorite': true, 'playMode': true},
+      'favorited': true,
+      'playMode': 'REPEAT_ONE',
+    };
+    final c = await ready(t, g);
+    expect(find.byKey(const ValueKey('music-player-title')), findsOneWidget);
+    expect(find.byKey(const ValueKey('music-player-title-row')), findsOneWidget);
+    expect(find.byKey(const ValueKey('music-favorite-button')), findsOneWidget);
+    expect(find.byKey(const ValueKey('music-play-mode-button')), findsOneWidget);
+    // 三态：已收藏 → 实心心形；单曲循环 → repeat_one。
+    expect(
+        find.descendant(
+            of: find.byKey(const ValueKey('music-favorite-button')),
+            matching: find.byIcon(Icons.favorite)),
+        findsOneWidget);
+    expect(
+        find.descendant(
+            of: find.byKey(const ValueKey('music-play-mode-button')),
+            matching: find.byIcon(Icons.repeat_one)),
+        findsOneWidget);
+    // 点一下要真发命令，不能是「亮了但点了没反应」的按钮。
+    await t.tap(find.byKey(const ValueKey('music-favorite-button')));
+    await t.pump();
+    expect(g.commands.last['action'], 'favorite-toggle');
+    await t.pumpWidget(const SizedBox());
+    c.dispose();
+    await g.dispose();
+  });
+
+  testWidgets('铺满档：音源不支持收藏 / 播放模式时不画这两个按钮', (t) async {
+    final g = FakeGateway();
+    g.state['media'] = {
+      ...(g.state['media'] as Map<String, dynamic>),
+      'actionCaps': {'favorite': false, 'playMode': false},
+    };
+    final c = await ready(t, g);
+    expect(find.byKey(const ValueKey('music-favorite-button')), findsNothing);
+    expect(find.byKey(const ValueKey('music-play-mode-button')), findsNothing);
+    await t.pumpWidget(const SizedBox());
+    c.dispose();
+    await g.dispose();
+  });
+
   testWidgets('没有可用会话时播放控制与进度条都是禁用的', (t) async {
     final g = FakeGateway();
     g.state['demo'] = false;

@@ -115,10 +115,14 @@ class _MediaTags extends StatelessWidget {
 class _MusicMetadata extends StatelessWidget {
   final String title, artist, album;
   final bool compact, centered;
+  final Map<String, dynamic> media;
+  final LauncherController controller;
   const _MusicMetadata(
       {required this.title,
       required this.artist,
       required this.album,
+      required this.media,
+      required this.controller,
       this.compact = false,
       this.centered = false});
   @override
@@ -130,14 +134,27 @@ class _MusicMetadata extends StatelessWidget {
         crossAxisAlignment:
             centered ? CrossAxisAlignment.center : CrossAxisAlignment.start,
         children: [
-          MarqueeText(
-              key: const ValueKey('music-card-title'),
-              data: title,
-              textAlign: centered ? TextAlign.center : TextAlign.start,
-              style: TextStyle(
-                  fontSize: Design.px(compact ? 25 : 30),
-                  height: 1.2,
-                  fontWeight: FontWeight.w500)),
+          // 歌名右侧挂「收藏 / 播放模式」两个按钮（移植自 CarDesk 音乐卡）。
+          // 原生侧按当前音源的**实际能力**决定亮不亮：不支持的按钮根本不画。
+          Row(
+              key: const ValueKey('music-card-title-row'),
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(
+                    child: MarqueeText(
+                        key: const ValueKey('music-card-title'),
+                        data: title,
+                        textAlign:
+                            centered ? TextAlign.center : TextAlign.start,
+                        style: TextStyle(
+                            fontSize: Design.px(compact ? 25 : 30),
+                            height: 1.2,
+                            fontWeight: FontWeight.w500))),
+                MusicActionButtons(
+                    media: media,
+                    controller: controller,
+                    iconSize: compact ? 19 : 22),
+              ]),
           SizedBox(height: Design.px(compact ? 6 : 10)),
           MarqueeText(
               key: const ValueKey('music-card-artist'),
@@ -260,6 +277,9 @@ class _MusicCard extends StatelessWidget {
         title: _mediaValue(state, 'title', '午夜立交', '暂无播放'),
         artist: _mediaValue(state, 'artist', '昼夜电台', '等待媒体会话'),
         album: _mediaValue(state, 'collection', '环线', ''),
+        // 「收藏 / 播放模式」两个按钮要拿当前音源的能力与状态。
+        media: media,
+        controller: controller,
         compact: compact,
         centered: false);
     final double spectrumHeight = compact
@@ -417,13 +437,30 @@ class _MusicCard extends StatelessWidget {
                   child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        MarqueeText(
-                            key: const ValueKey('music-card-title'),
-                            data: _mediaValue(state, 'title', '午夜立交', '暂无播放'),
-                            style: TextStyle(
-                                fontSize: Design.dz(24) * k,
-                                height: 1.2,
-                                fontWeight: FontWeight.w500)),
+                        // 歌名右侧挂「收藏 / 播放模式」两个按钮（移植自 CarDesk 音乐卡）。
+                        // 原生侧按当前音源的**实际能力**决定亮不亮：不支持的按钮根本不画。
+                        //
+                        // 这一版式（稿子 f1 的 4×4）自己画歌名，不走 _MusicMetadata，
+                        // 所以按钮要在这里再挂一次 —— 导航页的音乐卡走的就是它。
+                        Row(
+                            key: const ValueKey('music-card-title-row'),
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              Expanded(
+                                  child: MarqueeText(
+                                      key: const ValueKey('music-card-title'),
+                                      data: _mediaValue(
+                                          state, 'title', '午夜立交', '暂无播放'),
+                                      style: TextStyle(
+                                          fontSize: Design.dz(24) * k,
+                                          height: 1.2,
+                                          fontWeight: FontWeight.w500))),
+                              MusicActionButtons(
+                                  media: media,
+                                  controller: controller,
+                                  iconSize: 19,
+                                  scale: k),
+                            ]),
                         SizedBox(height: Design.dz(7) * k),
                         MarqueeText(
                             key: const ValueKey('music-card-artist'),
