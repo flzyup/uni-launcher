@@ -6,6 +6,7 @@ import 'choice_button.dart';
 import 'diagnostics_settings.dart';
 import 'native_slice_builder.dart';
 import 'setting_block.dart';
+import 'simulation_settings.dart';
 
 /// sim f14 · 系统与调试：左边诊断日志，右边原车/安卓设置入口。
 ///
@@ -59,7 +60,13 @@ class SystemSettingsPanel extends StatelessWidget {
                           child: ConstrainedBox(
                               constraints:
                                   BoxConstraints(minHeight: box.maxHeight),
-                              child: const DiagnosticsSettings()))),
+                              child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    SimulationSettings(controller: controller),
+                                    const DiagnosticsSettings(),
+                                  ])))),
                   SizedBox(width: Design.dz(11.67)),
                   Expanded(
                       child: SingleChildScrollView(

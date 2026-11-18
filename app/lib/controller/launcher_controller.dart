@@ -504,6 +504,7 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
     }
     final oldDark = native.value['dark'];
     final oldDemo = native.value['demo'];
+    final oldSimulationMode = native.value['simulationMode'];
     final oldEmbed = (native.value['navigation'] as Map?)?['canEmbed'];
     final oldHeight = native.value['viewportHeightPx'];
     native.value = state;
@@ -515,6 +516,7 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
     if (overlayThemeChanged ||
         (appearance.mode == 'system' && oldDark != state['dark']) ||
         oldDemo != state['demo'] ||
+        oldSimulationMode != state['simulationMode'] ||
         oldHeight != state['viewportHeightPx'] ||
         oldEmbed != (state['navigation'] as Map?)?['canEmbed'])
       notifyListeners();

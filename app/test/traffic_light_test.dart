@@ -63,8 +63,8 @@ Widget review(TrafficLightSnapshot data,
 
 void main() {
   test('绿灯最后 3 秒按黄灯展示，红灯与无倒计时一律不动', () {
-    const green =
-        TrafficSignal(direction: 'straight', lamp: 'green', countdownSeconds: 10);
+    const green = TrafficSignal(
+        direction: 'straight', lamp: 'green', countdownSeconds: 10);
     expect(green.lampAt(0), 'green');
     expect(green.lampAt(6900), 'green'); // 剩 4 秒，还没到
     expect(green.lampAt(7000), 'amber'); // 剩 3 秒，切黄
@@ -79,7 +79,8 @@ void main() {
     expect(red.lampLabelAt(0), '红灯');
     const noCount = TrafficSignal(direction: 'straight', lamp: 'green');
     expect(noCount.lampAt(0), 'green');
-    const unknown = TrafficSignal(direction: 'unknown', lamp: 'unknown', countdownSeconds: 2);
+    const unknown = TrafficSignal(
+        direction: 'unknown', lamp: 'unknown', countdownSeconds: 2);
     expect(unknown.lampAt(0), 'unknown');
   });
 
@@ -169,7 +170,8 @@ void main() {
     BoxDecoration ring() => t
         .widget<Container>(find.byKey(const ValueKey('traffic-ring-left')))
         .decoration! as BoxDecoration;
-    await t.pumpWidget(review(one, appearance: const Appearance(mode: 'light')));
+    await t
+        .pumpWidget(review(one, appearance: const Appearance(mode: 'light')));
     await t.pumpAndSettle();
     // 浅色：45% 同色底——比实心灯珠淡，白箭头又看得清。
     expect(t.widget<SignalArrow>(find.byType(SignalArrow)).color, Colors.white);
@@ -261,6 +263,36 @@ void main() {
     }
   });
 
+  test('high fidelity uses real map signals and never demo countdowns', () {
+    final state = {
+      ...signalState(count: 19),
+      'demo': true,
+      'simulationMode': 'highFidelity',
+    };
+    final live = TrafficLightSnapshot.fromNative(state);
+    expect(live.demo, isFalse);
+    expect(live.lights.single.countdownSeconds, 19);
+    expect(
+        TrafficLightSnapshot.fromNative({
+          'demo': true,
+          'simulationMode': 'highFidelity',
+        }).lights,
+        isEmpty);
+    expect(
+        TrafficLightSnapshot.fromNative({
+          ...state,
+          'trafficLights': {'available': false},
+        }).lights,
+        isEmpty);
+    expect(
+        TrafficLightSnapshot.fromNative({
+          ...signalState(age: 6000),
+          'demo': true,
+          'simulationMode': 'highFidelity',
+        }).lights,
+        isEmpty);
+  });
+
   testWidgets('minimum/default sizes fit both themes and square/glass surfaces',
       (t) async {
     t.view.physicalSize = const Size(1920, 1080);
@@ -309,8 +341,8 @@ void main() {
         reason: '卡头整行都不在，点击进地图的入口也一起消失');
 
     final card = t.getRect(find.byType(GlassSurface));
-    final row = t.getRect(
-        find.byKey(const ValueKey('traffic-light-directions')));
+    final row =
+        t.getRect(find.byKey(const ValueKey('traffic-light-directions')));
     expect(row.top, greaterThanOrEqualTo(card.top));
     expect(row.bottom, lessThanOrEqualTo(card.bottom));
     // 只有 6 画布（~5 px）的上下留白：读数基本贴着卡高排，没有半截空白。

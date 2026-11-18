@@ -61,7 +61,7 @@ class TrafficLightSnapshot {
       this.demo = false});
 
   factory TrafficLightSnapshot.fromNative(Map<String, dynamic> native) {
-    if (native['demo'] == true) {
+    if (native['demo'] == true && native['simulationMode'] != 'highFidelity') {
       // Explicit demo mode only. Never persist or mix these with live data.
       return const TrafficLightSnapshot(available: true, demo: true, lights: [
         TrafficSignal(direction: 'left', lamp: 'red', countdownSeconds: 60),

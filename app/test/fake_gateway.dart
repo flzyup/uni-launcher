@@ -62,6 +62,13 @@ class FakeGateway implements NativeGateway {
         'globalDock': {'enabled': enabled, 'allowed': true}
       };
     if (action == 'demo-mode') state = {...state, 'demo': enabled};
+    if (action == 'simulation-mode')
+      state = {
+        ...state,
+        'simulationMode': value,
+        'demo': value != 'live',
+        'mediaDemo': value == 'demo',
+      };
     // 开机自启与 HOME 键目标：原生落 prefs 后再 publish，这里照做——
     // 少这一句，设置页点完按钮选中态不动，看起来就是「按钮按了没反应」。
     if (action == 'boot-autostart')

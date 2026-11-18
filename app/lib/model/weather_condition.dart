@@ -208,7 +208,9 @@ class WeatherSnapshot {
         city: available
             ? '${raw['city'] ?? '天气'}'
             : demo
-                ? '杭州'
+                ? n['simulationMode'] == 'highFidelity'
+                    ? '上海市 · 黄浦区'
+                    : '杭州'
                 : '天气',
         description: available
             ? (text?.toString() ?? '未知')

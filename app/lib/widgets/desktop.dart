@@ -80,6 +80,7 @@ class _HeaderState extends State<Header> {
                       final status = mapOf(native['systemStatus']);
                       return [
                         native['demo'],
+                        native['simulationMode'],
                         native['weather'],
                         status['bluetooth'],
                         status['network'],
@@ -93,7 +94,10 @@ class _HeaderState extends State<Header> {
                     builder: (context, native) =>
                         Row(mainAxisSize: MainAxisSize.min, children: [
                           if (native['demo'] == true) ...[
-                            Text('演示',
+                            Text(
+                                native['simulationMode'] == 'highFidelity'
+                                    ? '高保真'
+                                    : '演示',
                                 style: TextStyle(
                                     color: s.muted, fontSize: Design.px(17))),
                             SizedBox(width: Design.px(20)),

@@ -27,6 +27,7 @@ import org.json.JSONArray;
 import xyz.i4o.uni.launcher.core.ClimateState;
 import xyz.i4o.uni.launcher.core.CommandPolicy;
 import xyz.i4o.uni.launcher.core.SteeringKeyPolicy;
+import xyz.i4o.uni.launcher.core.SimulationMode;
 import xyz.i4o.uni.launcher.integration.*;
 import xyz.i4o.uni.launcher.log.LogTags;
 import xyz.i4o.uni.launcher.log.UniLog;
@@ -62,6 +63,7 @@ public final class LauncherRuntime {
     /** 开机自启动计划：锚定开机秒数，进程内每计划只启动一次。 */
     private final BootLaunch bootLaunch;
     private final WirelessAdb wirelessAdb;
+    private final EmulatorLocation simulationLocation;
     /**
      * 需要 Activity 才能弹系统权限框的能力。面板窗口没有 Activity，统一借用主窗口。
      * 没接上（例如只有底栏在跑）时清理器自己降级，不会卡住。
@@ -98,7 +100,7 @@ public final class LauncherRuntime {
             transfer, quark, cleaner;
         String design, projectedKey;
         JSONArray projectedApps;
-        boolean demo, hideNavigation, globalNavigation, globalNavigationGranted, dark;
+        boolean demo, mediaDemo, hideNavigation, globalNavigation, globalNavigationGranted, dark;
     }
     private final Runnable appsRefreshTask=()->refreshAppsInBackground();
     private boolean appsRefreshQueued;
@@ -131,7 +133,10 @@ public final class LauncherRuntime {
         prefs=context.getSharedPreferences("launcher",Context.MODE_PRIVATE);
         // Only initialize a brand-new install; upgrades retain explicit preferences.
         if(prefs.getAll().isEmpty())prefs.edit().putBoolean("globalDockEnabled",true).apply();
-        if(!prefs.contains("demo"))prefs.edit().putBoolean("demo",Build.FINGERPRINT.contains("generic")||Build.MODEL.contains("sdk_gphone")||Build.MODEL.contains("Android SDK")).apply();
+        if(!prefs.contains("demo"))prefs.edit().putBoolean("demo",EmulatorLocation.supported())
+            .putString("simulationMode",EmulatorLocation.supported()?"highFidelity":"live").apply();
+        simulationLocation=new EmulatorLocation(context,prefs,this::publish);
+        simulationLocation.configure(simulationMode().mockLocation);
         long afterPrefs=android.os.SystemClock.uptimeMillis();
         apps=new AppRepository(context);catalog=new OfficialCatalog(context);
         bootLaunch=new BootLaunch(context,prefs,apps,main,this::publish);
@@ -400,19 +405,20 @@ public final class LauncherRuntime {
     public boolean handle(JSONObject request)throws Exception{return callOnMain(()->handleOnMain(request));}
 
     private long demoPosition(){return demoPositionMs+(demoPlaying?Math.max(0,android.os.SystemClock.elapsedRealtime()-demoSampleAt):0);}
+    private SimulationMode simulationMode(){return SimulationMode.resolve(prefs.getString("simulationMode",""),prefs.getBoolean("demo",false),EmulatorLocation.supported());}
     private TurnSnapshot obtainTurnSnapshot(){
         if(inDeliver&&activeTurn!=null)return activeTurn;
         TurnSnapshot t=new TurnSnapshot();
         try{
-            t.demo=prefs.getBoolean("demo",false);
+            SimulationMode mode=simulationMode();t.demo=mode.vehicleDemo;t.mediaDemo=mode.mediaDemo;
             t.hideNavigation=prefs.getBoolean("hideNavigation",false);
             t.globalNavigation=prefs.getBoolean("globalNavigation",false);
             t.globalNavigationGranted=context.checkSelfPermission("android.permission.WRITE_SECURE_SETTINGS")==android.content.pm.PackageManager.PERMISSION_GRANTED;
             t.dark=(context.getResources().getConfiguration().uiMode&Configuration.UI_MODE_NIGHT_MASK)==Configuration.UI_MODE_NIGHT_YES;
             JSONObject climate=new JSONObject().put("left",simulator.left).put("right",simulator.right).put("fan",simulator.fan).put("power",simulator.power)
-                .put("auto",simulator.auto).put("ac",simulator.ac).put("sync",simulator.sync).put("recirc",simulator.recirc)
+                .put("auto",simulator.auto).put("ac",simulator.ac).put("sync",simulator.sync).put("recirc",simulator.recirc).put("blowing",simulator.blowing)
                 .put("driverHeat",simulator.driverHeat).put("driverVent",simulator.driverVent).put("passengerHeat",simulator.passengerHeat);
-            t.telemetry=vehicle.snapshot();
+            t.telemetry=t.demo?SimulatorTelemetry.snapshot(climate):vehicle.snapshot();
             if(!t.demo)climate=t.telemetry.optJSONObject("climate")==null?new JSONObject():t.telemetry.getJSONObject("climate");
             t.climate=climate;
             t.systemStatus=systemStatus.snapshot();
@@ -447,7 +453,7 @@ public final class LauncherRuntime {
             t.bootLaunch=bootLaunch.snapshot();
             t.wirelessAdb=wirelessAdb.snapshot();
             t.trafficLights=trafficLights.snapshot();
-            t.fullMedia=t.demo?demoMedia():media.snapshot().put("preferredPackage",prefs.getString("mediaPackage","auto"));
+            t.fullMedia=t.mediaDemo?demoMedia():media.snapshot().put("preferredPackage",prefs.getString("mediaPackage","auto"));
             t.strippedMedia=stripMediaPayload(t.fullMedia);
             t.appNames=storedAppNames();
             t.design=prefs.getString("savedDesign","");
@@ -506,7 +512,8 @@ public final class LauncherRuntime {
             TurnSnapshot t=obtainTurnSnapshot();
             state.put("systemStatus",t.systemStatus).put("weather",t.weather).put("calendar",t.calendar).put("navigation",t.navigation).put("integrationPreferences",t.integrationPreferences);
             state.put("debugBridge",t.debugBridge);
-            state.put("demo",t.demo).put("hideNavigation",t.hideNavigation)
+            state.put("demo",t.demo).put("mediaDemo",t.mediaDemo).put("simulationMode",simulationMode().key)
+                .put("simulation",simulationLocation.snapshot()).put("hideNavigation",t.hideNavigation)
                 .put("globalNavigation",t.globalNavigation)
                 .put("globalNavigationGranted",t.globalNavigationGranted)
                 .put("dark",t.dark)
@@ -666,7 +673,16 @@ public final class LauncherRuntime {
             setDesktopContent("0".equals(value));return true;
         }
         if("demo-mode".equals(action)){
-            prefs.edit().putBoolean("demo",request.optBoolean("enabled",false)).apply();publish();return true;
+            boolean enabled=request.optBoolean("enabled",false);
+            prefs.edit().putBoolean("demo",enabled).putString("simulationMode",enabled?"demo":"live").apply();
+            simulationLocation.configure(false);publish();return true;
+        }
+        if("simulation-mode".equals(action)){
+            if(!EmulatorLocation.supported())return true;
+            if(!"live".equals(value)&&!"demo".equals(value)&&!"highFidelity".equals(value))return true;
+            SimulationMode mode=SimulationMode.resolve(value,false,true);
+            prefs.edit().putString("simulationMode",mode.key).putBoolean("demo",mode.vehicleDemo).apply();
+            simulationLocation.configure(mode.mockLocation);publish();return true;
         }
         if("select-player".equals(action)||"select-navigation".equals(action)){
             if(!"auto".equals(value)&&context.getPackageManager().getLaunchIntentForPackage(value)==null){toast("所选应用未安装或不可启动");return true;}
@@ -785,7 +801,7 @@ public final class LauncherRuntime {
             bootLaunch.clear();publish();return true;
         }
         if("boot-launch-run".equals(action)){
-            if(prefs.getBoolean("demo",false)){toast("演示模式不启动应用");return true;}
+            if(simulationMode().mediaDemo){toast("演示模式不启动应用");return true;}
             if(!bootLaunch.runNow(value))toast("计划已不存在");
             publish();return true;
         }
@@ -888,12 +904,12 @@ public final class LauncherRuntime {
         if("seek".equals(action)){
             long position;try{position=Long.parseLong(value);}catch(NumberFormatException e){return true;}
             if(position<0)return true;
-            if(prefs.getBoolean("demo",false)){demoPositionMs=Math.min(269000,position);demoSampleAt=android.os.SystemClock.elapsedRealtime();}
+            if(simulationMode().mediaDemo){demoPositionMs=Math.min(269000,position);demoSampleAt=android.os.SystemClock.elapsedRealtime();}
             else if(!media.command(action,position))toast("当前音源不支持调整进度");
             publish();return true;
         }
         if("toggle-play".equals(action)||"previous".equals(action)||"next".equals(action)){
-            if(prefs.getBoolean("demo",false)){if("toggle-play".equals(action)){demoPositionMs=demoPosition();demoPlaying=!demoPlaying;}
+            if(simulationMode().mediaDemo){if("toggle-play".equals(action)){demoPositionMs=demoPosition();demoPlaying=!demoPlaying;}
                 else {demoTrack+="previous".equals(action)?-1:1;demoPositionMs=0;}
                 demoSampleAt=android.os.SystemClock.elapsedRealtime();publish();return true;}
             if(media.command(action)){publish();return true;}
