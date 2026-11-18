@@ -153,8 +153,7 @@ class _ClockWeatherCardState extends State<ClockWeatherCard> {
                       Text(weather.description,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style:
-                              TextStyle(fontSize: h * .042, color: s.muted)),
+                          style: TextStyle(fontSize: h * .042, color: s.muted)),
                     ]),
               ])),
       ]);
@@ -328,7 +327,7 @@ class _ClockWeatherHeading extends StatelessWidget {
                     height: 1.2,
                     fontWeight: FontWeight.w600,
                     letterSpacing: Design.px(2.76),
-                    color: s.text.withValues(alpha: .55))),
+                    color: s.muted)),
             SizedBox(height: Design.px(4.8)),
             Text(city,
                 maxLines: 1,

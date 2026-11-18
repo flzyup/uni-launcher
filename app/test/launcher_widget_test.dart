@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:uni_launcher/controller/launcher_controller.dart';
 import 'package:uni_launcher/launcher_app.dart';
-import 'package:uni_launcher/theme/technical_frame.dart';
 import 'package:uni_launcher/widgets/glass_surface.dart';
 import 'package:uni_launcher/model/card_layout.dart';
 import 'fake_gateway.dart';
@@ -134,7 +133,8 @@ void main() {
             of: find.byKey(const ValueKey('add-air')),
             matching: find.byType(Material))
         .first;
-    expect(t.widget<Material>(libraryTile).shape, isA<TechnicalFrameBorder>());
+    expect(
+        t.widget<Material>(libraryTile).shape, isA<RoundedRectangleBorder>());
     await t.tap(find.byKey(const ValueKey('add-air')));
     await t.pumpAndSettle();
     // 默认 12 张（三页全满），叠加这张新加的 air 卡 = 13，并落到第 4 张草稿页。

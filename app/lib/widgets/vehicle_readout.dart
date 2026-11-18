@@ -39,15 +39,19 @@ class VehicleReadout extends StatelessWidget {
     ];
     double? number(String key) {
       final field = VehicleField.fromNative(native, key);
-      return field.valid && field.value is num ? (field.value as num).toDouble() : null;
+      return field.valid && field.value is num
+          ? (field.value as num).toDouble()
+          : null;
     }
 
     final pressures = {
       for (final t in tires) t.$1: number(t.$1),
     };
     final valid = pressures.values.whereType<double>().toList();
-    final maxPressure = valid.isEmpty ? null : valid.reduce((a, b) => a > b ? a : b);
-    final minPressure = valid.isEmpty ? null : valid.reduce((a, b) => a < b ? a : b);
+    final maxPressure =
+        valid.isEmpty ? null : valid.reduce((a, b) => a > b ? a : b);
+    final minPressure =
+        valid.isEmpty ? null : valid.reduce((a, b) => a < b ? a : b);
     final minKey = minPressure == null
         ? null
         : pressures.entries
@@ -100,7 +104,7 @@ class VehicleReadout extends StatelessWidget {
         padding: EdgeInsets.fromLTRB(
             Design.dz(18), Design.dz(15), Design.dz(18), Design.dz(8)),
         decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(Design.dz(17)),
+            borderRadius: BorderRadius.circular(s.controlRadius),
             gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
@@ -135,7 +139,7 @@ class VehicleReadout extends StatelessWidget {
             decoration: BoxDecoration(
                 color: ink.withValues(alpha: .028),
                 border: Border.all(color: ink.withValues(alpha: .065)),
-                borderRadius: BorderRadius.circular(Design.dz(15))),
+                borderRadius: BorderRadius.circular(s.controlRadius)),
             child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -157,8 +161,8 @@ class VehicleReadout extends StatelessWidget {
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       // ── 头部 ───────────────────────────────────────────────
       Container(
-          padding: EdgeInsets.fromLTRB(Design.dz(38), Design.dz(32),
-              Design.dz(38), Design.dz(20)),
+          padding: EdgeInsets.fromLTRB(
+              Design.dz(38), Design.dz(32), Design.dz(38), Design.dz(20)),
           decoration: BoxDecoration(
               border: Border(
                   bottom: BorderSide(color: ink.withValues(alpha: .07)))),
@@ -216,147 +220,164 @@ class VehicleReadout extends StatelessWidget {
             Tooltip(
                 message: '关闭车辆信息',
                 child: Semantics(
-                button: true,
-                label: '关闭车辆信息',
-                child: GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: () => Navigator.pop(context),
-                    child: Container(
-                        width: Design.dz(44),
-                        height: Design.dz(44),
-                        decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: ink.withValues(alpha: .06),
-                            border: Border.all(color: ink.withValues(alpha: .09))),
-                        child: Center(
-                            child: Icon(Icons.close,
-                                size: Design.dz(17),
-                                color: ink.withValues(alpha: .70)))))))
+                    button: true,
+                    label: '关闭车辆信息',
+                    child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () => Navigator.pop(context),
+                        child: Container(
+                            width: Design.dz(44),
+                            height: Design.dz(44),
+                            decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: ink.withValues(alpha: .06),
+                                border: Border.all(
+                                    color: ink.withValues(alpha: .09))),
+                            child: Center(
+                                child: Icon(Icons.close,
+                                    size: Design.dz(17),
+                                    color: ink.withValues(alpha: .70)))))))
           ])),
 
       // ── 主体 ───────────────────────────────────────────────
       Expanded(
           child: Padding(
-              padding: EdgeInsets.fromLTRB(Design.dz(38), Design.dz(18),
-                  Design.dz(38), Design.dz(20)),
-              child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                // 左：车模 + 四轮胎压
-                SizedBox(
-                    width: Design.dz(520),
-                    child: Column(children: [
-                      Expanded(
-                          child: Stack(children: [
-                        // 车底那圈强调色光晕
-                        Positioned.fill(
-                            child: DecoratedBox(
-                                decoration: BoxDecoration(
-                                    gradient: RadialGradient(
-                                        radius: .62,
-                                        colors: [
-                              s.accent.withValues(alpha: .13),
-                              s.accent.withValues(alpha: .04),
-                              Colors.transparent
-                            ],
-                            stops: const [0, .46, .74])))),
-                        Positioned.fill(
-                            child: Padding(
-                                padding: EdgeInsets.symmetric(
-                                    vertical: Design.dz(26)),
-                                child: Image.asset(
-                                    'assets/art/vehicle-status-front-left-transparent.webp',
-                                    fit: BoxFit.contain,
-                                    filterQuality: FilterQuality.medium,
-                                    semanticLabel: '车辆立体示意图'))),
-                        _tire(context, '右前', 'pressureFrontRight',
-                            left: Design.dz(38), top: Design.dz(6)),
-                        _tire(context, '右后', 'pressureRearRight',
-                            right: Design.dz(38), top: Design.dz(6)),
-                        _tire(context, '左前', 'pressureFrontLeft',
-                            left: Design.dz(32), bottom: Design.dz(6)),
-                        _tire(context, '左后', 'pressureRearLeft',
-                            right: Design.dz(30),
-                            bottom: Design.dz(6),
-                            warn: minPressure != null && minPressure < 2.3)
-                      ])),
-                      SizedBox(height: Design.dz(4)),
-                      row('最高胎压',
-                          maxPressure?.toStringAsFixed(2) ?? '—',
-                          unit: 'bar'),
-                      row('最低胎压', minPressure?.toStringAsFixed(2) ?? '—',
-                          unit: 'bar',
-                          color: minPressure != null && minPressure < 2.3
-                              ? _amber
-                              : null),
-                      Container(
-                          margin: EdgeInsets.only(top: Design.dz(6)),
-                          padding: EdgeInsets.only(
-                              top: Design.dz(14), left: Design.dz(2)),
-                          decoration: BoxDecoration(
-                              border: Border(
-                                  top: BorderSide(
-                                      color: ink.withValues(alpha: .06)))),
-                          child: Row(children: [
-                            dot(s.accent.withValues(alpha: .85)),
-                            SizedBox(width: Design.dz(10)),
-                            Text('实时胎压 · bar',
-                                style: TextStyle(
-                                    fontSize: Design.dz(12),
-                                    color: ink.withValues(alpha: .38))),
-                            const Spacer(),
-                            if (minPressure != null && minPressure < 2.3)
-                              Text(
-                                  '${tireLabel(minKey ?? '')}偏低 '
-                                  '${(2.42 - minPressure).toStringAsFixed(2)} bar',
-                                  style: TextStyle(
-                                      fontSize: Design.dz(12),
-                                      color: _amber.withValues(alpha: .78)))
-                          ]))
-                    ])),
-
-                SizedBox(width: Design.dz(32)),
-
-                // 右：四组字段 + 状态块
-                Expanded(
-                    child: Column(children: [
-                      Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Expanded(
-                            child: group('座舱', _cockpit, [
-                          row('主驾温度', read('left'), unit: '°C'),
-                          row('副驾温度', read('right'), unit: '°C'),
-                          row('后排温度', read('rear'), unit: '°C'),
-                          row('风量', read('fan', decimals: 0), unit: '档')
+              padding: EdgeInsets.fromLTRB(
+                  Design.dz(38), Design.dz(18), Design.dz(38), Design.dz(20)),
+              child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // 左：车模 + 四轮胎压
+                    SizedBox(
+                        width: Design.dz(520),
+                        child: Column(children: [
+                          Expanded(
+                              child: Stack(children: [
+                            // 车底那圈强调色光晕
+                            Positioned.fill(
+                                child: DecoratedBox(
+                                    decoration: BoxDecoration(
+                                        gradient: RadialGradient(
+                                            radius: .62,
+                                            colors: [
+                                  s.accent.withValues(alpha: .13),
+                                  s.accent.withValues(alpha: .04),
+                                  Colors.transparent
+                                ],
+                                            stops: const [
+                                  0,
+                                  .46,
+                                  .74
+                                ])))),
+                            Positioned.fill(
+                                child: Padding(
+                                    padding: EdgeInsets.symmetric(
+                                        vertical: Design.dz(26)),
+                                    child: Image.asset(
+                                        'assets/art/vehicle-status-front-left-transparent.webp',
+                                        fit: BoxFit.contain,
+                                        filterQuality: FilterQuality.medium,
+                                        semanticLabel: '车辆立体示意图'))),
+                            _tire(context, '右前', 'pressureFrontRight',
+                                left: Design.dz(38), top: Design.dz(6)),
+                            _tire(context, '右后', 'pressureRearRight',
+                                right: Design.dz(38), top: Design.dz(6)),
+                            _tire(context, '左前', 'pressureFrontLeft',
+                                left: Design.dz(32), bottom: Design.dz(6)),
+                            _tire(context, '左后', 'pressureRearLeft',
+                                right: Design.dz(30),
+                                bottom: Design.dz(6),
+                                warn: minPressure != null && minPressure < 2.3)
+                          ])),
+                          SizedBox(height: Design.dz(4)),
+                          row('最高胎压', maxPressure?.toStringAsFixed(2) ?? '—',
+                              unit: 'bar'),
+                          row('最低胎压', minPressure?.toStringAsFixed(2) ?? '—',
+                              unit: 'bar',
+                              color: minPressure != null && minPressure < 2.3
+                                  ? _amber
+                                  : null),
+                          Container(
+                              margin: EdgeInsets.only(top: Design.dz(6)),
+                              padding: EdgeInsets.only(
+                                  top: Design.dz(14), left: Design.dz(2)),
+                              decoration: BoxDecoration(
+                                  border: Border(
+                                      top: BorderSide(
+                                          color: ink.withValues(alpha: .06)))),
+                              child: Row(children: [
+                                dot(s.accent.withValues(alpha: .85)),
+                                SizedBox(width: Design.dz(10)),
+                                Text('实时胎压 · bar',
+                                    style: TextStyle(
+                                        fontSize: Design.dz(12),
+                                        color: ink.withValues(alpha: .38))),
+                                const Spacer(),
+                                if (minPressure != null && minPressure < 2.3)
+                                  Text(
+                                      '${tireLabel(minKey ?? '')}偏低 '
+                                      '${(2.42 - minPressure).toStringAsFixed(2)} bar',
+                                      style: TextStyle(
+                                          fontSize: Design.dz(12),
+                                          color: _amber.withValues(alpha: .78)))
+                              ]))
                         ])),
-                        SizedBox(width: Design.dz(16)),
-                        Expanded(
-                            child: group('座椅', _seat, [
-                          row('主驾加热', read('driverHeat', decimals: 0), unit: '档'),
-                          row('主驾通风', read('driverVent', decimals: 0), unit: '档'),
-                          row('副驾加热', read('passengerHeat', decimals: 0), unit: '档'),
-                          row('副驾通风', read('passengerVent', decimals: 0), unit: '档')
-                        ]))
-                      ]),
+
+                    SizedBox(width: Design.dz(32)),
+
+                    // 右：四组字段 + 状态块
+                    Expanded(
+                        child: Column(children: [
+                      Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                                child: group('座舱', _cockpit, [
+                              row('主驾温度', read('left'), unit: '°C'),
+                              row('副驾温度', read('right'), unit: '°C'),
+                              row('后排温度', read('rear'), unit: '°C'),
+                              row('风量', read('fan', decimals: 0), unit: '档')
+                            ])),
+                            SizedBox(width: Design.dz(16)),
+                            Expanded(
+                                child: group('座椅', _seat, [
+                              row('主驾加热', read('driverHeat', decimals: 0),
+                                  unit: '档'),
+                              row('主驾通风', read('driverVent', decimals: 0),
+                                  unit: '档'),
+                              row('副驾加热', read('passengerHeat', decimals: 0),
+                                  unit: '档'),
+                              row('副驾通风', read('passengerVent', decimals: 0),
+                                  unit: '档')
+                            ]))
+                          ]),
                       SizedBox(height: Design.dz(13)),
-                      Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Expanded(
-                            child: group('能量', s.accent, [
-                          row('动力电池', read('batteryPercent', decimals: 0),
-                              unit: '%', color: s.accent),
-                          row('电池温度', read('batteryTemp', decimals: 0),
-                              unit: '°C'),
-                          row('剩余续航', read('range', decimals: 0), unit: 'km'),
-                          row('车内 PM2.5', read('pm25', decimals: 0),
-                              unit: 'µg/m³')
-                        ])),
-                        SizedBox(width: Design.dz(16)),
-                        Expanded(
-                            child: group('行驶', _drive, [
-                          row('车速', read('speed', decimals: 0), unit: 'km/h'),
-                          row('总里程', read('odometer', decimals: 0), unit: 'km'),
-                          row('小计里程', read('tripDistance'), unit: 'km'),
-                          row('平均能耗', read('avgConsumption', decimals: 1),
-                              unit: 'kWh/100km')
-                        ]))
-                      ]),
+                      Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                                child: group('能量', s.accent, [
+                              row('动力电池', read('batteryPercent', decimals: 0),
+                                  unit: '%', color: s.accent),
+                              row('电池温度', read('batteryTemp', decimals: 0),
+                                  unit: '°C'),
+                              row('剩余续航', read('range', decimals: 0),
+                                  unit: 'km'),
+                              row('车内 PM2.5', read('pm25', decimals: 0),
+                                  unit: 'µg/m³')
+                            ])),
+                            SizedBox(width: Design.dz(16)),
+                            Expanded(
+                                child: group('行驶', _drive, [
+                              row('车速', read('speed', decimals: 0),
+                                  unit: 'km/h'),
+                              row('总里程', read('odometer', decimals: 0),
+                                  unit: 'km'),
+                              row('小计里程', read('tripDistance'), unit: 'km'),
+                              row('平均能耗', read('avgConsumption', decimals: 1),
+                                  unit: 'kWh/100km')
+                            ]))
+                          ]),
                       const Spacer(),
                       Row(children: [
                         stateBlock(
@@ -401,14 +422,14 @@ class VehicleReadout extends StatelessWidget {
                             ]))
                       ])
                     ]))
-              ]))),
+                  ]))),
 
       // ── 脚注 ───────────────────────────────────────────────
       // 只留左侧的只读说明：右下角那行「数据源 · systemStatus / tirePressure /
       // energyFlow」是给开发看的字段映射，车上没人需要，去掉。
       Padding(
-          padding: EdgeInsets.fromLTRB(Design.dz(38), 0, Design.dz(38),
-              Design.dz(24)),
+          padding: EdgeInsets.fromLTRB(
+              Design.dz(38), 0, Design.dz(38), Design.dz(24)),
           child: Text('此页只读，不提供任何写操作 · 空调与座椅未开启时对应字段为空',
               style: TextStyle(
                   fontSize: Design.dz(11.5),
@@ -419,7 +440,11 @@ class VehicleReadout extends StatelessWidget {
 
   /// 车模四角的胎压角标（`.tp`）：23 的读数 + 11 的方位。
   Widget _tire(BuildContext context, String label, String field,
-      {double? left, double? right, double? top, double? bottom, bool warn = false}) {
+      {double? left,
+      double? right,
+      double? top,
+      double? bottom,
+      bool warn = false}) {
     final s = SurfaceStyle.of(context);
     final reading = VehicleField.fromNative(native, field);
     return Positioned(
@@ -445,7 +470,7 @@ class VehicleReadout extends StatelessWidget {
                   style: TextStyle(
                       fontSize: Design.dz(11),
                       letterSpacing: Design.dz(.88),
-                      color: s.text.withValues(alpha: .38)))
+                      color: s.muted))
             ]));
   }
 }

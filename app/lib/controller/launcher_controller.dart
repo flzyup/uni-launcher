@@ -171,6 +171,7 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
   int _backupPages = 2;
   StreamSubscription<Map<String, dynamic>>? _subscription;
   Future<void> _saveTail = Future.value();
+  Timer? _radiusSyncTimer;
   // Budgets include both the UTF-16 source key and compressed image bytes.
   final _icons = _SnapshotImages(256, 4 * 1024 * 1024);
   final _recentImages = _SnapshotImages(48, 6 * 1024 * 1024);
@@ -238,8 +239,8 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
     try {
       final state = await gateway.bootstrap();
       if (_disposed) return;
-      _applyDesign(state['savedDesign'], state['appNames'],
-          state['lastDesktopPage']);
+      _applyDesign(
+          state['savedDesign'], state['appNames'], state['lastDesktopPage']);
       _receive(state);
       if (state['initialSettings'] == true) settings = true;
       _subscription = gateway.events.listen(_receive, onError: (Object e) {
@@ -251,7 +252,8 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
           fields: {'cards': cards.length, 'pages': pageCount});
     } catch (e) {
       message = '等待 Android 接入';
-      UniLog.fail(UniLogTags.app, 'launcher/bootstrap', fields: {'error': '$e'});
+      UniLog.fail(UniLogTags.app, 'launcher/bootstrap',
+          fields: {'error': '$e'});
     }
     if (_disposed) return;
     ready = true;
@@ -311,7 +313,8 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
         // Empty trailing pages are editor scratch space, not persistent
         // desktops. Keeping them made an empty-page prompt animate over
         // the last real page after restart.
-        pageCount = cards.fold<int>(1, (n, c) => max(n, c.page + 1)).clamp(1, 20);
+        pageCount =
+            cards.fold<int>(1, (n, c) => max(n, c.page + 1)).clamp(1, 20);
       }
     } catch (_) {
       message = '旧布局无法读取，已恢复默认卡片';
@@ -328,9 +331,8 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
   void _settleBootPage() {
     if (_bootPageSettled) return;
     _bootPageSettled = true;
-    final wanted = appearance.bootPage >= 0
-        ? appearance.bootPage
-        : lastDesktopPage;
+    final wanted =
+        appearance.bootPage >= 0 ? appearance.bootPage : lastDesktopPage;
     final target = wanted.clamp(0, pageCount - 1);
     if (target == page) return;
     page = target;
@@ -560,7 +562,8 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Map<String, dynamic> _decodeImages(
-      Map source, List<String> fields, _SnapshotImages cache) {    final result = Map<String, dynamic>.from(source);
+      Map source, List<String> fields, _SnapshotImages cache) {
+    final result = Map<String, dynamic>.from(source);
     for (final field in fields) {
       result.remove('${field}Bytes');
       final raw = source[field];
@@ -577,13 +580,12 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
     // Every user action funnels through here, so this is the one place that
     // can say "the tap never reached the native side" versus "the native side
     // rejected it".
-    UniLog.event(UniLogTags.ui, '命令下发',
-        fields: {
-          'action': action,
-          if (value != null) 'value': value,
-          if (zone != null) 'zone': zone,
-          if (enabled != null) 'enabled': enabled,
-        });
+    UniLog.event(UniLogTags.ui, '命令下发', fields: {
+      'action': action,
+      if (value != null) 'value': value,
+      if (zone != null) 'zone': zone,
+      if (enabled != null) 'enabled': enabled,
+    });
     try {
       if (isGlobalDock &&
           {
@@ -681,6 +683,22 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
     if (save) persist();
   }
 
+  /// The global dock runs in another engine and receives saved design updates.
+  /// Bound those updates while dragging, then always flush the final value.
+  void previewRadius(double value) {
+    setAppearance(appearance.copyWith(radius: value), save: false);
+    _radiusSyncTimer ??= Timer(const Duration(milliseconds: 150), () {
+      _radiusSyncTimer = null;
+      if (!_disposed) unawaited(persist());
+    });
+  }
+
+  void finishRadiusChange() {
+    _radiusSyncTimer?.cancel();
+    _radiusSyncTimer = null;
+    unawaited(persist());
+  }
+
   /// Only the desktop engine drives the ambient strip. The global dock and
   /// the global panel run in their own isolates, and a second writer would
   /// race the first one for the same colour.
@@ -706,17 +724,15 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
     unawaited(service.refreshStatus());
   }
 
-  bool get bootAutostart =>
-      (native.value['integrationPreferences'] is Map &&
+  bool get bootAutostart => (native.value['integrationPreferences'] is Map &&
           native.value['integrationPreferences']['bootAutostart'] != null)
-          ? native.value['integrationPreferences']['bootAutostart'] == true
-          : true;
+      ? native.value['integrationPreferences']['bootAutostart'] == true
+      : true;
 
-  String get homeKeyTarget =>
-      (native.value['integrationPreferences'] is Map &&
+  String get homeKeyTarget => (native.value['integrationPreferences'] is Map &&
           native.value['integrationPreferences']['homeKeyTarget'] != null)
-          ? '${native.value['integrationPreferences']['homeKeyTarget']}'
-          : 'uni';
+      ? '${native.value['integrationPreferences']['homeKeyTarget']}'
+      : 'uni';
 
   void setBootAutostart(bool enabled) {
     command('boot-autostart', enabled: enabled);
@@ -775,10 +791,12 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
   /// 和 `home()` 默认行为的区别就是 [resetPage]：默认那条服务于「窗口被复用」
   /// （从第三方应用切回来，停在原页更稳），这条服务于「用户明确按了 HOME」。
   void homeFirst() => home(resetPage: true);
+
   /// 打开桌面设置。[tab] 为要直接落到的一栏（见 `settings_screen.dart` 的分类表）；
   /// 全局底栏那条路要绕一趟原生 Activity，所以 tab 走命令参数传过去。
   Future<void> openSettings({String? tab}) async {
-    UniLog.event(UniLogTags.ui, '打开桌面设置', fields: {if (tab != null) 'tab': tab});
+    UniLog.event(UniLogTags.ui, '打开桌面设置',
+        fields: {if (tab != null) 'tab': tab});
     if (isGlobalDock) {
       // 必须等命令发完：全局面板在调用返回后会立刻补一条 dismiss-dock-panel，
       // 不等的话顺序会反过来，先收面板再开设置，设置窗口就被自己收掉了。
@@ -998,6 +1016,7 @@ class LauncherController extends ChangeNotifier with WidgetsBindingObserver {
   @override
   void dispose() {
     _disposed = true;
+    _radiusSyncTimer?.cancel();
     if (_observingMemory) WidgetsBinding.instance.removeObserver(this);
     _icons.clear();
     _recentImages.clear();

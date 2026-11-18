@@ -265,8 +265,11 @@ class _Summary extends StatelessWidget {
     final percent = (state.progress * 100).round().clamp(0, 100);
     final running = state.running;
     final (value, unit) = running ? ('$percent', '%') : splitBytes(shown);
-    final label =
-        state.scanning ? '已扫描' : state.cleaning ? '清理中' : '可清理';
+    final label = state.scanning
+        ? '已扫描'
+        : state.cleaning
+            ? '清理中'
+            : '可清理';
     final used = state.usedBytes;
     final capacity = state.totalBytes;
     final releaseFraction =
@@ -309,7 +312,7 @@ class _Summary extends StatelessWidget {
                     fontSize: Design.dz(11.5),
                     fontWeight: FontWeight.w600,
                     letterSpacing: Design.dz(2),
-                    color: s.text.withValues(alpha: .3))),
+                    color: s.muted)),
             SizedBox(height: Design.dz(8)),
             Row(
                 crossAxisAlignment: CrossAxisAlignment.baseline,
@@ -328,16 +331,14 @@ class _Summary extends StatelessWidget {
                       style: TextStyle(
                           fontSize: Design.dz(compact ? 17 : 22),
                           fontWeight: FontWeight.w300,
-                          color: s.text.withValues(alpha: .45)))
+                          color: s.muted))
                 ]),
             SizedBox(height: Design.dz(8)),
             Text(note,
                 key: const ValueKey('cleaner-headline-note'),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                    fontSize: Design.dz(13.5),
-                    color: s.text.withValues(alpha: .45))),
+                style: TextStyle(fontSize: Design.dz(13.5), color: s.muted)),
             // 进度条：f35 那张雷达环不做，但「还在动」这件事必须有可见反馈，
             // 否则一次性快照的下法在扫描的十几秒里看着就是卡死。
             if (running) ...[
@@ -426,9 +427,8 @@ class _Summary extends StatelessWidget {
                     SizedBox(width: Design.dz(7)),
                     Text(
                         '${cleanerGroupLabels[group]} ${formatBytes(_groupBytes(state, group))}',
-                        style: TextStyle(
-                            fontSize: Design.dz(11),
-                            color: s.text.withValues(alpha: .42)))
+                        style:
+                            TextStyle(fontSize: Design.dz(11), color: s.muted))
                   ])
               ]),
               SizedBox(height: Design.dz(24)),
@@ -462,7 +462,7 @@ class _Summary extends StatelessWidget {
                           style: TextStyle(
                               fontSize: Design.dz(10.5),
                               letterSpacing: Design.dz(2),
-                              color: s.text.withValues(alpha: .3))),
+                              color: s.muted)),
                       SizedBox(height: Design.dz(11)),
                       Wrap(
                           spacing: Design.dz(7),
@@ -524,10 +524,7 @@ class _Summary extends StatelessWidget {
             height: Design.dz(6),
             decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
         SizedBox(width: Design.dz(7)),
-        Text(label,
-            style: TextStyle(
-                fontSize: Design.dz(11.5),
-                color: s.text.withValues(alpha: .34)))
+        Text(label, style: TextStyle(fontSize: Design.dz(11.5), color: s.muted))
       ]);
 
   static Widget _kv(SurfaceStyle s, String label, String value,
@@ -572,7 +569,7 @@ class _Summary extends StatelessWidget {
                     style: TextStyle(
                         fontSize: Design.dz(12),
                         fontWeight: FontWeight.w300,
-                        color: s.text.withValues(alpha: .5)))
+                        color: s.muted))
               ]
             ])
       ]);
@@ -585,9 +582,7 @@ class _Summary extends StatelessWidget {
           border: Border.all(color: s.text.withValues(alpha: .09)),
           borderRadius: BorderRadius.circular(Design.dz(8))),
       child: Text(label,
-          style: TextStyle(
-              fontSize: Design.dz(11.5),
-              color: s.text.withValues(alpha: .44))));
+          style: TextStyle(fontSize: Design.dz(11.5), color: s.muted)));
 }
 
 /// 右卡：`.cl-list`（白 2.8% 底、25 圆角，行 45 高）。
@@ -637,9 +632,7 @@ class _ListCard extends StatelessWidget {
         child: rows.isEmpty
             ? Center(
                 child: Text(state.scanning ? '正在扫描…' : '还没有扫描结果',
-                    style: TextStyle(
-                        fontSize: Design.dz(14),
-                        color: s.text.withValues(alpha: .4))))
+                    style: TextStyle(fontSize: Design.dz(14), color: s.muted)))
             : ListView(
                 key: const PageStorageKey('cleaner-list-scroll'),
                 padding: EdgeInsets.zero,
@@ -654,14 +647,15 @@ class _ListCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(Design.dz(9))),
       child: Text(text,
           style: TextStyle(
-              fontSize: Design.dz(11.5), color: s.accent.withValues(alpha: .8))));
+              fontSize: Design.dz(11.5),
+              color: s.accent.withValues(alpha: .8))));
 
   Widget _header(SurfaceStyle s, String group, int count) => Row(children: [
         Text(cleanerGroupLabels[group] ?? group,
             style: TextStyle(
                 fontSize: Design.dz(10.5),
                 letterSpacing: Design.dz(2),
-                color: s.text.withValues(alpha: .32))),
+                color: s.muted)),
         SizedBox(width: Design.dz(10)),
         Expanded(
             child: Container(height: 1, color: s.text.withValues(alpha: .055))),
@@ -670,7 +664,7 @@ class _ListCard extends StatelessWidget {
             style: TextStyle(
                 fontSize: Design.dz(10.5),
                 letterSpacing: Design.dz(.6),
-                color: s.text.withValues(alpha: .32)))
+                color: s.muted))
       ]);
 
   Widget _row(SurfaceStyle s, CleanerCategory category) {
@@ -721,8 +715,7 @@ class _ListCard extends StatelessWidget {
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
-                                      fontSize: Design.dz(11),
-                                      color: s.text.withValues(alpha: .32)))
+                                      fontSize: Design.dz(11), color: s.muted))
                             ]
                           ])),
                       if (category.needsReview) ...[
@@ -852,18 +845,15 @@ class _FootBar extends StatelessWidget {
                     key: const ValueKey('cleaner-status'),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                        fontSize: Design.dz(13),
-                        color: s.text.withValues(alpha: .55))),
+                    style: TextStyle(fontSize: Design.dz(13), color: s.muted)),
                 if (note.isNotEmpty) ...[
                   SizedBox(height: Design.dz(2)),
                   Text(note,
                       key: const ValueKey('cleaner-note'),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                          fontSize: Design.dz(11.5),
-                          color: s.text.withValues(alpha: .3)))
+                      style:
+                          TextStyle(fontSize: Design.dz(11.5), color: s.muted))
                 ]
               ])),
           SizedBox(width: Design.dz(12)),
@@ -928,9 +918,7 @@ class _FootBar extends StatelessWidget {
               style: TextStyle(
                   fontSize: Design.dz(16),
                   fontWeight: FontWeight.w600,
-                  color: onTap == null
-                      ? s.text.withValues(alpha: .35)
-                      : s.accentText))));
+                  color: onTap == null ? s.muted : s.accentText))));
 
   /// `.cl-ghost`：42 高、21 圆角、白 12% 描边。
   Widget _ghost(SurfaceStyle s, String label, VoidCallback onTap) => InkWell(
@@ -946,9 +934,7 @@ class _FootBar extends StatelessWidget {
               border: Border.all(color: s.text.withValues(alpha: .12))),
           child: Text(label,
               maxLines: 1,
-              style: TextStyle(
-                  fontSize: Design.dz(14.5),
-                  color: s.text.withValues(alpha: .62)))));
+              style: TextStyle(fontSize: Design.dz(14.5), color: s.muted))));
 }
 
 /// 「4.01」/「862」这类拆成数字与单位两段：大字只放数字。

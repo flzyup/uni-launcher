@@ -244,9 +244,7 @@ class _EngineColumn extends StatelessWidget {
               Text(AmbientPresets.all[index].summary,
                   key: const ValueKey('ambient-preset-summary'),
                   style: TextStyle(
-                      fontSize: Design.dz(12.5),
-                      height: 1.45,
-                      color: s.text.withValues(alpha: .4)))
+                      fontSize: Design.dz(12.5), height: 1.45, color: s.muted))
             ],
           ],
         ]);
@@ -582,7 +580,7 @@ class _SliderBlock extends StatelessWidget {
                         style: TextStyle(
                             fontSize: Design.dz(12.5),
                             height: 1.5,
-                            color: s.text.withValues(alpha: .4)),
+                            color: s.muted),
                       )),
               ])),
         ]));
@@ -643,9 +641,8 @@ class _ZoneBlock extends StatelessWidget {
                       textAlign: index == 0
                           ? TextAlign.left
                           : (index == 1 ? TextAlign.center : TextAlign.right),
-                      style: TextStyle(
-                          fontSize: Design.dz(12),
-                          color: s.text.withValues(alpha: .3))))
+                      style:
+                          TextStyle(fontSize: Design.dz(12), color: s.muted)))
           ]),
           if (settings.zoneChoreo) ...[
             SizedBox(height: Design.dz(6)),
@@ -664,10 +661,8 @@ class _ZoneBlock extends StatelessWidget {
           Text(
             '这台车机只有分区开关，没有分区颜色和分区亮度，所以切换必然是硬边：'
             '一片亮、一片黑。编排用「先开新的、再关旧的」让中间态是多一片亮着。',
-            style: TextStyle(
-                fontSize: Design.dz(12),
-                height: 1.5,
-                color: s.text.withValues(alpha: .32)),
+            style:
+                TextStyle(fontSize: Design.dz(12), height: 1.5, color: s.muted),
           ),
         ]));
   }
@@ -958,8 +953,7 @@ class _SliderRow extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                          fontSize: Design.dz(14.5),
-                          color: s.text.withValues(alpha: .55))))),
+                          fontSize: Design.dz(14.5), color: s.muted)))),
           Expanded(
               child: SliderTheme(
                   data: SliderTheme.of(context).copyWith(
@@ -987,9 +981,7 @@ class _SliderRow extends StatelessWidget {
                   textAlign: TextAlign.right,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                      fontSize: Design.dz(13.5),
-                      color: s.text.withValues(alpha: .45)))),
+                  style: TextStyle(fontSize: Design.dz(13.5), color: s.muted))),
         ]));
   }
 }
@@ -1030,11 +1022,12 @@ class _PillThumbShape extends SliderComponentShape {
     // 投影也收轻一档（白底上 40% 黑太重）。
     final paint = Paint()
       ..shader = LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: surface.dark
-              ? [surface.text, const Color(0xFFE2EAE6)]
-              : [Colors.white, const Color(0xFFE7EEEA)]).createShader(rect);
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: surface.dark
+                  ? [surface.text, const Color(0xFFE2EAE6)]
+                  : [Colors.white, const Color(0xFFE7EEEA)])
+          .createShader(rect);
     context.canvas.drawShadow(
         Path()..addRRect(rrect),
         surface.dark ? const Color(0x66000000) : const Color(0x33000000),
@@ -1314,7 +1307,7 @@ Widget ambientChip(
         required VoidCallback onTap}) =>
     ChoiceButton(
         key: key,
-        height: 47,
+        height: Design.controlHeight,
         radius: 14,
         shrink: true,
         selected: selected,

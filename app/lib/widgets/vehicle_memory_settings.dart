@@ -172,7 +172,7 @@ class VehicleMemorySettings extends StatelessWidget {
                                     outcome: stopOutcome,
                                     current: currentStop)),
                           ]),
-                      SizedBox(height: Design.dz(12)),
+                      SizedBox(height: Design.dz(8)),
                       // 两张卡高度对齐：IntrinsicHeight 把同一行的卡拉到等高，
                       // 否则一块长一块短，格子看起来是歪的。
                       IntrinsicHeight(
@@ -187,7 +187,7 @@ class VehicleMemorySettings extends StatelessWidget {
                                 child: _wirelessAdbCard(
                                     context, c, s, native['wirelessAdb'])),
                           ])),
-                      SizedBox(height: Design.dz(12)),
+                      SizedBox(height: Design.dz(8)),
                       _bootBlock(context, c, s, bootEnabled, plans, appsById,
                           demo: demo, boot: boot),
                     ]));
@@ -205,6 +205,7 @@ class VehicleMemorySettings extends StatelessWidget {
     final supportedModes =
         supported is List && supported.isNotEmpty ? supported : null;
     return SettingBlock(
+        dense: true,
         title: '驾驶模式',
         // sim f37：开关在标题行右端，说明在标题下方。
         note: _note(outcome, current == null ? null : _label(current), '当前：'),
@@ -225,7 +226,7 @@ class VehicleMemorySettings extends StatelessWidget {
                     width: Design.dz(86),
                     child: ChoiceButton(
                         key: ValueKey('memory-mode-$mode'),
-                        height: 42,
+                        height: Design.controlHeight,
                         selected: mode == target,
                         onPressed: () =>
                             c.command('memory-drive-mode-target', value: mode),
@@ -266,6 +267,7 @@ class VehicleMemorySettings extends StatelessWidget {
       required Map<String, dynamic> outcome,
       required bool? current}) {
     return SettingBlock(
+        dense: true,
         title: '自动启停',
         note: _note(
             outcome,
@@ -290,7 +292,7 @@ class VehicleMemorySettings extends StatelessWidget {
                           EdgeInsets.only(right: index == 0 ? Design.dz(9) : 0),
                       child: ChoiceButton(
                           key: ValueKey('memory-start-stop-${option.$1}'),
-                          height: 42,
+                          height: Design.controlHeight,
                           selected: option.$1 == stopTarget,
                           onPressed: () => c.command('memory-start-stop-target',
                               value: option.$1 ? 'on' : 'off'),
@@ -322,6 +324,7 @@ class VehicleMemorySettings extends StatelessWidget {
         : <String, dynamic>{};
     final enabled = prefs['autoPlayMusic'] == true;
     return SettingBlock(
+        dense: true,
         title: '开机自动播放音乐',
         note: '启动后先拉起关联播放器，约 12 秒后恢复播放；播放器不会留在前台',
         trailing: DesignSwitch(
@@ -371,6 +374,7 @@ class VehicleMemorySettings extends StatelessWidget {
       _ => '开机后自动尝试，失败每 20 秒重试（最多 6 次）',
     };
     return SettingBlock(
+        dense: true,
         title: '开机自动启动无线 adb',
         note: detail,
         trailing: DesignSwitch(
@@ -451,6 +455,7 @@ class VehicleMemorySettings extends StatelessWidget {
         return left.compareTo(right);
       });
     return SettingBlock(
+        dense: true,
         title: '开机自启动',
         note: '以开机时刻为基准，桌面进程晚起来也能补上'
             '${enabled ? '' : ' · 当前不生效'}',
@@ -509,7 +514,7 @@ class VehicleMemorySettings extends StatelessWidget {
                         style: TextStyle(
                             fontSize: Design.dz(11),
                             letterSpacing: Design.dz(1.4),
-                            color: s.text.withValues(alpha: .34))),
+                            color: s.muted)),
                     SizedBox(height: Design.dz(5)),
                     Text(name,
                         maxLines: 1,
@@ -534,7 +539,7 @@ class VehicleMemorySettings extends StatelessWidget {
                     key: ValueKey('boot-plan-remove-${plan['key']}'),
                     icon: Icons.close_rounded,
                     tooltip: '删除计划',
-                    color: s.text.withValues(alpha: .34),
+                    color: s.muted,
                     onTap: () => c.command('boot-launch-remove',
                         value: '${plan['key']}'))
               ])
@@ -580,14 +585,12 @@ class VehicleMemorySettings extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Text('＋',
-                        style: TextStyle(
-                            fontSize: Design.dz(16),
-                            color: s.text.withValues(alpha: .4))),
+                        style:
+                            TextStyle(fontSize: Design.dz(16), color: s.muted)),
                     SizedBox(height: Design.dz(3)),
                     Text('添加计划',
                         style: TextStyle(
-                            fontSize: Design.dz(12.5),
-                            color: s.text.withValues(alpha: .4)))
+                            fontSize: Design.dz(12.5), color: s.muted))
                   ])));
 
   /// 启动执行顺序：一条渐隐细线 + 等距节点。
@@ -612,9 +615,7 @@ class VehicleMemorySettings extends StatelessWidget {
                     fontSize: Design.dz(19), fontWeight: FontWeight.w500)),
             const Spacer(),
             Text('以开机时刻为基准 · 桌面进程晚起会按序补齐',
-                style: TextStyle(
-                    fontSize: Design.dz(11.5),
-                    color: s.text.withValues(alpha: .3)))
+                style: TextStyle(fontSize: Design.dz(11.5), color: s.muted))
           ]),
       SizedBox(height: Design.dz(22)),
       // 一个节点（还没加计划）时不能按「等分居中」摆：那会把唯一的圆点吊在
@@ -640,7 +641,7 @@ class VehicleMemorySettings extends StatelessWidget {
               style: TextStyle(
                   fontSize: Design.dz(10.5),
                   letterSpacing: Design.dz(.2),
-                  color: s.text.withValues(alpha: .34))),
+                  color: s.muted)),
           SizedBox(height: Design.dz(4)),
           Text(nodes.first.$2,
               style: TextStyle(
@@ -673,7 +674,7 @@ class VehicleMemorySettings extends StatelessWidget {
                       style: TextStyle(
                           fontSize: Design.dz(10.5),
                           letterSpacing: Design.dz(.2),
-                          color: s.text.withValues(alpha: .34))),
+                          color: s.muted)),
                   SizedBox(height: Design.dz(4)),
                   Text(node.$2,
                       maxLines: 1,
@@ -690,7 +691,8 @@ class VehicleMemorySettings extends StatelessWidget {
   }
 
   /// 时间轴上的圆点：首个节点是实白，失败是暗灰，其余是带光晕的主题色。
-  Widget _bootDot(SurfaceStyle s, {required bool first, required bool failed}) =>
+  Widget _bootDot(SurfaceStyle s,
+          {required bool first, required bool failed}) =>
       Container(
           width: Design.dz(9),
           height: Design.dz(9),

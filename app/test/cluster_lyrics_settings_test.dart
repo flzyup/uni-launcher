@@ -17,13 +17,14 @@ class _FakeClient extends ClusterLyrics {
   final List<ClusterDisplay> rows;
   final ClusterCastStatus current;
 
+  static ClusterCastStatus? applied;
   static final List<_ApplyCall> calls = <_ApplyCall>[];
 
   @override
   Future<List<ClusterDisplay>> displays() async => rows;
 
   @override
-  Future<ClusterCastStatus> status() async => current;
+  Future<ClusterCastStatus> status() async => applied ?? current;
 
   @override
   Future<ClusterCastStatus> apply({
@@ -52,6 +53,7 @@ class _FakeClient extends ClusterLyrics {
       style: style,
       motion: motion,
     );
+    applied = next;
     calls.add(_ApplyCall(display, next));
     return next;
   }
@@ -77,6 +79,7 @@ void main() {
 
   setUp(() {
     _FakeClient.calls.clear();
+    _FakeClient.applied = null;
     // The settings page is a tall scroll column (preview editor + four control blocks). The
     // default 800×600 test surface would push half of it off-screen and every tap would land
     // outside the render tree, so give the tests a phone-tall viewport and scroll to targets.
@@ -89,7 +92,8 @@ void main() {
     binding.platformDispatcher.views.first.resetDevicePixelRatio();
   });
 
-  testWidgets('lists what the unit exposes and defaults to off', (tester) async {
+  testWidgets('lists what the unit exposes and defaults to off',
+      (tester) async {
     await tester.pumpWidget(_host(const ClusterLyricsSettingsTab(
       client: _FakeClient([_cluster], ClusterCastStatus.unknown),
     )));
@@ -122,8 +126,10 @@ void main() {
 
   testWidgets('the switch turns the cast off with no target', (tester) async {
     await tester.pumpWidget(_host(const ClusterLyricsSettingsTab(
-      client: _FakeClient([_cluster],
-          const ClusterCastStatus(enabled: true, displayId: 2, displayName: '仪表')),
+      client: _FakeClient(
+          [_cluster],
+          const ClusterCastStatus(
+              enabled: true, displayId: 2, displayName: '仪表')),
     )));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('cluster-lyrics-switch')));
@@ -136,7 +142,8 @@ void main() {
   testWidgets('the preview block is where the stored ratio says it is',
       (tester) async {
     await tester.pumpWidget(_host(const ClusterLyricsSettingsTab(
-      client: _FakeClient([_cluster],
+      client: _FakeClient(
+          [_cluster],
           const ClusterCastStatus(
               enabled: true,
               displayId: 2,
@@ -146,25 +153,32 @@ void main() {
               yRatio: 0.7)),
     )));
     await tester.pumpAndSettle();
-    final screenRect = tester.getRect(find.byKey(const ValueKey('cluster-preview')));
-    final block = tester.getRect(find.byKey(const ValueKey('cluster-preview-block')));
+    final screenRect =
+        tester.getRect(find.byKey(const ValueKey('cluster-preview')));
+    final block =
+        tester.getRect(find.byKey(const ValueKey('cluster-preview-block')));
     // Centre of the block must sit at the stored fraction of the mock screen, within a
     // pixel or two of rounding. A half-width panel can reach 0.3 at all; the default 94%
     // panel is physically unable to centre that far left, which is why it is clamped.
-    expect(block.center.dx - screenRect.left, closeTo(screenRect.width * 0.3, 3));
-    expect(block.center.dy - screenRect.top, closeTo(screenRect.height * 0.7, 3));
+    expect(
+        block.center.dx - screenRect.left, closeTo(screenRect.width * 0.3, 3));
+    expect(
+        block.center.dy - screenRect.top, closeTo(screenRect.height * 0.7, 3));
     expect(block.width, closeTo(screenRect.width * 0.5, 3));
   });
 
   testWidgets('dragging the preview moves the panel and saves the ratio',
       (tester) async {
     await tester.pumpWidget(_host(const ClusterLyricsSettingsTab(
-      client: _FakeClient([_cluster],
-          const ClusterCastStatus(enabled: true, displayId: 2, displayName: '仪表')),
+      client: _FakeClient(
+          [_cluster],
+          const ClusterCastStatus(
+              enabled: true, displayId: 2, displayName: '仪表')),
     )));
     await tester.pumpAndSettle();
     final rect = tester.getRect(find.byKey(const ValueKey('cluster-preview')));
-    final target = Offset(rect.left + rect.width * 0.3, rect.top + rect.height * 0.35);
+    final target =
+        Offset(rect.left + rect.width * 0.3, rect.top + rect.height * 0.35);
     await tester.dragFrom(rect.center, target - rect.center);
     await tester.pumpAndSettle();
     expect(_FakeClient.calls, isNotEmpty);
@@ -174,10 +188,13 @@ void main() {
     expect(saved.yRatio, closeTo(0.35, 0.03));
   });
 
-  testWidgets('a tap does not move the panel, only a drag does', (tester) async {
+  testWidgets('a tap does not move the panel, only a drag does',
+      (tester) async {
     await tester.pumpWidget(_host(const ClusterLyricsSettingsTab(
-      client: _FakeClient([_cluster],
-          const ClusterCastStatus(enabled: true, displayId: 2, displayName: '仪表')),
+      client: _FakeClient(
+          [_cluster],
+          const ClusterCastStatus(
+              enabled: true, displayId: 2, displayName: '仪表')),
     )));
     await tester.pumpAndSettle();
     final rect = tester.getRect(find.byKey(const ValueKey('cluster-preview')));
@@ -191,8 +208,10 @@ void main() {
   testWidgets('rows, width, accent and style each reach the native side',
       (tester) async {
     await tester.pumpWidget(_host(const ClusterLyricsSettingsTab(
-      client: _FakeClient([_cluster],
-          const ClusterCastStatus(enabled: true, displayId: 2, displayName: '仪表')),
+      client: _FakeClient(
+          [_cluster],
+          const ClusterCastStatus(
+              enabled: true, displayId: 2, displayName: '仪表')),
     )));
     await tester.pumpAndSettle();
 
@@ -220,7 +239,8 @@ void main() {
   testWidgets('the font step buttons move the size and pin it inside the range',
       (tester) async {
     await tester.pumpWidget(_host(const ClusterLyricsSettingsTab(
-      client: _FakeClient([_cluster],
+      client: _FakeClient(
+          [_cluster],
           const ClusterCastStatus(
               enabled: true, displayId: 2, displayName: '仪表', fontSp: 34)),
     )));
@@ -243,10 +263,13 @@ void main() {
         greaterThanOrEqualTo(ClusterLayout.minFontSp));
   });
 
-  testWidgets('effects are off by default and can be switched on', (tester) async {
+  testWidgets('effects are off by default and can be switched on',
+      (tester) async {
     await tester.pumpWidget(_host(const ClusterLyricsSettingsTab(
-      client: _FakeClient([_cluster],
-          const ClusterCastStatus(enabled: true, displayId: 2, displayName: '仪表')),
+      client: _FakeClient(
+          [_cluster],
+          const ClusterCastStatus(
+              enabled: true, displayId: 2, displayName: '仪表')),
     )));
     await tester.pumpAndSettle();
     // Nothing has been applied yet: the default has to come from the stored status, which is
@@ -263,9 +286,14 @@ void main() {
   testWidgets('the reset button returns the panel to the default placement',
       (tester) async {
     await tester.pumpWidget(_host(const ClusterLyricsSettingsTab(
-      client: _FakeClient([_cluster],
+      client: _FakeClient(
+          [_cluster],
           const ClusterCastStatus(
-              enabled: true, displayId: 2, displayName: '仪表', xRatio: 0.1, yRatio: 0.1)),
+              enabled: true,
+              displayId: 2,
+              displayName: '仪表',
+              xRatio: 0.1,
+              yRatio: 0.1)),
     )));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('cluster-position-reset')));
@@ -279,7 +307,8 @@ void main() {
   testWidgets('the header says whether lyrics actually reached the panel',
       (tester) async {
     await tester.pumpWidget(_host(const ClusterLyricsSettingsTab(
-      client: _FakeClient([_cluster],
+      client: _FakeClient(
+          [_cluster],
           const ClusterCastStatus(
               enabled: true,
               displayId: 2,

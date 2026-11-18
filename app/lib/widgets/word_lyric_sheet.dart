@@ -66,8 +66,9 @@ class _WordLyricBodyState extends State<_WordLyricBody> {
           final clock = MediaTimeline.fromJson(media);
           final now = clock.at(DateTime.now().millisecondsSinceEpoch);
           final index = timeline.indexAt(now);
-          final line =
-              index >= 0 && index < timeline.lines.length ? timeline.lines[index] : null;
+          final line = index >= 0 && index < timeline.lines.length
+              ? timeline.lines[index]
+              : null;
           final next = index + 1 < timeline.lines.length
               ? timeline.lines[index + 1]
               : null;
@@ -104,14 +105,8 @@ class _WordLyricBodyState extends State<_WordLyricBody> {
         });
   }
 
-  Widget _preview(
-      SurfaceStyle s,
-      Map<String, dynamic> media,
-      LyricLine? line,
-      LyricLine? next,
-      double progress,
-      int now,
-      MediaTimeline clock) {
+  Widget _preview(SurfaceStyle s, Map<String, dynamic> media, LyricLine? line,
+      LyricLine? next, double progress, int now, MediaTimeline clock) {
     final title = '${media['title'] ?? '暂无播放'}';
     final current = line == null ? '—' : line.text;
     final upcoming = next?.text ?? '';
@@ -123,12 +118,13 @@ class _WordLyricBodyState extends State<_WordLyricBody> {
             .join()
         : '';
     return Container(
-        padding: EdgeInsets.fromLTRB(Design.px(26), Design.px(20),
-            Design.px(26), Design.px(18)),
+        padding: EdgeInsets.fromLTRB(
+            Design.px(26), Design.px(20), Design.px(26), Design.px(18)),
         decoration: BoxDecoration(
             color: s.soft,
             borderRadius: BorderRadius.circular(s.controlRadius * .8)),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        child:
+            Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Row(children: [
             Text('底栏歌词位 · 1.9× 特写',
                 style: TextStyle(fontSize: Design.px(15), color: s.muted)),
@@ -137,21 +133,26 @@ class _WordLyricBodyState extends State<_WordLyricBody> {
                 style: TextStyle(fontSize: Design.px(15), color: s.muted)),
           ]),
           SizedBox(height: Design.px(18)),
-          Text.rich(TextSpan(children: [
-            TextSpan(
-                text: sung,
-                style: TextStyle(
-                    fontSize: Design.px(44),
-                    fontWeight: FontWeight.w300,
-                    color: s.accent)),
-            TextSpan(
-                text: sung.isEmpty ? current : current.substring(
-                    sung.length.clamp(0, current.length)),
-                style: TextStyle(
-                    fontSize: Design.px(44),
-                    fontWeight: FontWeight.w300,
-                    color: s.text.withValues(alpha: .38))),
-          ]), maxLines: 1, overflow: TextOverflow.ellipsis),
+          Text.rich(
+              TextSpan(children: [
+                TextSpan(
+                    text: sung,
+                    style: TextStyle(
+                        fontSize: Design.px(44),
+                        fontWeight: FontWeight.w300,
+                        color: s.accent)),
+                TextSpan(
+                    text: sung.isEmpty
+                        ? current
+                        : current
+                            .substring(sung.length.clamp(0, current.length)),
+                    style: TextStyle(
+                        fontSize: Design.px(44),
+                        fontWeight: FontWeight.w300,
+                        color: s.muted)),
+              ]),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis),
           SizedBox(height: Design.px(12)),
           Text(upcoming,
               maxLines: 1,
@@ -197,12 +198,13 @@ class _WordLyricBodyState extends State<_WordLyricBody> {
                 color: color ?? (head ? s.muted : s.text))));
     final words = line?.words ?? const <LyricWord>[];
     return Container(
-        padding: EdgeInsets.fromLTRB(Design.px(18), Design.px(16),
-            Design.px(18), Design.px(16)),
+        padding: EdgeInsets.fromLTRB(
+            Design.px(18), Design.px(16), Design.px(18), Design.px(16)),
         decoration: BoxDecoration(
             color: s.soft,
             borderRadius: BorderRadius.circular(s.controlRadius * .7)),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        child:
+            Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Row(children: [
             Text('当前句时间轴',
                 style: TextStyle(
@@ -224,8 +226,7 @@ class _WordLyricBodyState extends State<_WordLyricBody> {
           if (words.isEmpty)
             Padding(
                 padding: EdgeInsets.symmetric(vertical: Design.px(18)),
-                child: Text(
-                    '这一行没有逐字时间戳：整句淡入，不假装对齐（estimated 路径）。',
+                child: Text('这一行没有逐字时间戳：整句淡入，不假装对齐（estimated 路径）。',
                     style: TextStyle(
                         fontSize: Design.px(16), color: s.muted, height: 1.6)))
           else
@@ -234,7 +235,8 @@ class _WordLyricBodyState extends State<_WordLyricBody> {
                 SizedBox(width: Design.px(64), child: cell(w.text)),
                 Expanded(child: cell(_mmss(w.startMs, base: 0))),
                 Expanded(child: cell(_mmss(w.startMs + w.durationMs, base: 0))),
-                SizedBox(width: Design.px(78), child: cell('${w.durationMs}ms')),
+                SizedBox(
+                    width: Design.px(78), child: cell('${w.durationMs}ms')),
               ]),
         ]));
   }
@@ -253,12 +255,13 @@ class _WordLyricBodyState extends State<_WordLyricBody> {
                       fontSize: Design.px(16), color: s.muted, height: 1.6))),
         ]));
     return Container(
-        padding: EdgeInsets.fromLTRB(Design.px(18), Design.px(16),
-            Design.px(18), Design.px(16)),
+        padding: EdgeInsets.fromLTRB(
+            Design.px(18), Design.px(16), Design.px(18), Design.px(16)),
         decoration: BoxDecoration(
             color: s.soft,
             borderRadius: BorderRadius.circular(s.controlRadius * .7)),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        child:
+            Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Text('填充规则',
               style: TextStyle(
                   fontSize: Design.px(20),
@@ -294,8 +297,8 @@ class _WordLyricBodyState extends State<_WordLyricBody> {
                       borderRadius: BorderRadius.circular(s.controlRadius * .5),
                       border: Border.all(color: s.edge)),
                   child: Text(tag,
-                      style: TextStyle(
-                          fontSize: Design.px(14), color: s.text))),
+                      style:
+                          TextStyle(fontSize: Design.px(14), color: s.text))),
           ]),
         ]));
   }

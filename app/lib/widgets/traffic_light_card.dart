@@ -151,7 +151,8 @@ class _TrafficLightCardState extends State<TrafficLightCard>
             child: Padding(
                 padding: EdgeInsets.symmetric(vertical: Design.dz(2)),
                 child: Row(children: [
-                  _TrafficLightGlyph(size: Design.dz(small ? 19 : 21), lit: color),
+                  _TrafficLightGlyph(
+                      size: Design.dz(small ? 19 : 21), lit: color),
                   SizedBox(width: Design.dz(10)),
                   Flexible(
                       child: Text(widget.title,
@@ -161,7 +162,7 @@ class _TrafficLightCardState extends State<TrafficLightCard>
                               fontSize: Design.dz(small ? 14 : 15.5),
                               fontWeight: FontWeight.w500,
                               letterSpacing: Design.dz(2.6),
-                              color: s.text.withValues(alpha: .62)))),
+                              color: s.muted))),
                   // 右侧不再写来源（原来的「高德地图」）：卡片只有这一处竖向信号，
                   // 来源对开车的人没有信息量，稿子的这一行也只有灯 + 标题
                   // （用户 2026-11-13 实车反馈去掉）。来源仍保留在语义标签里。
@@ -211,8 +212,7 @@ class _TrafficLightCardState extends State<TrafficLightCard>
                   child: FractionallySizedBox(
                       heightFactor: .52,
                       child: Container(
-                          width: 1,
-                          color: s.text.withValues(alpha: .12)))),
+                          width: 1, color: s.text.withValues(alpha: .12)))),
             Expanded(
                 // 每列留一点内边距：三路信号时两块读数才不至于顶着分隔线
                 // （稿子只给了两列，三列是压缩档，需要额外呼吸位）。
@@ -294,13 +294,13 @@ class _SignalReading extends StatelessWidget {
                           shape: BoxShape.circle,
                           color: color.withValues(alpha: s.dark ? .10 : .45),
                           border: Border.all(
-                              color: s.dark
-                                  ? color.withValues(alpha: .88)
-                                  : color,
+                              color:
+                                  s.dark ? color.withValues(alpha: .88) : color,
                               width: Design.dz(compact ? 4.6 : 5.5)),
                           boxShadow: [
                             BoxShadow(
-                                color: color.withValues(alpha: s.dark ? .12 : .16),
+                                color:
+                                    color.withValues(alpha: s.dark ? .12 : .16),
                                 blurRadius: Design.dz(s.dark ? 10 : 12))
                           ]),
                       child: Center(
@@ -315,14 +315,13 @@ class _SignalReading extends StatelessWidget {
                   Text(seconds?.toString() ?? '—',
                       key: const ValueKey('traffic-light-seconds'),
                       style: TextStyle(
-                          fontSize: Design.dz(
-                              seconds == null ? (compact ? 26 : 28) : (compact ? 46 : 64)),
+                          fontSize: Design.dz(seconds == null
+                              ? (compact ? 26 : 28)
+                              : (compact ? 46 : 64)),
                           height: 1,
                           fontWeight: FontWeight.w400,
                           letterSpacing: Design.dz(-.6),
-                          color: seconds == null
-                              ? s.text.withValues(alpha: .35)
-                              : color,
+                          color: seconds == null ? s.muted : color,
                           fontFeatures: const [FontFeature.tabularFigures()])),
                 ])));
   }
@@ -355,8 +354,8 @@ class _TrafficLightGlyphPainter extends CustomPainter {
       ..strokeWidth = 1.2
       ..color = s.text.withValues(alpha: .38);
     canvas.drawRRect(
-        RRect.fromRectAndRadius(
-            const Rect.fromLTWH(7.6, 2.4, 8.8, 17.2), const Radius.circular(4.4)),
+        RRect.fromRectAndRadius(const Rect.fromLTWH(7.6, 2.4, 8.8, 17.2),
+            const Radius.circular(4.4)),
         shell);
     final dim = Paint()..color = s.text.withValues(alpha: .20);
     final bright = Paint()..color = lit;

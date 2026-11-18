@@ -43,8 +43,8 @@ void main() {
 
       final home =
           tester.widget<IconAction>(find.byKey(const ValueKey('home')));
-      expect(home.size, Design.px(64));
-      expect(home.iconSize, moreOrLessEquals(Design.px(31 * scale)));
+      expect(home.size, Design.px(56));
+      expect(home.iconSize, moreOrLessEquals(Design.px(28 * scale)));
 
       final title = tester.widget<Text>(find
           .descendant(

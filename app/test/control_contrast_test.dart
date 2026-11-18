@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:uni_launcher/model/appearance.dart';
 import 'package:uni_launcher/theme/launcher_theme.dart';
+import 'package:uni_launcher/theme/contrast.dart';
 import 'package:uni_launcher/widgets/choice_button.dart';
 import 'package:uni_launcher/widgets/glass_surface.dart';
 
@@ -33,12 +34,13 @@ void main() {
     expect(knobColor(t), isNot(s.text), reason: '深墨色圆点就是那个 bug');
   });
 
-  testWidgets('暗夜皮肤保持原样：圆点仍是正文色（白）', (t) async {
+  testWidgets('暗夜开关圆点与主题轨道保持对比度', (t) async {
     final s = SurfaceStyle.from(
         const Appearance(mode: 'dark', themeStyle: 'nocturne'), true);
     expect(s.dark, isTrue);
     await t.pumpWidget(host(s, const DesignSwitch(value: true)));
-    expect(knobColor(t), s.text);
+    expect(knobColor(t), s.accentText);
+    expect(contrastRatio(knobColor(t), s.accentLo), greaterThanOrEqualTo(4.5));
   });
 
   testWidgets('降级时暗夜卡片阴影收一半，正常态不动', (t) async {
@@ -57,7 +59,8 @@ void main() {
       // 卡片里有好几层 DecoratedBox（底色/渐变/外阴影），带 boxShadow 的那个才是外层。
       final boxes = t
           .widgetList<DecoratedBox>(find.descendant(
-              of: find.byType(GlassSurface), matching: find.byType(DecoratedBox)))
+              of: find.byType(GlassSurface),
+              matching: find.byType(DecoratedBox)))
           .where((b) => (b.decoration as BoxDecoration).boxShadow != null);
       return (boxes.single.decoration as BoxDecoration).boxShadow!;
     }

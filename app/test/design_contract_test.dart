@@ -34,6 +34,35 @@ void main() {
     return (c, g);
   }
 
+  testWidgets('返回桌面按钮使用主题形状并随圆角变化', (t) async {
+    final (c, _) = await launch(t);
+    c.openSettings();
+    for (final skin in ['classic', 'blueGlass', 'nocturne']) {
+      for (final radius in [0.0, 40.0]) {
+        c.setAppearance(c.appearance.copyWith(themeStyle: skin, radius: radius),
+            save: false);
+        await t.pumpAndSettle();
+        final button = t.widget<OutlinedButton>(
+            find.byKey(const ValueKey('back-to-desktop')));
+        final shape = button.style!.shape!.resolve({})!;
+        final style = SurfaceStyle.from(
+            c.appearance, c.native.value['dark'] == true,
+            adaptToWallpaper: true);
+        expect(shape, isA<RoundedRectangleBorder>());
+        expect(
+            (shape as RoundedRectangleBorder)
+                .borderRadius
+                .resolve(TextDirection.ltr)
+                .topLeft
+                .x,
+            style.controlRadius);
+      }
+    }
+    await t.tap(find.byKey(const ValueKey('back-to-desktop')));
+    await t.pumpAndSettle();
+    expect(c.settings, isFalse);
+  });
+
   testWidgets(
       'reviewed palette uses rectangular corners, modes and palette have separate heights',
       (t) async {
@@ -54,10 +83,9 @@ void main() {
     // 1920 屏上画布整体放大 1.2，所以量到的像素是画布值 × 1.2。
     expect(t.getRect(palette).height, closeTo(76 * 1.2, .1));
     expect(t.getRect(find.byKey(const ValueKey('mode-system'))).height,
-        closeTo(42 * 1.2, .1));
+        closeTo(44 * 1.2, .1));
     expect(find.byType(DesktopPreview), findsOneWidget);
-    final category =
-        t.getRect(find.byKey(const ValueKey('tab-appearance')));
+    final category = t.getRect(find.byKey(const ValueKey('tab-appearance')));
     // 左导航行高按 sim .ss-nav .tb：46.67 画布 = 56 px（x1.2）。
     expect(category.height, closeTo(46.67 * 1.2, .1));
     expect(category.width, greaterThan(200));
@@ -205,9 +233,9 @@ void main() {
     expect(size.width / size.height, closeTo(16 / 9, .01));
     // 取桌面那一层的样式：它在预览自己的 Theme 下面，改配色必须立刻跟上。
     int accentOf() => SurfaceStyle.of(t.element(
-                find.descendant(of: preview, matching: find.byType(Desktop))))
-            .accent
-            .toARGB32();
+            find.descendant(of: preview, matching: find.byType(Desktop))))
+        .accent
+        .toARGB32();
     final before = accentOf();
     c.setAppearance(c.appearance.copyWith(palette: 'rose'));
     await t.pumpAndSettle();
@@ -269,10 +297,12 @@ void main() {
         false);
     c.setAppearance(c.appearance.copyWith(mode: 'dark'));
     await t.pumpAndSettle();
+    // Bare header ink follows this bright wallpaper; card mode stays dark.
     expect(
         SurfaceStyle.of(t.element(find.byKey(const ValueKey('desktop-name'))))
             .dark,
-        true);
+        false);
+    expect(SurfaceStyle.of(t.element(find.byType(Desktop))).dark, true);
     c.openSettings();
     g.wallpaper = const PickedWallpaper('/tmp/dark-wallpaper.jpg', .16);
     await t.pumpAndSettle();
@@ -403,8 +433,7 @@ void main() {
   /// 这里把「不该滚」钉死，以后再往里塞东西时会先失败。
   ScrollPosition scrollByKey(WidgetTester t, Key key) => t
       .state<ScrollableState>(find
-          .descendant(
-              of: find.byKey(key), matching: find.byType(Scrollable))
+          .descendant(of: find.byKey(key), matching: find.byType(Scrollable))
           .first)
       .position;
 
@@ -436,19 +465,16 @@ void main() {
     expect(find.text('系统默认桌面'), findsOneWidget);
     // 两栏下沿必须齐在一条线上：右栏那块吃掉剩余高度，不然它比左栏短一截，
     // 看着像右边漏画了一块。
-    final leftBottom =
-        t.getRect(find.byType(SystemDefaultHomeBlock)).bottom;
+    final leftBottom = t.getRect(find.byType(SystemDefaultHomeBlock)).bottom;
     final rightBottom = t
         .getRect(find.descendant(
             of: find.byType(BootAndHomeSettings),
             matching: find.byType(SettingBlock)))
         .bottom;
-    expect(rightBottom, closeTo(leftBottom, .5),
-        reason: '应用与底栏页两栏下沿没对齐');
+    expect(rightBottom, closeTo(leftBottom, .5), reason: '应用与底栏页两栏下沿没对齐');
 
     // 暗夜皮肤下才有那颗开关（流体只属于暗夜），换皮肤后两栏仍要对齐。
-    c.setAppearance(c.appearance.copyWith(themeStyle: 'nocturne'),
-        save: false);
+    c.setAppearance(c.appearance.copyWith(themeStyle: 'nocturne'), save: false);
     await t.pumpAndSettle();
     expect(
         t
@@ -467,7 +493,8 @@ void main() {
     expect(t.takeException(), null);
   });
 
-  testWidgets('appearance and cluster lyrics each fit one screen without scrolling',
+  testWidgets(
+      'appearance and cluster lyrics each fit one screen without scrolling',
       (t) async {
     final (c, _) = await launch(t);
     c.openSettings();
@@ -478,8 +505,7 @@ void main() {
     final left = t.getRect(
         find.byKey(const PageStorageKey('appearance-settings-scroll')));
     final lastBlock = t.getRect(find.byType(RadiusSetting));
-    final backButton =
-        t.getRect(find.byKey(const ValueKey('back-to-desktop')));
+    final backButton = t.getRect(find.byKey(const ValueKey('back-to-desktop')));
     expect(lastBlock.bottom, closeTo(left.bottom, .5));
     expect(lastBlock.bottom, closeTo(backButton.bottom, .5));
     expect(find.text('卡片圆角'), findsOneWidget);

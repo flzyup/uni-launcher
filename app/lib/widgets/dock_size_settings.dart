@@ -25,7 +25,7 @@ class DockSizeSettings extends StatelessWidget {
             Expanded(
                 child: ChoiceButton(
                     key: ValueKey('dock-size-${item.$1}'),
-                    height: 47,
+                    height: Design.controlHeight,
                     selected: c.appearance.dockSize == item.$1,
                     onPressed: () => c.setAppearance(
                         c.appearance.copyWith(dockSize: item.$1)),

@@ -161,123 +161,116 @@ class _DiagnosticsSettingsState extends State<DiagnosticsSettings> {
                 child: const CircularProgressIndicator(strokeWidth: 2))
             : DesignTextAction('刷新',
                 chevron: false, onPressed: () => _refresh()),
-        child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // 三列统计：k 10.5 小字 + v 19 的细数字。
-              Row(children: [
-                Expanded(child: _Stat('已落盘占用', '${bytes ~/ 1024}', 'KB')),
-                Expanded(child: _Stat('锚点节点', '$anchors', '个')),
-                Expanded(
-                    child:
-                        _Stat('日志文件', files == null ? '—' : '$files', '份')),
-              ]),
-              SizedBox(height: Design.dz(14)),
-              Row(children: [
-                DesignFieldLabel('导出目录'),
-                SizedBox(width: Design.dz(10)),
-                Expanded(
-                    child: Text('Download/UNI/',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+        child:
+            Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          // 三列统计：k 10.5 小字 + v 19 的细数字。
+          Row(children: [
+            Expanded(child: _Stat('已落盘占用', '${bytes ~/ 1024}', 'KB')),
+            Expanded(child: _Stat('锚点节点', '$anchors', '个')),
+            Expanded(child: _Stat('日志文件', files == null ? '—' : '$files', '份')),
+          ]),
+          SizedBox(height: Design.dz(14)),
+          Row(children: [
+            DesignFieldLabel('导出目录'),
+            SizedBox(width: Design.dz(10)),
+            Expanded(
+                child: Text('Download/UNI/',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        fontSize: Design.dz(13),
+                        color: s.text.withValues(alpha: .8)))),
+            if (!_storageWritable) ...[
+              SizedBox(width: Design.dz(8)),
+              DesignSmallAction('申请存储权限',
+                  icon: Icons.lock_open_outlined,
+                  onPressed: _requestPermission),
+            ],
+            SizedBox(width: Design.dz(8)),
+            _PermissionTag(granted: _storageWritable)
+          ]),
+          SizedBox(height: Design.dz(12)),
+          const DesignFieldLabel('落盘级别'),
+          SizedBox(height: Design.dz(8)),
+          Row(children: [
+            for (final (index, item) in [
+              ('DEBUG', '调试'),
+              ('INFO', '信息'),
+              ('WARN', '警告'),
+              ('ERROR', '仅错误')
+            ].indexed) ...[
+              if (index > 0) SizedBox(width: Design.dz(8)),
+              Expanded(
+                  child: ChoiceButton(
+                      key: ValueKey('log-level-${item.$1}'),
+                      height: 38,
+                      radius: 11,
+                      selected: level == item.$1,
+                      onPressed: _busy ? null : () => _setLevel(item.$1),
+                      child: Text(item.$2,
+                          style: TextStyle(fontSize: Design.dz(13.5)))))
+            ]
+          ]),
+          SizedBox(height: Design.dz(8)),
+          Text('「调试」会把全部细节写入文件，车机存储紧张时建议用「信息」。',
+              style: TextStyle(fontSize: Design.dz(13.5), color: s.muted)),
+          SizedBox(height: Design.dz(12)),
+          Wrap(spacing: Design.dz(9), runSpacing: Design.dz(8), children: [
+            _DiagButton('导出诊断包',
+                primary: true,
+                icon: Icons.file_download_outlined,
+                onPressed:
+                    _busy ? null : () => _export('导出诊断包', LogTools.export)),
+            _DiagButton('导出并分享',
+                icon: Icons.ios_share,
+                onPressed: _busy
+                    ? null
+                    : () => _export('导出并分享诊断包', LogTools.exportAndShare)),
+            _DiagButton('预览最近日志',
+                icon: Icons.visibility_outlined,
+                onPressed: _busy ? null : _loadPreview),
+            _DiagButton('清空日志', ghost: true, onPressed: _busy ? null : _clear),
+          ]),
+          if (_previewOpen) ...[
+            SizedBox(height: Design.dz(10)),
+            Container(
+                width: double.infinity,
+                constraints: BoxConstraints(maxHeight: Design.dz(150)),
+                padding: EdgeInsets.all(Design.dz(12)),
+                decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: .34),
+                    borderRadius: BorderRadius.circular(Design.dz(12)),
+                    border: Border.all(color: s.text.withValues(alpha: .07))),
+                child: SingleChildScrollView(
+                    child: Text(_preview,
                         style: TextStyle(
-                            fontSize: Design.dz(13),
-                            color: s.text.withValues(alpha: .8)))),
-                if (!_storageWritable) ...[
-                  SizedBox(width: Design.dz(8)),
-                  DesignSmallAction('申请存储权限',
-                      icon: Icons.lock_open_outlined,
-                      onPressed: _requestPermission),
-                ],
-                SizedBox(width: Design.dz(8)),
-                _PermissionTag(granted: _storageWritable)
-              ]),
-              SizedBox(height: Design.dz(12)),
-              const DesignFieldLabel('落盘级别'),
-              SizedBox(height: Design.dz(8)),
-              Row(children: [
-                for (final (index, item) in [
-                  ('DEBUG', '调试'),
-                  ('INFO', '信息'),
-                  ('WARN', '警告'),
-                  ('ERROR', '仅错误')
-                ].indexed) ...[
-                  if (index > 0) SizedBox(width: Design.dz(8)),
-                  Expanded(
-                      child: ChoiceButton(
-                          key: ValueKey('log-level-${item.$1}'),
-                          height: 38,
-                          radius: 11,
-                          selected: level == item.$1,
-                          onPressed: _busy ? null : () => _setLevel(item.$1),
-                          child: Text(item.$2,
-                              style: TextStyle(fontSize: Design.dz(13.5)))))
-                ]
-              ]),
-              SizedBox(height: Design.dz(8)),
-              Text('「调试」会把全部细节写入文件，车机存储紧张时建议用「信息」。',
-                  style: TextStyle(
-                      fontSize: Design.dz(13.5),
-                      color: s.text.withValues(alpha: .4))),
-              SizedBox(height: Design.dz(12)),
-              Wrap(spacing: Design.dz(9), runSpacing: Design.dz(8), children: [
-                _DiagButton('导出诊断包',
-                    primary: true,
-                    icon: Icons.file_download_outlined,
-                    onPressed:
-                        _busy ? null : () => _export('导出诊断包', LogTools.export)),
-                _DiagButton('导出并分享',
-                    icon: Icons.ios_share,
-                    onPressed: _busy
-                        ? null
-                        : () => _export('导出并分享诊断包', LogTools.exportAndShare)),
-                _DiagButton('预览最近日志',
-                    icon: Icons.visibility_outlined,
-                    onPressed: _busy ? null : _loadPreview),
-                _DiagButton('清空日志',
-                    ghost: true, onPressed: _busy ? null : _clear),
-              ]),
-              if (_previewOpen) ...[
-                SizedBox(height: Design.dz(10)),
-                Container(
-                    width: double.infinity,
-                    constraints: BoxConstraints(maxHeight: Design.dz(150)),
-                    padding: EdgeInsets.all(Design.dz(12)),
-                    decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: .34),
-                        borderRadius: BorderRadius.circular(Design.dz(12)),
-                        border: Border.all(
-                            color: s.text.withValues(alpha: .07))),
-                    child: SingleChildScrollView(
-                        child: Text(_preview,
-                            style: TextStyle(
-                                fontFamily: 'monospace',
-                                fontSize: Design.dz(10.5),
-                                height: 1.6,
-                                color: s.text.withValues(alpha: .46))))),
-              ],
-              SizedBox(height: Design.dz(14)),
-              const DesignFieldLabel('磁盘余量'),
-              SizedBox(height: Design.dz(6)),
-              _KvRow('日志目录', 'filesDir/logs/'),
-              _KvRow('单文件 / 份数',
-                  '${kb(maxFileBytes)} · ${maxFiles == null ? '—' : '$maxFiles 份'}'),
-              _KvRow('总字节上限', mb(maxTotalBytes),
-                  muted: '两道约束取更严'),
-              _KvRow('余量保护',
-                  minFreeBytes == null ? '—' : '剩余 < ${mb(minFreeBytes)} 停写'),
-              SizedBox(height: Design.dz(14)),
-              const DesignFieldLabel('包内有什么'),
-              SizedBox(height: Design.dz(8)),
-              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Expanded(
-                    child: _InfoCard('summary.txt',
-                        '环境、版本、权限、车机通道、子系统快照、锚点统计、设置全部取值')),
-                SizedBox(width: Design.dz(9)),
-                Expanded(
-                    child: _InfoCard('logs/', '全部日志文件，按超限后不超过 4 MB；超出了只在最新的一条写 summary 注明'))
-              ])
-            ]));
+                            fontFamily: 'monospace',
+                            fontSize: Design.dz(10.5),
+                            height: 1.6,
+                            color: s.muted)))),
+          ],
+          SizedBox(height: Design.dz(14)),
+          const DesignFieldLabel('磁盘余量'),
+          SizedBox(height: Design.dz(6)),
+          _KvRow('日志目录', 'filesDir/logs/'),
+          _KvRow('单文件 / 份数',
+              '${kb(maxFileBytes)} · ${maxFiles == null ? '—' : '$maxFiles 份'}'),
+          _KvRow('总字节上限', mb(maxTotalBytes), muted: '两道约束取更严'),
+          _KvRow('余量保护',
+              minFreeBytes == null ? '—' : '剩余 < ${mb(minFreeBytes)} 停写'),
+          SizedBox(height: Design.dz(14)),
+          const DesignFieldLabel('包内有什么'),
+          SizedBox(height: Design.dz(8)),
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Expanded(
+                child: _InfoCard(
+                    'summary.txt', '环境、版本、权限、车机通道、子系统快照、锚点统计、设置全部取值')),
+            SizedBox(width: Design.dz(9)),
+            Expanded(
+                child: _InfoCard(
+                    'logs/', '全部日志文件，按超限后不超过 4 MB；超出了只在最新的一条写 summary 注明'))
+          ])
+        ]));
   }
 }
 
@@ -289,7 +282,7 @@ class _PermissionTag extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = SurfaceStyle.of(context);
-    final color = granted ? s.accent : s.text.withValues(alpha: .42);
+    final color = granted ? s.accent : s.muted;
     return Container(
         height: Design.dz(24),
         padding: EdgeInsets.symmetric(horizontal: Design.dz(9)),
@@ -309,7 +302,8 @@ class _PermissionTag extends StatelessWidget {
   }
 }
 
-class _Stat extends StatelessWidget {  final String label, value, unit;
+class _Stat extends StatelessWidget {
+  final String label, value, unit;
   const _Stat(this.label, this.value, this.unit);
   @override
   Widget build(BuildContext context) {
@@ -319,20 +313,21 @@ class _Stat extends StatelessWidget {  final String label, value, unit;
           style: TextStyle(
               fontSize: Design.dz(10.5),
               letterSpacing: Design.dz(1.6),
-              color: s.text.withValues(alpha: .32))),
+              color: s.muted)),
       SizedBox(height: Design.dz(4)),
-      Row(crossAxisAlignment: CrossAxisAlignment.baseline, textBaseline: TextBaseline.alphabetic, children: [
-        Text(value,
-            style: TextStyle(
-                fontSize: Design.dz(19),
-                fontWeight: FontWeight.w300,
-                color: s.text.withValues(alpha: .9))),
-        SizedBox(width: Design.dz(2)),
-        Text(unit,
-            style: TextStyle(
-                fontSize: Design.dz(11.5),
-                color: s.text.withValues(alpha: .4)))
-      ])
+      Row(
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
+          children: [
+            Text(value,
+                style: TextStyle(
+                    fontSize: Design.dz(19),
+                    fontWeight: FontWeight.w300,
+                    color: s.text.withValues(alpha: .9))),
+            SizedBox(width: Design.dz(2)),
+            Text(unit,
+                style: TextStyle(fontSize: Design.dz(11.5), color: s.muted))
+          ])
     ]);
   }
 }
@@ -350,9 +345,7 @@ class _KvRow extends StatelessWidget {
           SizedBox(
               width: Design.dz(104),
               child: Text(name,
-                  style: TextStyle(
-                      fontSize: Design.dz(13),
-                      color: s.text.withValues(alpha: .38)))),
+                  style: TextStyle(fontSize: Design.dz(13), color: s.muted))),
           Expanded(
               child: Text(value,
                   textAlign: TextAlign.left,
@@ -361,9 +354,7 @@ class _KvRow extends StatelessWidget {
                       color: s.text.withValues(alpha: .8)))),
           if (muted != null)
             Text(muted!,
-                style: TextStyle(
-                    fontSize: Design.dz(11.5),
-                    color: s.text.withValues(alpha: .32)))
+                style: TextStyle(fontSize: Design.dz(11.5), color: s.muted))
         ]));
   }
 }
@@ -383,14 +374,11 @@ class _InfoCard extends StatelessWidget {
             border: Border.all(color: s.text.withValues(alpha: .07))),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(name,
-              style:
-                  TextStyle(fontSize: Design.dz(11.5), color: s.accent)),
+              style: TextStyle(fontSize: Design.dz(11.5), color: s.accent)),
           SizedBox(height: Design.dz(4)),
           Text(body,
               style: TextStyle(
-                  fontSize: Design.dz(11),
-                  height: 1.6,
-                  color: s.text.withValues(alpha: .42)))
+                  fontSize: Design.dz(11), height: 1.6, color: s.muted))
         ]));
   }
 }
@@ -405,43 +393,19 @@ class _DiagButton extends StatelessWidget {
       {this.icon, this.primary = false, this.ghost = false, this.onPressed});
   @override
   Widget build(BuildContext context) {
-    final s = SurfaceStyle.of(context);
-    final enabled = onPressed != null;
-    final fg = ghost
-        ? s.text.withValues(alpha: .4)
-        : primary
-            ? s.accentText
-            : s.text.withValues(alpha: .86);
-    return Opacity(
-        opacity: enabled ? 1 : .5,
-        child: InkWell(
-            onTap: onPressed,
-            borderRadius: BorderRadius.circular(Design.dz(22)),
-            child: Container(
-                height: Design.dz(44),
-                padding: EdgeInsets.symmetric(horizontal: Design.dz(18)),
-                decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(Design.dz(22)),
-                    gradient: primary ? s.accentFill : null,
-                    color: ghost
-                        ? null
-                        : (primary
-                            ? null
-                            : s.text.withValues(alpha: .045)),
-                    border: primary || ghost
-                        ? null
-                        : Border.all(
-                            color: s.text.withValues(alpha: .13))),
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  if (icon != null) ...[
-                    Icon(icon, size: Design.dz(15), color: fg),
-                    SizedBox(width: Design.dz(7))
-                  ],
-                  Text(label,
-                      style: TextStyle(
-                          fontSize: Design.dz(13.5),
-                          fontWeight: primary ? FontWeight.w600 : null,
-                          color: fg))
-                ]))));
+    final content = Row(mainAxisSize: MainAxisSize.min, children: [
+      if (icon != null) ...[
+        Icon(icon, size: Design.dz(15)),
+        SizedBox(width: Design.dz(7))
+      ],
+      Text(label, style: TextStyle(fontSize: Design.dz(13.5)))
+    ]);
+    if (ghost) return TextButton(onPressed: onPressed, child: content);
+    return ChoiceButton(
+        selected: primary,
+        onPressed: onPressed,
+        height: Design.controlHeight,
+        shrink: true,
+        child: content);
   }
 }

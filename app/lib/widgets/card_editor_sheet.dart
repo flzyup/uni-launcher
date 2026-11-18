@@ -135,7 +135,7 @@ class _LibraryTile extends StatelessWidget {
         shape: s.technicalFrame
             ? s.controlShape().copyWith(side: s.controlSide(false))
             : RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(Design.dz(18)),
+                borderRadius: BorderRadius.circular(s.controlRadius),
                 side: BorderSide(color: s.text.withValues(alpha: .08))),
         clipBehavior: Clip.antiAlias,
         child: InkWell(

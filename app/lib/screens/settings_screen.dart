@@ -10,6 +10,7 @@ import '../theme/launcher_type.dart';
 import '../theme/launcher_theme.dart';
 import '../theme/technical_frame.dart';
 import '../widgets/glass_surface.dart';
+import '../widgets/liquid_press.dart';
 import '../widgets/desktop.dart';
 import '../widgets/bottom_dock.dart';
 import '../widgets/embedded_navigation.dart';
@@ -92,7 +93,11 @@ class SettingsScreen extends StatelessWidget {
 class _SettingsHeader extends StatelessWidget {
   const _SettingsHeader();
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => WallpaperInk(
+      appearance: SettingsControllerScope.of(context).appearance,
+      child: Builder(builder: _content));
+
+  Widget _content(BuildContext context) {
     final c = SettingsControllerScope.of(context), s = SurfaceStyle.of(context);
     return Row(children: [
       InkWell(
@@ -132,7 +137,7 @@ class _SettingsHeader extends StatelessWidget {
                         style: TextStyle(
                             fontSize: Design.dz(16.67),
                             height: 1.15,
-                            color: s.text.withValues(alpha: .4)))
+                            color: s.muted))
                   ]))),
       const Spacer()
     ]);
@@ -206,8 +211,9 @@ class _SettingsNav extends StatelessWidget {
     }
     return DecoratedBox(
         decoration: BoxDecoration(
-            color: s.text.withValues(alpha: .035),
-            borderRadius: BorderRadius.circular(Design.dz(25)),
+            color:
+                s.wallpaperBacked ? s.surface : s.text.withValues(alpha: .035),
+            borderRadius: BorderRadius.circular(s.radius),
             border: Border.all(color: s.text.withValues(alpha: .08))),
         child: Padding(padding: pad, child: list));
   }
@@ -224,9 +230,11 @@ class _SettingsMain extends StatelessWidget {
         horizontal: Design.dz(28.33), vertical: Design.dz(25));
     if (!s.nocturne) return GlassSurface(padding: pad, child: child);
     return DecoratedBox(
+        key: const ValueKey('settings-main-contrast-plane'),
         decoration: BoxDecoration(
-            color: s.text.withValues(alpha: .028),
-            borderRadius: BorderRadius.circular(Design.dz(25)),
+            color:
+                s.wallpaperBacked ? s.surface : s.text.withValues(alpha: .028),
+            borderRadius: BorderRadius.circular(s.radius),
             border: Border.all(color: s.text.withValues(alpha: .08))),
         child: Padding(padding: pad, child: child));
   }
@@ -265,7 +273,7 @@ class DockSettings extends StatelessWidget {
                           Expanded(
                               child: ChoiceButton(
                                   key: ValueKey('dock-layout-${layout.$1}'),
-                                  height: 47,
+                                  height: Design.controlHeight,
                                   selected: a.dockLayout == layout.$1,
                                   onPressed: () => c.setAppearance(
                                       a.copyWith(dockLayout: layout.$1)),
@@ -293,8 +301,7 @@ class DockSettings extends StatelessWidget {
         // SizedBox.expand 不能省：SettingBlock 内部是 mainAxisSize.min 的
         // Column，拿到松约束就只报内容高度，Expanded 给的那截会变成下沿缺口。
         Expanded(
-            child: SizedBox.expand(
-                child: BootAndHomeSettings(controller: c))),
+            child: SizedBox.expand(child: BootAndHomeSettings(controller: c))),
       ],
     );
     return SingleChildScrollView(
@@ -453,7 +460,7 @@ class BootAndHomeSettings extends StatelessWidget {
                                 Text('开机进入',
                                     style: TextStyle(
                                         fontSize: Design.dz(13.5),
-                                        color: s.text.withValues(alpha: .5))),
+                                        color: s.muted)),
                                 SizedBox(height: Design.dz(9)),
                                 Wrap(
                                     spacing: Design.dz(9),
@@ -479,15 +486,15 @@ class BootAndHomeSettings extends StatelessWidget {
                                                 maxLines: 1,
                                                 overflow: TextOverflow.ellipsis,
                                                 style: TextStyle(
-                                                    fontSize: Design.dz(13.5)))),
+                                                    fontSize:
+                                                        Design.dz(13.5)))),
                                     ]),
                               ]);
                         }),
                     SizedBox(height: Design.dz(11)),
                     Text('实体 HOME 键打开的桌面',
                         style: TextStyle(
-                            fontSize: Design.dz(13.5),
-                            color: s.text.withValues(alpha: .5))),
+                            fontSize: Design.dz(13.5), color: s.muted)),
                     SizedBox(height: Design.dz(9)),
                     Wrap(
                         spacing: Design.dz(9),
@@ -581,9 +588,7 @@ class SpectrumSettings extends StatelessWidget {
               ])),
           SizedBox(height: Design.dz(13.33)),
           Text('底栏右侧左右滑动可切换歌词和频谱；预览为静态示意。',
-              style: TextStyle(
-                  fontSize: Design.dz(13.5),
-                  color: s.text.withValues(alpha: .42))),
+              style: TextStyle(fontSize: Design.dz(13.5), color: s.muted)),
           SizedBox(height: Design.dz(6)),
           SettingRow(
               label: '音乐进度动态背景',
@@ -698,7 +703,7 @@ class _ThemeStyleBlock extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = SurfaceStyle.of(context), c = controller, a = c.appearance;
     const styles = [
-      ('blueGlass', '玻璃'),
+      ('blueGlass', '液态玻璃'),
       ('nocturne', '暗夜'),
       ('classic', '经典'),
     ];
@@ -708,9 +713,7 @@ class _ThemeStyleBlock extends StatelessWidget {
         dense: true,
         padding: AppearanceSettings.blockPadding(),
         trailing: Text('已安装 3 套',
-            style: TextStyle(
-                fontSize: Design.dz(12.5),
-                color: s.text.withValues(alpha: .32))),
+            style: TextStyle(fontSize: Design.dz(12.5), color: s.muted)),
         child: Row(children: [
           for (final (index, style) in styles.indexed) ...[
             if (index > 0) SizedBox(width: Design.dz(9)),
@@ -728,6 +731,7 @@ class _ThemeStyleBlock extends StatelessWidget {
                     border: s.text.withValues(alpha: .16),
                     onPressed: () => c.setAppearance(a.copyWith(
                         themeStyle: style.$1,
+                        glass: style.$1 == 'blueGlass' ? true : a.glass,
                         radius: style.$1 == 'nocturne' && a.radius == 0
                             ? Nocturne.defaultRadius
                             : a.radius)),
@@ -763,14 +767,14 @@ class _MoreStylesCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = SurfaceStyle.of(context);
-    final color = s.text.withValues(alpha: .46);
+    final color = s.muted;
     return InkWell(
-        borderRadius: BorderRadius.circular(Design.dz(11)),
+        borderRadius: BorderRadius.circular(s.controlRadius),
         onTap: () => showLauncherToast(context, '更多外观样式随固件更新提供'),
         child: Container(
             height: Design.dz(36),
             decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(Design.dz(11)),
+                borderRadius: BorderRadius.circular(s.controlRadius),
                 color: s.text.withValues(alpha: .02),
                 border: Border.all(color: s.text.withValues(alpha: .2))),
             child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
@@ -810,7 +814,7 @@ class _ThemeModeBlock extends StatelessWidget {
                     // 三套皮肤**必须同一高度**：换主题时这一排会跟着变高变矮，
                     // 下面的块一起上下挪，看着像换了另一套版式。统一取暗夜的
                     // 42——它是最紧的那个，另两套只会更松，不会切到内容。
-                    height: 42,
+                    height: Design.controlHeight,
                     onPressed: () => c.setAppearance(a.copyWith(mode: mode.$1)),
                     selected: a.mode == mode.$1,
                     child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -876,9 +880,7 @@ class _PaletteBlock extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                               fontSize: Design.dz(14),
-                              color: a.palette == item.$1
-                                  ? s.text
-                                  : s.text.withValues(alpha: .6)))
+                              color: a.palette == item.$1 ? s.text : s.muted))
                     ])))
           ]
         ]));
@@ -999,7 +1001,7 @@ class WallpaperSetting extends StatelessWidget {
               style: TextStyle(
                   fontSize: Design.dz(12.5),
                   color: a.wallpaper == 'gradient'
-                      ? s.text.withValues(alpha: .3)
+                      ? s.muted
                       : s.text.withValues(alpha: .8))),
           SizedBox(width: Design.dz(6)),
           // 用设计稿的开关，不用 Material Switch：后者是 52×32、滑块带描边，
@@ -1105,7 +1107,7 @@ class _WallpaperRailTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = SurfaceStyle.of(context);
-    final radius = BorderRadius.circular(Design.dz(12));
+    final radius = BorderRadius.circular(s.controlRadius);
     // 壁纸缩略图要裁剪，只能用 Material 的 shape；但蓝玻璃的选中态必须是
     // 四角短弧——和其他可选控件同一套框，否则「所有选中态一致」就破了。
     final side = BorderSide(
@@ -1117,7 +1119,7 @@ class _WallpaperRailTile extends StatelessWidget {
         width: selected ? Design.dz(1.5) : 1);
     final OutlinedBorder shape = s.technicalFrame
         ? TechnicalFrameBorder(
-            radius: Design.dz(12),
+            radius: s.controlRadius,
             cornerLength: Design.px(10),
             cornerColor: selected ? s.accent : s.corner,
             side: side)
@@ -1182,9 +1184,7 @@ class RadiusSetting extends StatelessWidget {
         padding: AppearanceSettings.blockPadding(),
         child: Row(children: [
           Text('0',
-              style: TextStyle(
-                  fontSize: Design.dz(13.5),
-                  color: s.text.withValues(alpha: .4))),
+              style: TextStyle(fontSize: Design.dz(13.5), color: s.muted)),
           SizedBox(width: Design.dz(12)),
           Expanded(
               child: SliderTheme(
@@ -1202,14 +1202,11 @@ class RadiusSetting extends StatelessWidget {
                       min: 0,
                       max: 40,
                       divisions: 40,
-                      onChanged: (v) =>
-                          c.setAppearance(a.copyWith(radius: v), save: false),
-                      onChangeEnd: (_) => c.persist()))),
+                      onChanged: c.previewRadius,
+                      onChangeEnd: (_) => c.finishRadiusChange()))),
           SizedBox(width: Design.dz(12)),
           Text('40',
-              style: TextStyle(
-                  fontSize: Design.dz(13.5),
-                  color: s.text.withValues(alpha: .4))),
+              style: TextStyle(fontSize: Design.dz(13.5), color: s.muted)),
           SizedBox(width: Design.dz(16)),
           // 设计稿只有滑杆；数字输入是本项目原有能力，收成右下角 15 号的
           // 无边框小字段，不占视觉重心。
@@ -1297,8 +1294,7 @@ class DesktopPreview extends StatelessWidget {
                 fontSize: Design.dz(21.67), fontWeight: FontWeight.w500)),
         const Spacer(),
         Text('${s.dark ? '深色' : '浅色'} · $palette',
-            style: TextStyle(
-                fontSize: Design.dz(15), color: s.text.withValues(alpha: .4)))
+            style: TextStyle(fontSize: Design.dz(15), color: s.muted))
       ]),
       SizedBox(height: Design.dz(18.33)),
       _LiveDesktopPreview(controller: c),
@@ -1319,9 +1315,7 @@ class DesktopPreview extends StatelessWidget {
         Expanded(
             child: Text('路线、播放按钮与选中状态\n使用同一组主题色',
                 style: TextStyle(
-                    fontSize: Design.dz(15),
-                    height: 1.5,
-                    color: s.text.withValues(alpha: .45))))
+                    fontSize: Design.dz(15), height: 1.5, color: s.muted)))
       ]),
       SizedBox(height: Design.dz(10)),
       Container(
@@ -1334,15 +1328,13 @@ class DesktopPreview extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('玻璃质感',
+                  Text('实时玻璃效果',
                       style: TextStyle(
                           fontSize: Design.dz(15),
                           color: s.text.withValues(alpha: .82))),
                   SizedBox(height: Design.dz(3)),
-                  Text('静态反光，无实时模糊',
-                      style: TextStyle(
-                          fontSize: Design.dz(12),
-                          color: s.text.withValues(alpha: .42)))
+                  Text('背景模糊与半透明材质',
+                      style: TextStyle(fontSize: Design.dz(12), color: s.muted))
                 ]),
             const Spacer(),
             DesignSwitch(
@@ -1351,25 +1343,21 @@ class DesktopPreview extends StatelessWidget {
                 onChanged: (v) => c.setAppearance(a.copyWith(glass: v)))
           ])),
       const Spacer(),
-      SizedBox(
-          height: Design.dz(50),
-          child: Material(
-              color: Colors.transparent,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(Design.dz(14)),
-                  side: BorderSide(color: s.accent.withValues(alpha: .35))),
-              child: InkWell(
+      LiquidPress(
+          child: SizedBox(
+              height: Design.dz(50),
+              child: OutlinedButton(
                   key: const ValueKey('back-to-desktop'),
-                  onTap: c.home,
+                  onPressed: c.home,
+                  style: s.selectionStyle(false).copyWith(
+                      foregroundColor: WidgetStatePropertyAll(s.accent)),
                   child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.home_outlined,
-                            size: Design.dz(18), color: s.accent),
+                        Icon(Icons.home_outlined, size: Design.dz(18)),
                         SizedBox(width: Design.dz(9)),
                         Text('返回桌面查看',
-                            style: TextStyle(
-                                fontSize: Design.dz(16), color: s.accent))
+                            style: TextStyle(fontSize: Design.dz(16)))
                       ]))))
     ]);
   }
@@ -1413,6 +1401,7 @@ class _LiveDesktopPreview extends StatelessWidget {
                                 child: SceneBackground(
                                     appearance: controller.appearance,
                                     wallpaperCacheWidth: 640,
+                                    protectText: true,
                                     child: Column(children: [
                                       Header(controller: controller),
                                       Expanded(
@@ -1590,7 +1579,7 @@ class PageMotionSettings extends StatelessWidget {
                         style: TextStyle(
                             fontSize: Design.dz(13.5),
                             height: LauncherType.lineLoose,
-                            color: s.text.withValues(alpha: .42))),
+                            color: s.muted)),
                   ])),
           SizedBox(height: Design.dz(11.67)),
           SpectrumSettings(controller: c),

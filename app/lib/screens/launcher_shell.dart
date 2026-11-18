@@ -73,6 +73,7 @@ class _LauncherShellState extends State<LauncherShell> {
                 body: SceneBackground(
                   appearance: controller.appearance,
                   forceOverlay: controller.settings,
+                  protectText: true,
                   child: SafeArea(
                       top: false,
                       bottom: false,

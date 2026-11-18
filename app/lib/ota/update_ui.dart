@@ -44,29 +44,30 @@ class _AboutPanelState extends State<AboutPanel> {
                 children: [
                   // 页头不是块：标题 15 → 44 的版本号（版本号吃主题色）→ 构建信息。
                   Text('关于 UNI 桌面',
-                      style: TextStyle(
-                          fontSize: Design.dz(15),
-                          color: s.text.withValues(alpha: .6))),
+                      style:
+                          TextStyle(fontSize: Design.dz(15), color: s.muted)),
                   SizedBox(height: Design.dz(8)),
-                  Row(crossAxisAlignment: CrossAxisAlignment.baseline, textBaseline: TextBaseline.alphabetic, children: [
-                    Text('UNI桌面 ',
-                        style: TextStyle(
-                            fontSize: Design.dz(44),
-                            height: 1.1,
-                            fontWeight: FontWeight.w300)),
-                    Text(version,
-                        style: TextStyle(
-                            fontSize: Design.dz(44),
-                            height: 1.1,
-                            fontWeight: FontWeight.w300,
-                            color: s.accent))
-                  ]),
+                  Row(
+                      crossAxisAlignment: CrossAxisAlignment.baseline,
+                      textBaseline: TextBaseline.alphabetic,
+                      children: [
+                        Text('UNI桌面 ',
+                            style: TextStyle(
+                                fontSize: Design.dz(44),
+                                height: 1.1,
+                                fontWeight: FontWeight.w300)),
+                        Text(version,
+                            style: TextStyle(
+                                fontSize: Design.dz(44),
+                                height: 1.1,
+                                fontWeight: FontWeight.w300,
+                                color: s.accent))
+                      ]),
                   SizedBox(height: Design.dz(6)),
                   Text(
                       'UNI Desktop · feat/lynkco-05 · 领克 05 PHEV · 构建 ${u.info['versionCode'] ?? '—'}',
-                      style: TextStyle(
-                          fontSize: Design.dz(13),
-                          color: s.text.withValues(alpha: .4))),
+                      style:
+                          TextStyle(fontSize: Design.dz(13), color: s.muted)),
                   SizedBox(height: Design.dz(16)),
                   SettingBlock(
                       title: '软件更新',
@@ -76,7 +77,8 @@ class _AboutPanelState extends State<AboutPanel> {
                             SettingRow(
                                 label: _stateLabel(u),
                                 trailing: DesignSmallAction('检查更新',
-                                    onPressed: () => showUpdateDialog(context, u,
+                                    onPressed: () => showUpdateDialog(
+                                        context, u,
                                         manual: true))),
                             SettingRow(
                                 label: '自动检查更新',
@@ -92,15 +94,17 @@ class _AboutPanelState extends State<AboutPanel> {
                                     : Text('—',
                                         style: TextStyle(
                                             fontSize: Design.dz(13.5),
-                                            color:
-                                                s.text.withValues(alpha: .4)))),
+                                            color: s.muted))),
                             SettingRow(
                                 label: '上次检查',
                                 divider: false,
                                 trailing: Text(
                                     u.lastChecked == null
                                         ? '—'
-                                        : u.lastChecked!.toLocal().toString().substring(0, 16),
+                                        : u.lastChecked!
+                                            .toLocal()
+                                            .toString()
+                                            .substring(0, 16),
                                     style: TextStyle(
                                         fontSize: Design.dz(13.5),
                                         color: s.text.withValues(alpha: .7))))
@@ -115,8 +119,7 @@ class _AboutPanelState extends State<AboutPanel> {
                           divider: false,
                           trailing: Text('设计与工程',
                               style: TextStyle(
-                                  fontSize: Design.dz(13),
-                                  color: s.text.withValues(alpha: .4)))))
+                                  fontSize: Design.dz(13), color: s.muted))))
                 ]));
       });
 
@@ -132,7 +135,9 @@ class _AboutPanelState extends State<AboutPanel> {
             ],
         child: Row(mainAxisSize: MainAxisSize.min, children: [
           Text(options[u.intervalMinutes] ?? '${u.intervalMinutes} 分钟',
-              style: TextStyle(fontSize: Design.dz(13.5), color: s.text.withValues(alpha: .8))),
+              style: TextStyle(
+                  fontSize: Design.dz(13.5),
+                  color: s.text.withValues(alpha: .8))),
           SizedBox(width: Design.dz(2)),
           Icon(Icons.chevron_right,
               size: Design.dz(16), color: s.text.withValues(alpha: .3))
@@ -234,7 +239,8 @@ Future<void> showUpdateDialog(BuildContext context, UpdateController u,
                             child: Text(
                                 '下载更新${a is Map && a['size_bytes'] is num ? '  ${(a['size_bytes'] / 1024 / 1024).toStringAsFixed(1)} MB' : ''}'))
                       ],
-                      if (u.state == 'error' || u.state == 'invalid-package' ||
+                      if (u.state == 'error' ||
+                          u.state == 'invalid-package' ||
                           u.state == 'idle' ||
                           u.state == 'incompatible' ||
                           u.state == 'latest')

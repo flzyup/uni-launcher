@@ -1,11 +1,10 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import '../controller/launcher_controller.dart';
 import '../model/appearance.dart';
 import '../theme/design_tokens.dart';
 import '../theme/launcher_theme.dart';
 import 'launcher_dialog.dart';
+import 'choice_button.dart';
 
 /// 设计稿 `#f20`（`theme-styles/eclipse/simulator.html`）：
 /// `.nm-dlg` 566.7 宽、内边距 34·38、整体居中；标题 21/500；输入框 56 高、
@@ -149,33 +148,10 @@ class _NameButton extends StatelessWidget {
       {super.key, required this.label, required this.onTap, this.soft = false});
   @override
   Widget build(BuildContext context) {
-    final s = SurfaceStyle.of(context), ink = s.text;
-    return Semantics(
-        button: true,
-        label: label,
-        child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: onTap,
-            child: Container(
-                height: Design.dz(48),
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(Design.dz(14)),
-                    color: soft ? ink.withValues(alpha: .06) : null,
-                    border: soft
-                        ? Border.all(color: ink.withValues(alpha: .09))
-                        : null,
-                    gradient: soft
-                        ? null
-                        : LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            transform: GradientRotation(-10 * math.pi / 180),
-                            colors: [s.accentHi, s.accentLo])),
-                child: Text(label,
-                    style: TextStyle(
-                        fontSize: Design.dz(15),
-                        fontWeight: soft ? FontWeight.w400 : FontWeight.w600,
-                        color: soft ? ink.withValues(alpha: .75) : s.accentText)))));
+    return ChoiceButton(
+        height: Design.controlHeight,
+        selected: !soft,
+        onPressed: onTap,
+        child: Text(label, style: TextStyle(fontSize: Design.dz(15))));
   }
 }

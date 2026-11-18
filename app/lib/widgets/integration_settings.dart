@@ -45,201 +45,188 @@ class IntegrationSettings extends StatelessWidget {
     }
     return SingleChildScrollView(
         key: const PageStorageKey('connection-settings-scroll'),
-        child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // 两块并排，等高。
-              IntrinsicHeight(
-                  child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                    Expanded(
-                        child: SettingBlock(
-                            title: '导航与播放器',
-                            child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  const DesignFieldLabel('导航应用'),
-                                  SizedBox(height: Design.dz(6)),
-                                  _picker(
-                                      context,
-                                      s,
-                                      key: 'navigation-source',
-                                      action: 'select-navigation',
-                                      selected:
-                                          '${nav['preferredPackage'] ?? 'auto'}',
-                                      choices:
-                                          navigationOptions(controller, native)),
-                                  SizedBox(height: Design.dz(6)),
-                                  Align(
-                                      alignment: Alignment.centerRight,
-                                      child: DesignTextAction('打开导航应用',
-                                          onPressed: () => controller
-                                              .command('launch-navigation'))),
-                                  SizedBox(height: Design.dz(4)),
-                                  SettingRow(
-                                      label: '在地图卡片中显示导航',
-                                      note: '${nav['reason'] ?? '需要 Android 9 与车机嵌入权限'}',
-                                      trailing: DesignSwitch(
-                                          key: const ValueKey(
-                                              'embed-navigation'),
-                                          value: nav['enabled'] != false,
-                                          onChanged: (v) => controller.command(
-                                              'embed-navigation',
-                                              enabled: v))),
-                                  SettingRow(
-                                      label: '嵌入地图缩放（优化帧率 但会模糊）',
-                                      note: '地图卡片降分辨率渲染，翻页更跟手，导航画面略软',
-                                      trailing: DesignSwitch(
-                                          key: const ValueKey(
-                                              'map-texture-scale'),
-                                          value: prefs['mapTextureScale'] == true,
-                                          onChanged: (v) => controller.command(
-                                              'map-texture-scale',
-                                              enabled: v))),
-                                  SettingRow(
-                                      label: '隐藏导航卡片标题栏',
-                                      note: '关闭后显示导航应用、切换和全屏按钮',
-                                      divider: false,
-                                      trailing: DesignSwitch(
-                                          key: const ValueKey(
-                                              'navigation-card-title-hidden'),
-                                          value: prefs[
-                                                  'navigationCardTitleHidden'] !=
-                                              false,
-                                          onChanged: (v) => controller.command(
-                                              'navigation-card-title-hidden',
-                                              enabled: v)))
-                                ]))),
-                    SizedBox(width: Design.dz(11.67)),
-                    Expanded(
-                        child: SettingBlock(
-                            title: '关联的音乐播放器',
-                            child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  const DesignFieldLabel('关联的音乐播放器'),
-                                  SizedBox(height: Design.dz(6)),
-                                  _picker(context, s,
-                                      key: 'media-source',
-                                      action: 'select-player',
-                                      selected:
-                                          '${prefs['mediaPackage'] ?? 'auto'}',
-                                      choices: apps),
-                                  SizedBox(height: Design.dz(6)),
-                                  Align(
-                                      alignment: Alignment.centerRight,
-                                      child: DesignTextAction('打开关联播放器',
-                                          onPressed: () => controller
-                                              .command('launch-player'))),
-                                  SizedBox(height: Design.dz(4)),
-                                  SettingRow(
-                                      label: '开机自动播放音乐',
-                                      note:
-                                          '选择网易云、QQ 音乐或原车音乐后，歌曲、封面、歌词和播放控制均跟随该应用。请先在播放器中播放一首歌曲并授权媒体访问。',
-                                      noteLines: 3,
-                                      divider: false,
-                                      trailing: DesignSwitch(
-                                          key: const ValueKey(
-                                              'integration-auto-play'),
-                                          value: prefs['autoPlayMusic'] == true,
-                                          onChanged: (v) => controller.command(
-                                              'auto-play-music',
-                                              enabled: v))),
-                                ])))
-                  ])),
-              SizedBox(height: Design.dz(11.67)),
-              // sim f11 第二块：媒体与导航联动。
-              SettingBlock(
-                  title: '媒体与导航联动',
-                  child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        SettingRow(
-                            key: const ValueKey('nav-ducking'),
-                            label: '导航播报时压低音乐',
-                            note: '原车混音接口为空实现（setNaviVoiceMixMode 无效果），'
-                                '暂不支持压低或暂停，等原车补语义再接',
-                            noteLines: 2,
-                            // 这一项不是「用户没点动」，是原车给不了：开关保持
-                            // 置灰，点整行给一句原因，别让人以为是坏了。
-                            onTap: () => showLauncherToast(context,
-                                '原车混音接口是空实现，暂时压不低音乐；等原车补上混音语义就能开'),
-                            trailing: const DesignSwitch(
-                                key: ValueKey('nav-ducking-switch'),
-                                value: false),
-                            divider: false),
-                        SettingRow(
-                            key: const ValueKey('word-lyric-fill'),
-                            label: '词级歌词 · 逐字填充',
-                            note: wordTimed
-                                ? '当前音源带逐字时间轴 · 底栏、音乐卡与仪表投屏共用'
-                                : '当前音源只有整句时间戳，逐字填充退回按句高亮',
-                            onTap: () => showLauncherToast(
-                                context,
-                                wordTimed
-                                    ? '当前音源带逐字时间轴，这一项跟随音源自动点亮'
-                                    : '当前音源只有整句时间戳；换用带逐字时间轴的音源后自动可用'),
-                            trailing: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  DesignTextAction('时间轴',
-                                      onPressed: () => showWordLyricSheet(
-                                          context, controller)),
-                                  SizedBox(width: Design.dz(10)),
-                                  DesignSwitch(
-                                      key: const ValueKey('word-lyric-switch'),
-                                      value: wordTimed)
-                                ])),
-                        SettingRow(
-                            key: const ValueKey('steering-keys'),
-                            label: '方向盘按键接管',
-                            note: '切歌、音量与语音键交由本桌面处理；关掉后这些键交回原车',
-                            trailing: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  DesignTextAction('接管明细',
-                                      onPressed: () => showSteeringKeySheet(
-                                          context, controller)),
-                                  SizedBox(width: Design.dz(10)),
-                                  DesignSwitch(
-                                      key: const ValueKey(
-                                          'steering-keys-switch'),
-                                      value:
-                                          prefs['steeringKeysEnabled'] != false,
+        child:
+            Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          // 两块并排，等高。
+          IntrinsicHeight(
+              child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                Expanded(
+                    child: SettingBlock(
+                        title: '导航与播放器',
+                        child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              const DesignFieldLabel('导航应用'),
+                              SizedBox(height: Design.dz(6)),
+                              _picker(context, s,
+                                  key: 'navigation-source',
+                                  action: 'select-navigation',
+                                  selected:
+                                      '${nav['preferredPackage'] ?? 'auto'}',
+                                  choices:
+                                      navigationOptions(controller, native)),
+                              SizedBox(height: Design.dz(6)),
+                              Align(
+                                  alignment: Alignment.centerRight,
+                                  child: DesignTextAction('打开导航应用',
+                                      onPressed: () => controller
+                                          .command('launch-navigation'))),
+                              SizedBox(height: Design.dz(4)),
+                              SettingRow(
+                                  label: '在地图卡片中显示导航',
+                                  note:
+                                      '${nav['reason'] ?? '需要 Android 9 与车机嵌入权限'}',
+                                  trailing: DesignSwitch(
+                                      key: const ValueKey('embed-navigation'),
+                                      value: nav['enabled'] != false,
                                       onChanged: (v) => controller.command(
-                                          'steering-keys',
-                                          enabled: v))
-                                ])),
-                        SettingRow(
-                            key: const ValueKey('instrument-sync'),
-                            label: '仪表显示桌面音乐',
-                            note: '把当前曲目、封面与进度同步到仪表；关掉后仪表跟回原车播放器',
-                            trailing: DesignSwitch(
-                                key: const ValueKey('instrument-sync-switch'),
-                                value: prefs['instrumentSyncEnabled'] != false,
-                                onChanged: (v) => controller.command(
-                                    'instrument-sync',
-                                    enabled: v))),
-                        // 仪表自带的媒体控件是第三条链路：和原车媒体中心并行，所以单独一个开关。
-                        SettingRow(
-                            key: const ValueKey('dim-cluster'),
-                            label: '仪表自带媒体控件',
-                            note:
-                                '把播放状态同步到仪表原生媒体控件，仪表上按播放/上一首也会收回桌面；'
-                                '仪表界面没反应或出现两套控件时保持关闭',
-                            divider: false,
-                            trailing: DesignSwitch(
-                                key: const ValueKey('dim-cluster-switch'),
-                                value: prefs['dimClusterEnabled'] == true,
-                                onChanged: (v) => controller.command(
-                                    'dim-cluster',
-                                    enabled: v)))
-                      ])),
-              // 这里原来有一行「当前为演示模式；关闭演示数据后…」的强调色提示。
-              // 演示模式只在模拟器上默认开启，真机用户永远看不到；就算看到了也
-              // 帮不上忙（没有开关可点），还把这一页的底边顶出去一截。删掉。
-            ]));
+                                          'embed-navigation',
+                                          enabled: v))),
+                              SettingRow(
+                                  label: '嵌入地图缩放（优化帧率 但会模糊）',
+                                  note: '地图卡片降分辨率渲染，翻页更跟手，导航画面略软',
+                                  trailing: DesignSwitch(
+                                      key: const ValueKey('map-texture-scale'),
+                                      value: prefs['mapTextureScale'] == true,
+                                      onChanged: (v) => controller.command(
+                                          'map-texture-scale',
+                                          enabled: v))),
+                              SettingRow(
+                                  label: '隐藏导航卡片标题栏',
+                                  note: '关闭后显示导航应用、切换和全屏按钮',
+                                  divider: false,
+                                  trailing: DesignSwitch(
+                                      key: const ValueKey(
+                                          'navigation-card-title-hidden'),
+                                      value:
+                                          prefs['navigationCardTitleHidden'] !=
+                                              false,
+                                      onChanged: (v) => controller.command(
+                                          'navigation-card-title-hidden',
+                                          enabled: v)))
+                            ]))),
+                SizedBox(width: Design.dz(11.67)),
+                Expanded(
+                    child: SettingBlock(
+                        title: '关联的音乐播放器',
+                        child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              const DesignFieldLabel('关联的音乐播放器'),
+                              SizedBox(height: Design.dz(6)),
+                              _picker(context, s,
+                                  key: 'media-source',
+                                  action: 'select-player',
+                                  selected:
+                                      '${prefs['mediaPackage'] ?? 'auto'}',
+                                  choices: apps),
+                              SizedBox(height: Design.dz(6)),
+                              Align(
+                                  alignment: Alignment.centerRight,
+                                  child: DesignTextAction('打开关联播放器',
+                                      onPressed: () =>
+                                          controller.command('launch-player'))),
+                              SizedBox(height: Design.dz(4)),
+                              SettingRow(
+                                  label: '开机自动播放音乐',
+                                  note:
+                                      '选择网易云、QQ 音乐或原车音乐后，歌曲、封面、歌词和播放控制均跟随该应用。请先在播放器中播放一首歌曲并授权媒体访问。',
+                                  noteLines: 3,
+                                  divider: false,
+                                  trailing: DesignSwitch(
+                                      key: const ValueKey(
+                                          'integration-auto-play'),
+                                      value: prefs['autoPlayMusic'] == true,
+                                      onChanged: (v) => controller.command(
+                                          'auto-play-music',
+                                          enabled: v))),
+                            ])))
+              ])),
+          SizedBox(height: Design.dz(11.67)),
+          // sim f11 第二块：媒体与导航联动。
+          SettingBlock(
+              title: '媒体与导航联动',
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    SettingRow(
+                        key: const ValueKey('nav-ducking'),
+                        label: '导航播报时压低音乐',
+                        note: '原车混音接口为空实现（setNaviVoiceMixMode 无效果），'
+                            '暂不支持压低或暂停，等原车补语义再接',
+                        noteLines: 2,
+                        // 这一项不是「用户没点动」，是原车给不了：开关保持
+                        // 置灰，点整行给一句原因，别让人以为是坏了。
+                        onTap: () => showLauncherToast(
+                            context, '原车混音接口是空实现，暂时压不低音乐；等原车补上混音语义就能开'),
+                        trailing: const DesignSwitch(
+                            key: ValueKey('nav-ducking-switch'), value: false),
+                        divider: false),
+                    SettingRow(
+                        key: const ValueKey('word-lyric-fill'),
+                        label: '词级歌词 · 逐字填充',
+                        note: wordTimed
+                            ? '当前音源带逐字时间轴 · 底栏、音乐卡与仪表投屏共用'
+                            : '当前音源只有整句时间戳，逐字填充退回按句高亮',
+                        onTap: () => showLauncherToast(
+                            context,
+                            wordTimed
+                                ? '当前音源带逐字时间轴，这一项跟随音源自动点亮'
+                                : '当前音源只有整句时间戳；换用带逐字时间轴的音源后自动可用'),
+                        trailing:
+                            Row(mainAxisSize: MainAxisSize.min, children: [
+                          DesignTextAction('时间轴',
+                              onPressed: () =>
+                                  showWordLyricSheet(context, controller)),
+                          SizedBox(width: Design.dz(10)),
+                          DesignSwitch(
+                              key: const ValueKey('word-lyric-switch'),
+                              value: wordTimed)
+                        ])),
+                    SettingRow(
+                        key: const ValueKey('steering-keys'),
+                        label: '方向盘按键接管',
+                        note: '切歌、音量与语音键交由本桌面处理；关掉后这些键交回原车',
+                        trailing:
+                            Row(mainAxisSize: MainAxisSize.min, children: [
+                          DesignTextAction('接管明细',
+                              onPressed: () =>
+                                  showSteeringKeySheet(context, controller)),
+                          SizedBox(width: Design.dz(10)),
+                          DesignSwitch(
+                              key: const ValueKey('steering-keys-switch'),
+                              value: prefs['steeringKeysEnabled'] != false,
+                              onChanged: (v) => controller
+                                  .command('steering-keys', enabled: v))
+                        ])),
+                    SettingRow(
+                        key: const ValueKey('instrument-sync'),
+                        label: '仪表显示桌面音乐',
+                        note: '把当前曲目、封面与进度同步到仪表；关掉后仪表跟回原车播放器',
+                        trailing: DesignSwitch(
+                            key: const ValueKey('instrument-sync-switch'),
+                            value: prefs['instrumentSyncEnabled'] != false,
+                            onChanged: (v) => controller
+                                .command('instrument-sync', enabled: v))),
+                    // 仪表自带的媒体控件是第三条链路：和原车媒体中心并行，所以单独一个开关。
+                    SettingRow(
+                        key: const ValueKey('dim-cluster'),
+                        label: '仪表自带媒体控件',
+                        note: '把播放状态同步到仪表原生媒体控件，仪表上按播放/上一首也会收回桌面；'
+                            '仪表界面没反应或出现两套控件时保持关闭',
+                        divider: false,
+                        trailing: DesignSwitch(
+                            key: const ValueKey('dim-cluster-switch'),
+                            value: prefs['dimClusterEnabled'] == true,
+                            onChanged: (v) =>
+                                controller.command('dim-cluster', enabled: v)))
+                  ])),
+          // 这里原来有一行「当前为演示模式；关闭演示数据后…」的强调色提示。
+          // 演示模式只在模拟器上默认开启，真机用户永远看不到；就算看到了也
+          // 帮不上忙（没有开关可点），还把这一页的底边顶出去一截。删掉。
+        ]));
   }
 
   /// sim `.dd`：46.67 高、12 圆角、白 12% 描边的下拉。
@@ -251,7 +238,7 @@ class IntegrationSettings extends StatelessWidget {
     final entries = {'auto': '自动选择', ...choices};
     if (!entries.containsKey(selected)) entries[selected] = '所选应用不可用';
     final border = OutlineInputBorder(
-        borderRadius: BorderRadius.circular(Design.dz(12)),
+        borderRadius: BorderRadius.circular(s.controlRadius),
         borderSide: BorderSide(color: s.text.withValues(alpha: .12)));
     return SizedBox(
         // 外面这层用稳定的 key：测试和其它页面定位这颗下拉都按它找。
@@ -267,7 +254,7 @@ class IntegrationSettings extends StatelessWidget {
             isExpanded: true,
             isDense: true,
             icon: Icon(Icons.keyboard_arrow_down,
-                size: Design.dz(18), color: s.text.withValues(alpha: .4)),
+                size: Design.dz(18), color: s.muted),
             style: TextStyle(fontSize: Design.dz(15.5), color: s.text),
             decoration: InputDecoration(
                 isDense: true,
@@ -278,8 +265,8 @@ class IntegrationSettings extends StatelessWidget {
                 border: border,
                 enabledBorder: border,
                 focusedBorder: border.copyWith(
-                    borderSide: BorderSide(
-                        color: s.accent.withValues(alpha: .5)))),
+                    borderSide:
+                        BorderSide(color: s.accent.withValues(alpha: .5)))),
             items: entries.entries
                 .map((e) => DropdownMenuItem(
                     value: e.key,

@@ -63,15 +63,15 @@ class SettingsChoiceCard extends StatelessWidget {
                               fontSize: Design.dz(compact ? 15 : 19),
                               color: selected
                                   ? s.accent
-                                  : s.text.withValues(alpha: compact ? .7 : .82)))),
+                                  : s.text
+                                      .withValues(alpha: compact ? .7 : .82)))),
                 if (detail != null) ...[
                   SizedBox(height: Design.dz(3)),
                   Text(detail!,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                          fontSize: Design.dz(13.5),
-                          color: s.text.withValues(alpha: .38)))
+                      style:
+                          TextStyle(fontSize: Design.dz(13.5), color: s.muted))
                 ],
                 SizedBox(height: Design.dz(compact ? 9 : 10)),
                 preview
@@ -80,8 +80,8 @@ class SettingsChoiceCard extends StatelessWidget {
             Positioned(
                 top: 0,
                 right: 0,
-                child:
-                    Icon(Icons.check_circle, size: Design.dz(20), color: s.accent))
+                child: Icon(Icons.check_circle,
+                    size: Design.dz(20), color: s.accent))
         ]));
   }
 }
@@ -107,8 +107,7 @@ class PageEffectPreview extends StatelessWidget {
     final dim = BoxDecoration(
         borderRadius: BorderRadius.circular(Design.dz(7)),
         color: s.text.withValues(alpha: .055),
-        border: Border.all(
-            color: selectedBorder(s), width: Design.dz(1)));
+        border: Border.all(color: selectedBorder(s), width: Design.dz(1)));
     Widget page(BoxDecoration decoration,
             {double width = 46, double height = 34, Widget? child}) =>
         Container(
@@ -178,8 +177,8 @@ class PageEffectPreview extends StatelessWidget {
               offset: Offset(Design.dz(7), 0),
               child: Transform.scale(
                   scale: .96,
-                  child: page(dim.copyWith(
-                      color: s.text.withValues(alpha: .08))))),
+                  child: page(
+                      dim.copyWith(color: s.text.withValues(alpha: .08))))),
           page(lit)
         ]);
       case 'none':
@@ -197,8 +196,7 @@ class PageEffectPreview extends StatelessWidget {
     }
   }
 
-  static Color selectedBorder(SurfaceStyle s) =>
-      s.text.withValues(alpha: .08);
+  static Color selectedBorder(SurfaceStyle s) => s.text.withValues(alpha: .08);
 }
 
 /// 频谱样式卡：复用真实画笔（[SpectrumStylePreview]），不另画一套示意图，

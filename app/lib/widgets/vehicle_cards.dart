@@ -24,57 +24,52 @@ class BatteryCard extends StatelessWidget {
       return FuelCard(native: native, title: title, nowMs: nowMs);
     }
     return _VehicleFrame(
-      native: native,
-      fields: const ['batteryPercent', 'range', 'odometer'],
-      nowMs: nowMs,
-      builder: (context, readings, compact) {
-        final percent = readings[0], range = readings[1], odo = readings[2];
-        final s = SurfaceStyle.of(context);
-        final now = nowMs?.call();
-        final percentValue = percent.value;
-        final mode = vehicleStatusLabel(native, 'driveMode', nowMs: now);
-        final energy = vehicleStatusLabel(native, 'energyFlow', nowMs: now);
-        // 稿子 f2：左边 198 环形表（SOC），右列续航 / 能量流 / 驾驶模式 / 总里程。
-        return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _VehicleHeading(title, '电量', 'battery', compact,
-                  // 稿子副标题「插混 · 混动舒适」= 能量流 · 驾驶模式
-                  sub: [
-                    if (energy != '待同步') energy,
-                    if (mode != '待同步') mode
-                  ].join(' · ')),
-              Expanded(
-                  child: LayoutBuilder(builder: (context, box) {
-                final side = math.min(
-                    box.maxHeight, box.maxWidth * (compact ? .92 : .46));
-                return Row(children: [
-                CardRing(
-                    fraction: (percentValue ?? 0) / 100,
-                    // 传画布单位：CardRing 内部按 Design.px 换算
-                    size: side / Design.px(1),
-                    // 稿子 rc-mint：`#3BE2C0` 在 sim 的 migrateSvgColors 里被改写成
-                    // `rgb(var(--acc))`，另一端 `#6FD3FF` 是固定青。所以这一环
-                    // **一半固定、一半跟主题配色**：换「玫瑰」右段变粉、换「琥珀」变金，
-                    // 左下那段青不动（对照用户给的设计稿两张截图）。
-                    // 屏幕上的落位：起点（左下）是固定青，终点（右上）是 accent ——
-                    // 跟稿子的梯度方向差 180°（圆的 rotate(135) 把 stop0 转到了右上）。
-                    // **三套皮肤同款**：用户要的是这个渐变效果本身，不只是暗夜才有
-                    // （2026-11-13 晚）。
-                    color: CardTint.cyan,
-                    colorEnd: s.accent,
-                    center: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
+        native: native,
+        fields: const ['batteryPercent', 'range', 'odometer'],
+        nowMs: nowMs,
+        builder: (context, readings, compact) {
+          final percent = readings[0], range = readings[1], odo = readings[2];
+          final s = SurfaceStyle.of(context);
+          final now = nowMs?.call();
+          final percentValue = percent.value;
+          final mode = vehicleStatusLabel(native, 'driveMode', nowMs: now);
+          final energy = vehicleStatusLabel(native, 'energyFlow', nowMs: now);
+          // 稿子 f2：左边 198 环形表（SOC），右列续航 / 能量流 / 驾驶模式 / 总里程。
+          return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _VehicleHeading(title, '电量', 'battery', compact,
+                    // 稿子副标题「插混 · 混动舒适」= 能量流 · 驾驶模式
+                    sub: [if (energy != '待同步') energy, if (mode != '待同步') mode]
+                        .join(' · ')),
+                Expanded(child: LayoutBuilder(builder: (context, box) {
+                  final side = math.min(
+                      box.maxHeight, box.maxWidth * (compact ? .92 : .46));
+                  return Row(children: [
+                    CardRing(
+                        fraction: (percentValue ?? 0) / 100,
+                        // 传画布单位：CardRing 内部按 Design.px 换算
+                        size: side / Design.px(1),
+                        // 稿子 rc-mint：`#3BE2C0` 在 sim 的 migrateSvgColors 里被改写成
+                        // `rgb(var(--acc))`，另一端 `#6FD3FF` 是固定青。所以这一环
+                        // **一半固定、一半跟主题配色**：换「玫瑰」右段变粉、换「琥珀」变金，
+                        // 左下那段青不动（对照用户给的设计稿两张截图）。
+                        // 屏幕上的落位：起点（左下）是固定青，终点（右上）是 accent ——
+                        // 跟稿子的梯度方向差 180°（圆的 rotate(135) 把 stop0 转到了右上）。
+                        // **三套皮肤同款**：用户要的是这个渐变效果本身，不只是暗夜才有
+                        // （2026-11-13 晚）。
+                        color: CardTint.cyan,
+                        colorEnd: s.accent,
+                        center:
+                            Column(mainAxisSize: MainAxisSize.min, children: [
                           _BigNumber(
-                              text: percentValue == null
-                                  ? '—'
-                                  : percent.display,
+                              text:
+                                  percentValue == null ? '—' : percent.display,
                               unit: '%',
                               size: compact ? 34 : 56,
                               unitSize: compact ? 15 : 22,
-                              valueKey:
-                                  const ValueKey('vehicle-value-batteryPercent')),
+                              valueKey: const ValueKey(
+                                  'vehicle-value-batteryPercent')),
                           SizedBox(height: Design.px(6)),
                           Text('SOC',
                               style: TextStyle(
@@ -82,47 +77,53 @@ class BatteryCard extends StatelessWidget {
                                   letterSpacing: Design.px(1.9),
                                   color: s.muted)),
                         ])),
-                if (!compact) SizedBox(width: Design.px(22)),
-                if (!compact) Flexible(
-                  child: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    alignment: Alignment.centerLeft,
-                    child: SizedBox(
-                      width: Design.px(compact ? 170 : 236),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                      Text('综合续航',
-                          style: TextStyle(
-                              fontSize: Design.px(13.8),
-                              letterSpacing: Design.px(1.9),
-                              color: s.muted)),
-                      SizedBox(height: Design.px(2)),
-                      _BigNumber(
-                          text: range.value == null ? '—' : range.display,
-                          unit: 'km',
-                          size: compact ? 34 : 56,
-                          unitSize: compact ? 14 : 16),
-                      SizedBox(height: Design.px(14)),
-                      Container(
-                          height: 1,
-                          color: s.accent.withValues(alpha: .18)),
-                      SizedBox(height: Design.px(12)),
-                      if (!compact) EnergyFlowStrip(label: energy),
-                      if (!compact) SizedBox(height: Design.px(12)),
-                      if (!compact) _CardRow('驾驶模式', mode),
-                      if (!compact)
-                        _CardRow('总里程',
-                            odo.value == null ? '—' : '${odo.display} km'),
-                      ]),
-                    ),
-                  ),
-                ),
-                ]);
-                  })),
-            ]);
-      });
+                    if (!compact) SizedBox(width: Design.px(22)),
+                    if (!compact)
+                      Flexible(
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerLeft,
+                          child: SizedBox(
+                            width: Design.px(compact ? 170 : 236),
+                            child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text('综合续航',
+                                      style: TextStyle(
+                                          fontSize: Design.px(13.8),
+                                          letterSpacing: Design.px(1.9),
+                                          color: s.muted)),
+                                  SizedBox(height: Design.px(2)),
+                                  _BigNumber(
+                                      text: range.value == null
+                                          ? '—'
+                                          : range.display,
+                                      unit: 'km',
+                                      size: compact ? 34 : 56,
+                                      unitSize: compact ? 14 : 16),
+                                  SizedBox(height: Design.px(14)),
+                                  Container(
+                                      height: 1,
+                                      color: s.accent.withValues(alpha: .18)),
+                                  SizedBox(height: Design.px(12)),
+                                  if (!compact) EnergyFlowStrip(label: energy),
+                                  if (!compact) SizedBox(height: Design.px(12)),
+                                  if (!compact) _CardRow('驾驶模式', mode),
+                                  if (!compact)
+                                    _CardRow(
+                                        '总里程',
+                                        odo.value == null
+                                            ? '—'
+                                            : '${odo.display} km'),
+                                ]),
+                          ),
+                        ),
+                      ),
+                  ]);
+                })),
+              ]);
+        });
   }
 }
 
@@ -157,79 +158,81 @@ class FuelCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _VehicleHeading(title, '油量', 'fuel', compact,
-                  sub: [
-                    '燃油模式',
-                    if (mode != '待同步') mode
-                  ].join(' · ')),
-              Expanded(
-                  child: LayoutBuilder(builder: (context, box) {
+                  sub: ['燃油模式', if (mode != '待同步') mode].join(' · ')),
+              Expanded(child: LayoutBuilder(builder: (context, box) {
                 final side = math.min(
                     box.maxHeight, box.maxWidth * (compact ? .92 : .46));
                 return Row(children: [
-                CardRing(
-                    fraction: (percentValue ?? 0) / 100,
-                    size: side / Design.px(1),
-                    // 稿子 rc-fuel：琥珀 → 浅金。两端都是固定暖色（不跟主题配色），
-                    // 同样三套皮肤通用 —— 油量在任何配色下都该是暖色系。
-                    color: const Color(0xFFF09A3C),
-                    colorEnd: const Color(0xFFFFD79A),
-                    center: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          _BigNumber(
-                              text:
-                                  percentValue == null ? '—' : percent.display,
-                              unit: '%',
-                              size: compact ? 34 : 60,
-                              unitSize: compact ? 15 : 24,
-                              valueKey:
-                                  const ValueKey('vehicle-value-fuelPercent')),
-                          SizedBox(height: Design.px(6)),
-                          Text('油量',
-                              style: TextStyle(
-                                  fontSize: Design.px(15), color: s.muted)),
-                        ])),
-                if (!compact) SizedBox(width: Design.px(22)),
-                if (!compact) Flexible(
-                  child: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    alignment: Alignment.centerLeft,
-                    child: SizedBox(
-                      width: Design.px(compact ? 170 : 236),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                      Text('燃油续航',
-                          style: TextStyle(
-                              fontSize: Design.px(13.8),
-                              letterSpacing: Design.px(1.9),
-                              color: s.muted)),
-                      SizedBox(height: Design.px(2)),
-                      _BigNumber(
-                          text: range.value == null ? '—' : range.display,
-                          unit: 'km',
-                          size: compact ? 34 : 56,
-                          unitSize: compact ? 14 : 16),
-                      SizedBox(height: Design.px(14)),
-                      Container(
-                          height: 1,
-                          color: s.accent.withValues(alpha: .18)),
-                      SizedBox(height: Design.px(8)),
-                      // 剩余油量是这张卡的第二主信息，紧凑档也留着
-                      _CardRow('剩余油量',
-                          liters.value == null ? '待同步' : liters.display,
-                          unit: 'L'),
-                      if (!compact) _CardRow('油箱容积', capacityText),
-                      if (!compact)
-                        _CardRow('总里程',
-                            odo.value == null ? '待同步' : '${odo.display} km'),
-                      ]),
+                  CardRing(
+                      fraction: (percentValue ?? 0) / 100,
+                      size: side / Design.px(1),
+                      // 稿子 rc-fuel：琥珀 → 浅金。两端都是固定暖色（不跟主题配色），
+                      // 同样三套皮肤通用 —— 油量在任何配色下都该是暖色系。
+                      color: const Color(0xFFF09A3C),
+                      colorEnd: const Color(0xFFFFD79A),
+                      center: Column(mainAxisSize: MainAxisSize.min, children: [
+                        _BigNumber(
+                            text: percentValue == null ? '—' : percent.display,
+                            unit: '%',
+                            size: compact ? 34 : 60,
+                            unitSize: compact ? 15 : 24,
+                            valueKey:
+                                const ValueKey('vehicle-value-fuelPercent')),
+                        SizedBox(height: Design.px(6)),
+                        Text('油量',
+                            style: TextStyle(
+                                fontSize: Design.px(15), color: s.muted)),
+                      ])),
+                  if (!compact) SizedBox(width: Design.px(22)),
+                  if (!compact)
+                    Flexible(
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: SizedBox(
+                          width: Design.px(compact ? 170 : 236),
+                          child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text('燃油续航',
+                                    style: TextStyle(
+                                        fontSize: Design.px(13.8),
+                                        letterSpacing: Design.px(1.9),
+                                        color: s.muted)),
+                                SizedBox(height: Design.px(2)),
+                                _BigNumber(
+                                    text: range.value == null
+                                        ? '—'
+                                        : range.display,
+                                    unit: 'km',
+                                    size: compact ? 34 : 56,
+                                    unitSize: compact ? 14 : 16),
+                                SizedBox(height: Design.px(14)),
+                                Container(
+                                    height: 1,
+                                    color: s.accent.withValues(alpha: .18)),
+                                SizedBox(height: Design.px(8)),
+                                // 剩余油量是这张卡的第二主信息，紧凑档也留着
+                                _CardRow(
+                                    '剩余油量',
+                                    liters.value == null
+                                        ? '待同步'
+                                        : liters.display,
+                                    unit: 'L'),
+                                if (!compact) _CardRow('油箱容积', capacityText),
+                                if (!compact)
+                                  _CardRow(
+                                      '总里程',
+                                      odo.value == null
+                                          ? '待同步'
+                                          : '${odo.display} km'),
+                              ]),
+                        ),
+                      ),
                     ),
-                  ),
-                ),
                 ]);
-                  })),
+              })),
             ]);
       });
 }
@@ -239,10 +242,7 @@ class AirQualityCard extends StatelessWidget {
   final String title;
   final VehicleCardClock? nowMs;
   const AirQualityCard(
-      {super.key,
-      required this.native,
-      this.title = '车内空气',
-      this.nowMs});
+      {super.key, required this.native, this.title = '车内空气', this.nowMs});
   @override
   Widget build(BuildContext context) => _VehicleFrame(
       native: native,
@@ -259,61 +259,59 @@ class AirQualityCard extends StatelessWidget {
             children: [
               _VehicleHeading(title, '车内', 'air', compact,
                   sub: level.isEmpty ? '' : '$level · 可深呼吸'),
-              Expanded(
-                  child: LayoutBuilder(builder: (context, box) {
+              Expanded(child: LayoutBuilder(builder: (context, box) {
                 final side = math.min(
                     box.maxHeight, box.maxWidth * (compact ? .92 : .46));
                 return Row(children: [
-                CardRing(
-                    fraction: (aqi.value ?? 0) / 100,
-                    size: side / Design.px(1),
-                    // 稿子 rc-cyan 是 rc-mint 的反向（青→薄荷），落到屏幕上就是
-                    // 「起点 accent、终点固定青」—— 跟电池环正好互为镜像，同样三套皮肤通用。
-                    color: s.accent,
-                    colorEnd: CardTint.cyan,
-                    center: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          _BigNumber(
-                              text: aqi.value == null ? '—' : aqi.display,
-                              size: compact ? 30 : 48,
-                              unitSize: 14),
-                          SizedBox(height: Design.px(4)),
-                          Text('AQC',
-                              style: TextStyle(
-                                  fontSize: Design.px(15),
-                                  letterSpacing: Design.px(1.9),
-                                  color: s.muted)),
-                        ])),
-                if (!compact) SizedBox(width: Design.px(20)),
-                if (!compact) Flexible(
-                  child: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    alignment: Alignment.centerLeft,
-                    child: SizedBox(
-                      width: Design.px(compact ? 150 : 200),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                      _CardRow('PM2.5',
-                          pm.display,
-                          unit: 'µg/m³',
-                          valueKey: const ValueKey('vehicle-value-pm25')),
-                      if (!compact) ...[
-                        // 稿子这四行：PM2.5 / 甲醛 / 温度 / 净化。原车只上报
-                        // PM2.5 与 AQI，另三项没有数据源，按 A 方案占位。
-                        _CardRow('甲醛', '待同步', unit: 'mg/m³'),
-                        _CardRow('温度', '待同步', unit: '°C'),
-                        _CardRow('净化', '待同步'),
-                      ],
-                        ],
+                  CardRing(
+                      fraction: (aqi.value ?? 0) / 100,
+                      size: side / Design.px(1),
+                      // 稿子 rc-cyan 是 rc-mint 的反向（青→薄荷），落到屏幕上就是
+                      // 「起点 accent、终点固定青」—— 跟电池环正好互为镜像，同样三套皮肤通用。
+                      color: s.accent,
+                      colorEnd: CardTint.cyan,
+                      center: Column(mainAxisSize: MainAxisSize.min, children: [
+                        _BigNumber(
+                            text: aqi.value == null ? '—' : aqi.display,
+                            size: compact ? 30 : 48,
+                            unitSize: 14),
+                        SizedBox(height: Design.px(4)),
+                        Text('AQC',
+                            style: TextStyle(
+                                fontSize: Design.px(15),
+                                letterSpacing: Design.px(1.9),
+                                color: s.muted)),
+                      ])),
+                  if (!compact) SizedBox(width: Design.px(20)),
+                  if (!compact)
+                    Flexible(
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: SizedBox(
+                          width: Design.px(compact ? 150 : 200),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              _CardRow('PM2.5', pm.display,
+                                  unit: 'µg/m³',
+                                  valueKey:
+                                      const ValueKey('vehicle-value-pm25')),
+                              if (!compact) ...[
+                                // 稿子这四行：PM2.5 / 甲醛 / 温度 / 净化。原车只上报
+                                // PM2.5 与 AQI，另三项没有数据源，按 A 方案占位。
+                                _CardRow('甲醛', '待同步', unit: 'mg/m³'),
+                                _CardRow('温度', '待同步', unit: '°C'),
+                                _CardRow('净化', '待同步'),
+                              ],
+                            ],
+                          ),
+                        ),
                       ),
                     ),
-                  ),
-                ),
                 ]);
-                  })),
+              })),
             ]);
       });
 }
@@ -375,11 +373,12 @@ class DrivingInfoCard extends StatelessWidget {
                                 ],
                               ])))),
               if (!compact) ...[
-                _CardRow('总里程',
-                    odo.value == null ? '待同步' : '${odo.display} km'),
-                _CardRow('续航',
-                    range.value == null ? '待同步' : '${range.display} km'),
-                _CardRow('距保养',
+                _CardRow(
+                    '总里程', odo.value == null ? '待同步' : '${odo.display} km'),
+                _CardRow(
+                    '续航', range.value == null ? '待同步' : '${range.display} km'),
+                _CardRow(
+                    '距保养',
                     maintenance.value == null
                         ? '待同步'
                         : '${maintenance.display} km'),
@@ -456,8 +455,7 @@ class EnergyFlowStrip extends StatelessWidget {
               child: SizedBox(
                   width: Design.px(153.6),
                   height: Design.px(28.8),
-                  child: CustomPaint(
-                      painter: _EnergyFlowStripPainter(tint))))),
+                  child: CustomPaint(painter: _EnergyFlowStripPainter(tint))))),
       SizedBox(width: Design.px(14.4)),
       Text(label,
           maxLines: 1,
@@ -514,8 +512,12 @@ class _EnergyFlowStripPainter extends CustomPainter {
         stroke(.8, 1.3)..strokeJoin = StrokeJoin.round);
     // 车轮
     canvas.drawCircle(const Offset(134, 14), 8.2, stroke(.55, 1.3));
-    canvas.drawCircle(const Offset(134, 14), 2.3,
-        Paint()..color = tint.withValues(alpha: .45)..isAntiAlias = true);
+    canvas.drawCircle(
+        const Offset(134, 14),
+        2.3,
+        Paint()
+          ..color = tint.withValues(alpha: .45)
+          ..isAntiAlias = true);
     final tick = stroke(.32, 1.1)..strokeCap = StrokeCap.round;
     canvas.drawLine(const Offset(134, 5.9), const Offset(134, 8.5), tick);
     canvas.drawLine(const Offset(134, 19.5), const Offset(134, 22.1), tick);
@@ -528,14 +530,12 @@ class _EnergyFlowStripPainter extends CustomPainter {
   bool shouldRepaint(covariant _EnergyFlowStripPainter old) => old.tint != tint;
 }
 
-
 /// 稿子 `.row`：38 高、下沿 5% 细线，左侧标签 13.5、右侧值 15.5 + 小号单位。
 class _CardRow extends StatelessWidget {
   final String label, value;
   final String unit;
   final Key? valueKey;
-  const _CardRow(this.label, this.value,
-      {this.unit = '', this.valueKey});
+  const _CardRow(this.label, this.value, {this.unit = '', this.valueKey});
   @override
   Widget build(BuildContext context) {
     final s = SurfaceStyle.of(context);
@@ -615,7 +615,7 @@ class _VehicleHeading extends StatelessWidget {
                     height: 1.2,
                     fontWeight: FontWeight.w600,
                     letterSpacing: Design.px(compact ? 2.2 : 2.76),
-                    color: s.text.withValues(alpha: .55))),
+                    color: s.muted)),
             if (secondary.isNotEmpty) ...[
               SizedBox(height: Design.px(compact ? 3.6 : 4.8)),
               Text(secondary,

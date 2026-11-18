@@ -64,9 +64,8 @@ class SettingBlock extends StatelessWidget {
                 child: Text(note!,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                        fontSize: Design.dz(12.5),
-                        color: s.text.withValues(alpha: .4)))),
+                    style:
+                        TextStyle(fontSize: Design.dz(12.5), color: s.muted))),
           if (title != null) SizedBox(height: Design.dz(dense ? 8 : 10)),
           child
         ]);
@@ -81,7 +80,7 @@ class SettingBlock extends StatelessWidget {
     return DecoratedBox(
         decoration: BoxDecoration(
             color: s.text.withValues(alpha: .02),
-            borderRadius: BorderRadius.circular(Design.dz(18)),
+            borderRadius: BorderRadius.circular(s.radius),
             border: Border.all(color: s.text.withValues(alpha: .07))),
         child: Padding(padding: pad, child: body));
   }

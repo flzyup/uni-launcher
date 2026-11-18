@@ -24,7 +24,8 @@ import 'setting_block.dart';
 /// for centre-x, centre-y, width and offsets, is unusable while parked and unverifiable while
 /// driving.
 class ClusterLyricsSettingsTab extends StatefulWidget {
-  const ClusterLyricsSettingsTab({super.key, this.client = const ClusterLyrics()});
+  const ClusterLyricsSettingsTab(
+      {super.key, this.client = const ClusterLyrics()});
 
   final ClusterLyrics client;
 
@@ -274,14 +275,11 @@ class _ClusterLyricsSettingsTabState extends State<ClusterLyricsSettingsTab> {
   Widget _label(SurfaceStyle s, String text) => Padding(
       padding: EdgeInsets.only(bottom: Design.dz(4)),
       child: Text(text,
-          style: TextStyle(
-              fontSize: Design.dz(15),
-              color: s.text.withValues(alpha: .4))));
+          style: TextStyle(fontSize: Design.dz(15), color: s.muted)));
 
   /// 开关放在标题行右侧（设计稿 `.sw` 的位置），不用整行 SwitchTile。
   Widget _headerSwitch(String key, bool value, ValueChanged<bool>? onChanged) =>
-      DesignSwitch(
-          key: ValueKey(key), value: value, onChanged: onChanged);
+      DesignSwitch(key: ValueKey(key), value: value, onChanged: onChanged);
 
   Widget _castBlock(SurfaceStyle s) => SettingBlock(
         title: '歌词投到仪表盘',
@@ -302,41 +300,39 @@ class _ClusterLyricsSettingsTabState extends State<ClusterLyricsSettingsTab> {
                       await _apply(enabled: false);
                     }
                   }),
-        child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(children: [
-                Container(
-                    width: Design.dz(6),
-                    height: Design.dz(6),
-                    decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: _status.enabled ? s.accent : s.disabled)),
-                SizedBox(width: Design.dz(8)),
-                Expanded(
-                    child: Text(
-                        _status.report.isEmpty ? '尚未尝试投射' : _status.report,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                            fontSize: Design.dz(12.5),
-                            color: _status.enabled ? s.accent : s.muted))),
-                Text('窗口随屏重建',
-                    style:
-                        TextStyle(fontSize: Design.dz(11.5), color: s.muted))
-              ]),
-              SizedBox(height: Design.dz(6)),
-              Text(
-                  '只叠加歌词窗口，不接管那个屏幕的触摸，也不修改原车机的仪表界面',
-                  style: TextStyle(
-                      fontSize: Design.dz(11.5), color: s.muted, height: LauncherType.lineLoose)),
-              SizedBox(height: Design.dz(6)),
-              Text(_status.lyricSummary,
-                  key: const ValueKey('cluster-lyric-summary'),
-                  style: TextStyle(
-                      fontSize: Design.dz(11.5),
-                      color: _status.lyricLines > 0 ? s.accent : s.muted)),
-            ]),
+        child:
+            Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Row(children: [
+            Container(
+                width: Design.dz(6),
+                height: Design.dz(6),
+                decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: _status.enabled ? s.accent : s.disabled)),
+            SizedBox(width: Design.dz(8)),
+            Expanded(
+                child: Text(_status.report.isEmpty ? '尚未尝试投射' : _status.report,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        fontSize: Design.dz(12.5),
+                        color: _status.enabled ? s.accent : s.muted))),
+            Text('窗口随屏重建',
+                style: TextStyle(fontSize: Design.dz(11.5), color: s.muted))
+          ]),
+          SizedBox(height: Design.dz(6)),
+          Text('只叠加歌词窗口，不接管那个屏幕的触摸，也不修改原车机的仪表界面',
+              style: TextStyle(
+                  fontSize: Design.dz(11.5),
+                  color: s.muted,
+                  height: LauncherType.lineLoose)),
+          SizedBox(height: Design.dz(6)),
+          Text(_status.lyricSummary,
+              key: const ValueKey('cluster-lyric-summary'),
+              style: TextStyle(
+                  fontSize: Design.dz(11.5),
+                  color: _status.lyricLines > 0 ? s.accent : s.muted)),
+        ]),
       );
 
   Widget _placeBlock(SurfaceStyle s, double x, double y) => SettingBlock(
@@ -355,53 +351,50 @@ class _ClusterLyricsSettingsTabState extends State<ClusterLyricsSettingsTab> {
                       widthRatio: ClusterLayout.defaultWidth,
                     ),
             child: const Text('回到中间')),
-        child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _label(s, '可见行数'),
-              Row(children: [
-                for (final (index, count) in const [1, 2, 3].indexed)
-                  Expanded(
-                      child: Padding(
-                          padding: EdgeInsets.only(
-                              right: index == 2 ? 0 : Design.dz(9)),
-                          child: ChoiceButton(
-                              key: ValueKey('cluster-rows-$count'),
-                              kind: ChoiceKind.filled,
-                              height: 40,
-                              radius: 11,
-                              selected: _status.rows == count,
-                              onPressed: () => _apply(rows: count),
-                              child: Text('$count 行',
-                                  style: TextStyle(
-                                      fontSize: Design.dz(13.5))))))
-              ]),
-              SizedBox(height: Design.dz(9)),
-              _label(s, '宽度'),
-              Row(children: [
-                for (final (index, ratio)
-                    in const [0.5, 0.7, 0.86, 0.94, 1.0].indexed)
-                  Expanded(
-                      child: Padding(
-                          padding: EdgeInsets.only(
-                              right: index == 4 ? 0 : Design.dz(8)),
-                          child: ChoiceButton(
-                              key: ValueKey(
-                                  'cluster-width-${(ratio * 100).round()}'),
-                              kind: ChoiceKind.filled,
-                              height: 38,
-                              radius: 11,
-                              selected: (ClusterLayout.widthRatio(
-                                              _status.widthRatio) -
+        child:
+            Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          _label(s, '可见行数'),
+          Row(children: [
+            for (final (index, count) in const [1, 2, 3].indexed)
+              Expanded(
+                  child: Padding(
+                      padding:
+                          EdgeInsets.only(right: index == 2 ? 0 : Design.dz(9)),
+                      child: ChoiceButton(
+                          key: ValueKey('cluster-rows-$count'),
+                          kind: ChoiceKind.filled,
+                          height: Design.compactControlHeight,
+                          radius: 11,
+                          selected: _status.rows == count,
+                          onPressed: () => _apply(rows: count),
+                          child: Text('$count 行',
+                              style: TextStyle(fontSize: Design.dz(13.5))))))
+          ]),
+          SizedBox(height: Design.dz(9)),
+          _label(s, '宽度'),
+          Row(children: [
+            for (final (index, ratio)
+                in const [0.5, 0.7, 0.86, 0.94, 1.0].indexed)
+              Expanded(
+                  child: Padding(
+                      padding:
+                          EdgeInsets.only(right: index == 4 ? 0 : Design.dz(8)),
+                      child: ChoiceButton(
+                          key: ValueKey(
+                              'cluster-width-${(ratio * 100).round()}'),
+                          kind: ChoiceKind.filled,
+                          height: Design.compactControlHeight,
+                          radius: 11,
+                          selected:
+                              (ClusterLayout.widthRatio(_status.widthRatio) -
                                           ratio)
                                       .abs() <
                                   0.01,
-                              onPressed: () => _apply(widthRatio: ratio),
-                              child: Text('${(ratio * 100).round()}%',
-                                  style: TextStyle(
-                                      fontSize: Design.dz(13.5))))))
-              ]),
-            ]),
+                          onPressed: () => _apply(widthRatio: ratio),
+                          child: Text('${(ratio * 100).round()}%',
+                              style: TextStyle(fontSize: Design.dz(13.5))))))
+          ]),
+        ]),
       );
 
   Widget _displayBlock(SurfaceStyle s) => SettingBlock(
@@ -410,70 +403,69 @@ class _ClusterLyricsSettingsTabState extends State<ClusterLyricsSettingsTab> {
         padding: _pad,
         note: _loading ? '读取中' : '${_displays.length} 个',
         trailing: TextButton(
-            onPressed: _loading ? null : _load,
-            child: const Text('重新扫描')),
-        child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              if (!_loading && _displays.isEmpty)
-                Text('这台车机没有向应用暴露任何副屏，歌词无法投出。',
-                    style: TextStyle(fontSize: Design.dz(13), color: s.muted))
-              else
-                Row(children: [
-                  for (final (index, display) in _displays.indexed)
-                    Expanded(
-                        child: Padding(
-                            padding: EdgeInsets.only(
-                                right: index == _displays.length - 1
-                                    ? 0
-                                    : Design.dz(9)),
-                            child: SizedBox(
-                                height: Design.dz(44),
-                                child: ChoiceButton(
-                                    key: ValueKey('cluster-display-${display.id}'),
-                                    kind: ChoiceKind.filled,
-                                    height: 44,
-                                    radius: 11,
-                                    onPressed: _loading
-                                        ? null
-                                        : () => _apply(
-                                            display: _status.enabled &&
-                                                    _selected?.id == display.id
-                                                ? null
-                                                : display),
-                                    selected: _selected?.id == display.id,
-                                    child: Column(
-                                        mainAxisAlignment:
-                                            MainAxisAlignment.center,
-                                        children: [
-                                          Text(display.name,
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: TextStyle(
-                                                  fontSize: Design.dz(14))),
-                                          SizedBox(height: Design.dz(2)),
-                                          Text(
-                                              display.width > 0
-                                                  ? '${display.width}×${display.height}'
-                                                  : '分辨率未知',
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                              style: TextStyle(
-                                                  fontSize: Design.dz(10.5),
-                                                  fontWeight: FontWeight.w400))
-                                        ])))))
-                ]),
-              SizedBox(height: Design.dz(9)),
-              // 把「现在（或下次打开时）会投到哪块屏」的原始身份摊开：
-              // 出问题时这是唯一能对得上的线索，也不至于让用户猜默认目标是哪块。
-              Text(
-                  (_selected ?? _firstSecondary) == null
-                      ? '选择后立刻生效，并会被记住；重启后按屏幕名称重新匹配。'
-                      : '${(_selected ?? _firstSecondary)!.label} · '
-                          '${(_selected ?? _firstSecondary)!.presentation ? '系统标记为副屏' : '系统未标记为副屏'}',
-                  style: TextStyle(
-                      fontSize: Design.dz(11.5), color: s.muted, height: LauncherType.lineLoose)),
+            onPressed: _loading ? null : _load, child: const Text('重新扫描')),
+        child:
+            Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          if (!_loading && _displays.isEmpty)
+            Text('这台车机没有向应用暴露任何副屏，歌词无法投出。',
+                style: TextStyle(fontSize: Design.dz(13), color: s.muted))
+          else
+            Row(children: [
+              for (final (index, display) in _displays.indexed)
+                Expanded(
+                    child: Padding(
+                        padding: EdgeInsets.only(
+                            right: index == _displays.length - 1
+                                ? 0
+                                : Design.dz(9)),
+                        child: SizedBox(
+                            height: Design.dz(44),
+                            child: ChoiceButton(
+                                key: ValueKey('cluster-display-${display.id}'),
+                                kind: ChoiceKind.filled,
+                                height: 44,
+                                radius: 11,
+                                onPressed: _loading
+                                    ? null
+                                    : () => _apply(
+                                        display: _status.enabled &&
+                                                _selected?.id == display.id
+                                            ? null
+                                            : display),
+                                selected: _selected?.id == display.id,
+                                child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Text(display.name,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                              fontSize: Design.dz(14))),
+                                      SizedBox(height: Design.dz(2)),
+                                      Text(
+                                          display.width > 0
+                                              ? '${display.width}×${display.height}'
+                                              : '分辨率未知',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                              fontSize: Design.dz(10.5),
+                                              fontWeight: FontWeight.w400))
+                                    ])))))
             ]),
+          SizedBox(height: Design.dz(9)),
+          // 把「现在（或下次打开时）会投到哪块屏」的原始身份摊开：
+          // 出问题时这是唯一能对得上的线索，也不至于让用户猜默认目标是哪块。
+          Text(
+              (_selected ?? _firstSecondary) == null
+                  ? '选择后立刻生效，并会被记住；重启后按屏幕名称重新匹配。'
+                  : '${(_selected ?? _firstSecondary)!.label} · '
+                      '${(_selected ?? _firstSecondary)!.presentation ? '系统标记为副屏' : '系统未标记为副屏'}',
+              style: TextStyle(
+                  fontSize: Design.dz(11.5),
+                  color: s.muted,
+                  height: LauncherType.lineLoose)),
+        ]),
       );
 
   Widget _howBlock(SurfaceStyle s) => SettingBlock(
@@ -485,7 +477,9 @@ class _ClusterLyricsSettingsTabState extends State<ClusterLyricsSettingsTab> {
           '位置按屏幕百分比保存，预览即仪表。'
           '歌词由投射服务自行获取，桌面不在前台也照常滚动。',
           style: TextStyle(
-              fontSize: Design.dz(11.5), color: s.muted, height: LauncherType.lineLoose),
+              fontSize: Design.dz(11.5),
+              color: s.muted,
+              height: LauncherType.lineLoose),
         ),
       );
 
@@ -499,21 +493,20 @@ class _ClusterLyricsSettingsTabState extends State<ClusterLyricsSettingsTab> {
             : '先打开上面的开关，再拖动预览里的歌词块',
         dense: true,
         padding: _pad,
-        child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // 高度交给 [_CastPreview] 自己按目标屏的宽高比算：固定 300 在一台
-              // 1920×720 的副屏上会上下各留 35 画布的空白，而那一截正是整页
-              // 放不下的部分。
-              _CastPreview(
-                display: _selected,
-                status: _status,
-                xRatio: x,
-                yRatio: y,
-                onDrag: _loading || !_status.enabled ? null : _drag,
-                onCommit: _loading || !_status.enabled ? null : _commitDrag,
-              ),
-            ]),
+        child:
+            Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          // 高度交给 [_CastPreview] 自己按目标屏的宽高比算：固定 300 在一台
+          // 1920×720 的副屏上会上下各留 35 画布的空白，而那一截正是整页
+          // 放不下的部分。
+          _CastPreview(
+            display: _selected,
+            status: _status,
+            xRatio: x,
+            yRatio: y,
+            onDrag: _loading || !_status.enabled ? null : _drag,
+            onCommit: _loading || !_status.enabled ? null : _commitDrag,
+          ),
+        ]),
       );
 
   /// 字号按设计稿做成「− 44 ＋」步进，而不是五颗按钮：
@@ -531,16 +524,14 @@ class _ClusterLyricsSettingsTabState extends State<ClusterLyricsSettingsTab> {
 
   Widget _stepButton(IconData icon, String key, VoidCallback? onTap) =>
       SizedBox(
-          width: Design.dz(46),
-          height: Design.dz(34),
+          width: Design.dz(Design.compactControlHeight),
+          height: Design.dz(Design.compactControlHeight),
           child: OutlinedButton(
               key: ValueKey(key),
               style: OutlinedButton.styleFrom(
                   padding: EdgeInsets.zero,
                   minimumSize: Size.zero,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(Design.dz(12)))),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap),
               onPressed: onTap,
               child: Icon(icon, size: Design.dz(16))));
 
@@ -567,8 +558,8 @@ class _ClusterLyricsSettingsTabState extends State<ClusterLyricsSettingsTab> {
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                               fontSize: Design.dz(13.5),
-                              color: s.text
-                                  .withValues(alpha: onChanged == null ? .5 : .9))),
+                              color: s.text.withValues(
+                                  alpha: onChanged == null ? .5 : .9))),
                       SizedBox(height: Design.dz(2)),
                       Text(subtitle,
                           maxLines: 1,
@@ -616,15 +607,13 @@ class _ClusterLyricsSettingsTabState extends State<ClusterLyricsSettingsTab> {
             (ClusterLayout.motionWords, '逐次+动效'),
           ].indexed)
             Padding(
-                padding: EdgeInsets.only(
-                    right: index == 1 ? 0 : Design.dz(6)),
+                padding: EdgeInsets.only(right: index == 1 ? 0 : Design.dz(6)),
                 child: ChoiceButton(
                     key: ValueKey('cluster-motion-${option.$1}'),
                     kind: ChoiceKind.filled,
-                    height: 28,
+                    height: Design.compactControlHeight,
                     radius: 9,
-                    selected:
-                        ClusterLayout.motion(_status.motion) == option.$1,
+                    selected: ClusterLayout.motion(_status.motion) == option.$1,
                     onPressed: () => _apply(motion: option.$1),
                     child: Text(option.$2,
                         style: TextStyle(fontSize: Design.dz(11.5))))),
@@ -635,80 +624,80 @@ class _ClusterLyricsSettingsTabState extends State<ClusterLyricsSettingsTab> {
         title: '字形与配色',
         note: '${_status.fontSp.round()} sp',
         dense: true,
-        padding: _pad,
-        child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(children: [
-                SizedBox(
-                    width: Design.dz(78),
-                    child: Text('字号',
+        padding: EdgeInsets.fromLTRB(
+            Design.dz(17), Design.dz(5), Design.dz(17), Design.dz(5)),
+        child:
+            Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Row(children: [
+            SizedBox(
+                width: Design.dz(78),
+                child: Text('字号',
+                    style:
+                        TextStyle(fontSize: Design.dz(13.5), color: s.muted))),
+            _stepButton(
+                Icons.remove,
+                'cluster-font-down',
+                _loading || _fontIndex == 0
+                    ? null
+                    : () => _apply(fontSp: _fontSteps[_fontIndex - 1])),
+            Expanded(
+                child: Center(
+                    child: Text('${_status.fontSp.round()}',
                         style: TextStyle(
-                            fontSize: Design.dz(13.5),
-                            color: s.text.withValues(alpha: .5)))),
-                _stepButton(Icons.remove, 'cluster-font-down',
-                    _loading || _fontIndex == 0
-                        ? null
-                        : () => _apply(fontSp: _fontSteps[_fontIndex - 1])),
-                Expanded(
-                    child: Center(
-                        child: Text('${_status.fontSp.round()}',
-                            style: TextStyle(
-                                fontSize: Design.dz(17),
-                                fontWeight: FontWeight.w300,
-                                color: s.text.withValues(alpha: .9))))),
-                _stepButton(Icons.add, 'cluster-font-up',
-                    _loading || _fontIndex == _fontSteps.length - 1
-                        ? null
-                        : () => _apply(fontSp: _fontSteps[_fontIndex + 1])),
-              ]),
-              SizedBox(height: Design.dz(9)),
-              _label(s, '高亮色'),
-              Wrap(
-                  spacing: Design.dz(9),
-                  runSpacing: Design.dz(9),
-                  children: [
-                    for (final swatch in _accents)
-                      _AccentSwatch(
-                        key: ValueKey(
-                            'cluster-accent-${swatch.toRadixString(16)}'),
-                        color: Color(swatch),
-                        selected: _status.accent == swatch,
-                        onTap: () => _apply(accent: swatch),
-                      ),
-                  ]),
-              SizedBox(height: Design.dz(9)),
-              _label(s, '样式'),
-              Row(children: [
-                for (final (index, option) in _styles.indexed)
-                  Expanded(
-                      child: Padding(
-                          padding: EdgeInsets.only(
-                              right: index == _styles.length - 1
-                                  ? 0
-                                  : Design.dz(9)),
-                          child: ChoiceButton(
-                              key: ValueKey('cluster-style-${option.$1}'),
-                              kind: ChoiceKind.filled,
-                              height: 36,
-                              radius: 11,
-                              selected: _status.style == option.$1,
-                              onPressed: () => _apply(style: option.$1),
-                              child: Text(option.$2,
-                                  style: TextStyle(
-                                      fontSize: Design.dz(13.5))))))
-              ]),
-              SizedBox(height: Design.dz(4)),
-              _switchRow(s, 'cluster-background-switch', '文字下方加深色底板',
-                  '关闭后文字直接压在原车画面，适合纯黑仪表底',
-                  _status.solidBackground,
-                  (value) => _apply(solidBackground: value)),
-              // 这一行设计稿是开关，但"跟随"没有独立开关：逐字时间轴有没有
-              // 完全由音源决定，所以只把结果摊开，不摆一个骗人的开关。
-              // 动效档位就落在这一行的尾部：两者是同一件事的两端——关着只在
-              // 换行重绘一次，开着逐词推进；这页已经没有第二行说明的高度了。
-              _motionRow(s),
-            ]),
+                            fontSize: Design.dz(17),
+                            fontWeight: FontWeight.w300,
+                            color: s.text.withValues(alpha: .9))))),
+            _stepButton(
+                Icons.add,
+                'cluster-font-up',
+                _loading || _fontIndex == _fontSteps.length - 1
+                    ? null
+                    : () => _apply(fontSp: _fontSteps[_fontIndex + 1])),
+          ]),
+          SizedBox(height: Design.dz(9)),
+          _label(s, '高亮色'),
+          Wrap(spacing: Design.dz(9), runSpacing: Design.dz(9), children: [
+            for (final swatch in _accents)
+              _AccentSwatch(
+                key: ValueKey('cluster-accent-${swatch.toRadixString(16)}'),
+                color: Color(swatch),
+                selected: _status.accent == swatch,
+                onTap: () => _apply(accent: swatch),
+              ),
+          ]),
+          SizedBox(height: Design.dz(9)),
+          _label(s, '样式'),
+          Row(children: [
+            for (final (index, option) in _styles.indexed)
+              Expanded(
+                  child: Padding(
+                      padding: EdgeInsets.only(
+                          right:
+                              index == _styles.length - 1 ? 0 : Design.dz(9)),
+                      child: ChoiceButton(
+                          key: ValueKey('cluster-style-${option.$1}'),
+                          kind: ChoiceKind.filled,
+                          height: Design.compactControlHeight,
+                          radius: 11,
+                          selected: _status.style == option.$1,
+                          onPressed: () => _apply(style: option.$1),
+                          child: Text(option.$2,
+                              style: TextStyle(fontSize: Design.dz(13.5))))))
+          ]),
+          SizedBox(height: Design.dz(4)),
+          _switchRow(
+              s,
+              'cluster-background-switch',
+              '文字下方加深色底板',
+              '关闭后文字直接压在原车画面，适合纯黑仪表底',
+              _status.solidBackground,
+              (value) => _apply(solidBackground: value)),
+          // 这一行设计稿是开关，但"跟随"没有独立开关：逐字时间轴有没有
+          // 完全由音源决定，所以只把结果摊开，不摆一个骗人的开关。
+          // 动效档位就落在这一行的尾部：两者是同一件事的两端——关着只在
+          // 换行重绘一次，开着逐词推进；这页已经没有第二行说明的高度了。
+          _motionRow(s),
+        ]),
       );
 }
 
@@ -755,7 +744,9 @@ class _AccentSwatch extends StatelessWidget {
           ),
           boxShadow: [
             if (selected)
-              BoxShadow(color: color.withValues(alpha: 0.55), blurRadius: Design.px(18)),
+              BoxShadow(
+                  color: color.withValues(alpha: 0.55),
+                  blurRadius: Design.px(18)),
           ],
         ),
       ),
@@ -808,7 +799,8 @@ class _CastPreviewState extends State<_CastPreview> {
 
   int get _displayWidth => (display?.width ?? 0) > 0 ? display!.width : 1920;
   int get _displayHeight => (display?.height ?? 0) > 0 ? display!.height : 720;
-  int get _density => (display?.densityDpi ?? 0) > 0 ? display!.densityDpi : 240;
+  int get _density =>
+      (display?.densityDpi ?? 0) > 0 ? display!.densityDpi : 240;
 
   @override
   Widget build(BuildContext context) {
@@ -831,7 +823,8 @@ class _CastPreviewState extends State<_CastPreview> {
         child: SizedBox(
           width: boxWidth,
           height: boxHeight,
-          child: _previewSurface(context, s, Size(boxWidth, boxHeight), rows, accent),
+          child: _previewSurface(
+              context, s, Size(boxWidth, boxHeight), rows, accent),
         ),
       );
     });
@@ -922,7 +915,8 @@ class _CastPreviewState extends State<_CastPreview> {
               top: Design.px(12),
               child: Text(
                 '${_displayWidth}×$_displayHeight · ${display?.name ?? '预览'}',
-                style: TextStyle(fontSize: Design.px(14), color: Colors.white38),
+                style:
+                    TextStyle(fontSize: Design.px(14), color: Colors.white38),
               ),
             ),
             Positioned(
@@ -943,7 +937,8 @@ class _CastPreviewState extends State<_CastPreview> {
               Positioned(
                 right: Design.px(14),
                 bottom: Design.px(12),
-                child: Icon(Icons.open_with, size: Design.px(22), color: s.muted),
+                child:
+                    Icon(Icons.open_with, size: Design.px(22), color: s.muted),
               ),
           ]),
         ),
@@ -952,7 +947,8 @@ class _CastPreviewState extends State<_CastPreview> {
   }
 
   /// Turn the finger position into ratios, keeping the whole block on screen.
-  void _report(Offset local, Size box, ({double left, double top, double width, double height}) block) {
+  void _report(Offset local, Size box,
+      ({double left, double top, double width, double height}) block) {
     final halfW = block.width / 2 / box.width;
     final halfH = block.height / 2 / box.height;
     final x = (local.dx / box.width).clamp(halfW, 1 - halfW);
@@ -1018,38 +1014,38 @@ class _PreviewBlock extends StatelessWidget {
       // （stretch + ellipsis 语义不变），高度超限时等比缩 1~2%。
       child: LayoutBuilder(
           builder: (context, box) => FittedBox(
-                fit: BoxFit.scaleDown,
-                child: SizedBox(
-                    width: box.maxWidth,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        for (var i = 0; i < lines.length; i++)
-                          Text(
-                            lines[i],
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: i == (rows >= 3 ? 1 : 0)
-                                  ? fontSize
-                                  : fontSize * 0.74,
-                              height: ClusterLayout.rowSpacing,
-                              fontWeight: FontWeight.w500,
-                              color: i == (rows >= 3 ? 1 : 0) ? accent : dim,
-                              shadows: [
-                                if (!plain)
-                                  Shadow(
-                                      color: accent.withValues(
-                                          alpha: glow ? 0.5 : 0.22),
-                                      blurRadius: fontSize * 0.5),
-                              ],
-                            ),
+              fit: BoxFit.scaleDown,
+              child: SizedBox(
+                  width: box.maxWidth,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (var i = 0; i < lines.length; i++)
+                        Text(
+                          lines[i],
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: i == (rows >= 3 ? 1 : 0)
+                                ? fontSize
+                                : fontSize * 0.74,
+                            height: ClusterLayout.rowSpacing,
+                            fontWeight: FontWeight.w500,
+                            color: i == (rows >= 3 ? 1 : 0) ? accent : dim,
+                            shadows: [
+                              if (!plain)
+                                Shadow(
+                                    color: accent.withValues(
+                                        alpha: glow ? 0.5 : 0.22),
+                                    blurRadius: fontSize * 0.5),
+                            ],
                           ),
-                      ],
-                    )))),
+                        ),
+                    ],
+                  )))),
     );
   }
 }

@@ -56,7 +56,8 @@ void main() {
       final r = await ring(t, look);
       expect(r.fraction, closeTo(.78, .001), reason: tag);
       expect(r.color, CardTint.cyan, reason: tag);
-      expect(r.colorEnd, look.accent(look.isDark(true)), reason: tag);
+      expect(r.colorEnd, SurfaceStyle.from(look, look.mode == 'dark').accent,
+          reason: tag);
     }
     expect(t.takeException(), isNull);
   });
@@ -71,10 +72,8 @@ void main() {
     expect(mint.colorEnd, isNot(rose.colorEnd));
     expect(mint.color, rose.color, reason: '固定那段不该变');
     // 经典皮肤换配色同样生效。
-    final classic = await ring(
-        t,
-        const Appearance(
-            mode: 'dark', themeStyle: 'classic', palette: 'rose'));
+    final classic = await ring(t,
+        const Appearance(mode: 'dark', themeStyle: 'classic', palette: 'rose'));
     expect(classic.colorEnd, isNot(mint.colorEnd));
   });
 }

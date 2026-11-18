@@ -50,9 +50,8 @@ class SystemSettingsPanel extends StatelessWidget {
         // 两块都撑到页面高度——设计稿里它们是两条通高的栏，不是两张随内容
         // 缩小的卡片，否则右边短的时候左边会「悬」出一截。
         return LayoutBuilder(
-            builder: (context, box) => Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
+            builder: (context, box) =>
+                Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                   SizedBox(
                       width: Design.dz(660),
                       child: SingleChildScrollView(
@@ -75,99 +74,112 @@ class SystemSettingsPanel extends StatelessWidget {
                               constraints:
                                   BoxConstraints(minHeight: box.maxHeight),
                               child: SettingBlock(
-                      title: '原车系统设置&安卓设置',
-                      note: '按系统应用提供的名称列出设置入口。',
-                      trailing: DesignTextAction('重新检索',
-                          key: const ValueKey('refresh-system-settings'),
-                          chevron: false,
-                          onPressed: () => controller
-                              .command('refresh-system-settings')),
-                      child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            // 原车系统设置是唯一的「大入口」，给一块主题色淡底。
-                            Material(
-                                color: Colors.transparent,
-                                child: InkWell(
-                                    key: const ValueKey(
-                                        'system-setting-official-root'),
-                                    onTap: () => controller.command(
-                                        'open-official',
-                                        value: 'settings'),
-                                    borderRadius:
-                                        BorderRadius.circular(Design.dz(14)),
-                                    child: Container(
-                                        height: Design.dz(46),
-                                        padding: EdgeInsets.symmetric(
-                                            horizontal: Design.dz(14)),
-                                        decoration: BoxDecoration(
-                                            color: s.accent
-                                                .withValues(alpha: .07),
-                                            borderRadius:
-                                                BorderRadius.circular(
-                                                    Design.dz(14)),
-                                            border: Border.all(
-                                                color: s.accent.withValues(
-                                                    alpha: .26))),
-                                        child: Row(children: [
-                                          Icon(Icons.settings_outlined,
-                                              size: Design.dz(20),
-                                              color: s.accent),
-                                          SizedBox(width: Design.dz(11)),
-                                          Text('原车系统设置',
-                                              style: TextStyle(
-                                                  fontSize: Design.dz(15.5),
-                                                  color: s.accent)),
-                                          const Spacer(),
-                                          Icon(Icons.chevron_right,
-                                              size: Design.dz(18),
-                                              color: s.accent.withValues(
-                                                  alpha: .7))
-                                        ])))),
-                            SizedBox(height: Design.dz(10)),
-                            if (groups.isEmpty)
-                              Padding(
-                                  padding:
-                                      EdgeInsets.symmetric(vertical: Design.dz(16)),
-                                  child: Text('未找到可直接打开的系统设置入口',
-                                      style: TextStyle(
-                                          fontSize: Design.dz(13.5),
-                                          color:
-                                              s.text.withValues(alpha: .42)))),
-                            for (final group in ordered) ...[
-                              Padding(
-                                  padding: EdgeInsets.only(
-                                      top: Design.dz(6), bottom: Design.dz(4)),
-                                  child: Text(group.key,
-                                      style: TextStyle(
-                                          fontSize: Design.dz(11),
-                                          letterSpacing: Design.dz(1.2),
-                                          color: s.text
-                                              .withValues(alpha: .32)))),
-                              for (final entry in group.value)
-                                SettingRow(
-                                    key: ValueKey(
-                                        'system-setting-${entry['id']}'),
-                                    tile: true,
-                                    height: 46,
-                                    label: '${entry['label']}',
-                                    leading: Icon(Icons.tune_outlined,
-                                        size: Design.dz(18),
-                                        color:
-                                            s.text.withValues(alpha: .34)),
-                                    trailing: Icon(Icons.chevron_right,
-                                        size: Design.dz(16),
-                                        color: s.text.withValues(alpha: .3)),
-                                    onTap: () => controller.command(
-                                        'open-system-setting',
-                                        value: '${entry['id']}')),
-                            ],
-                            SizedBox(height: Design.dz(8)),
-                            Text('系统应用提供的入口不会随时都在，缺失时「重新检索」。',
-                                style: TextStyle(
-                                    fontSize: Design.dz(11.5),
-                                    color: s.text.withValues(alpha: .34)))
-                          ]))))),
+                                  title: '原车系统设置&安卓设置',
+                                  note: '按系统应用提供的名称列出设置入口。',
+                                  trailing: DesignTextAction('重新检索',
+                                      key: const ValueKey(
+                                          'refresh-system-settings'),
+                                      chevron: false,
+                                      onPressed: () => controller
+                                          .command('refresh-system-settings')),
+                                  child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
+                                      children: [
+                                        // 原车系统设置是唯一的「大入口」，给一块主题色淡底。
+                                        Material(
+                                            color: Colors.transparent,
+                                            child: InkWell(
+                                                key: const ValueKey(
+                                                    'system-setting-official-root'),
+                                                onTap: () => controller.command(
+                                                    'open-official',
+                                                    value: 'settings'),
+                                                borderRadius:
+                                                    BorderRadius.circular(
+                                                        s.controlRadius),
+                                                child: Container(
+                                                    height: Design.dz(46),
+                                                    padding: EdgeInsets.symmetric(
+                                                        horizontal:
+                                                            Design.dz(14)),
+                                                    decoration: BoxDecoration(
+                                                        color: s.accent.withValues(
+                                                            alpha: .07),
+                                                        borderRadius: BorderRadius.circular(
+                                                            s.controlRadius),
+                                                        border: Border.all(
+                                                            color: s.accent.withValues(alpha: .26))),
+                                                    child: Row(children: [
+                                                      Icon(
+                                                          Icons
+                                                              .settings_outlined,
+                                                          size: Design.dz(20),
+                                                          color: s.accent),
+                                                      SizedBox(
+                                                          width: Design.dz(11)),
+                                                      Text('原车系统设置',
+                                                          style: TextStyle(
+                                                              fontSize:
+                                                                  Design.dz(
+                                                                      15.5),
+                                                              color: s.accent)),
+                                                      const Spacer(),
+                                                      Icon(Icons.chevron_right,
+                                                          size: Design.dz(18),
+                                                          color: s.accent
+                                                              .withValues(
+                                                                  alpha: .7))
+                                                    ])))),
+                                        SizedBox(height: Design.dz(10)),
+                                        if (groups.isEmpty)
+                                          Padding(
+                                              padding: EdgeInsets.symmetric(
+                                                  vertical: Design.dz(16)),
+                                              child: Text('未找到可直接打开的系统设置入口',
+                                                  style: TextStyle(
+                                                      fontSize: Design.dz(13.5),
+                                                      color: s.text.withValues(
+                                                          alpha: .42)))),
+                                        for (final group in ordered) ...[
+                                          Padding(
+                                              padding: EdgeInsets.only(
+                                                  top: Design.dz(6),
+                                                  bottom: Design.dz(4)),
+                                              child: Text(group.key,
+                                                  style: TextStyle(
+                                                      fontSize: Design.dz(11),
+                                                      letterSpacing:
+                                                          Design.dz(1.2),
+                                                      color: s.text.withValues(
+                                                          alpha: .32)))),
+                                          for (final entry in group.value)
+                                            SettingRow(
+                                                key: ValueKey(
+                                                    'system-setting-${entry['id']}'),
+                                                tile: true,
+                                                height: 46,
+                                                label: '${entry['label']}',
+                                                leading: Icon(
+                                                    Icons.tune_outlined,
+                                                    size: Design.dz(18),
+                                                    color: s.text.withValues(
+                                                        alpha: .34)),
+                                                trailing: Icon(
+                                                    Icons.chevron_right,
+                                                    size: Design.dz(16),
+                                                    color: s.text
+                                                        .withValues(alpha: .3)),
+                                                onTap: () => controller.command(
+                                                    'open-system-setting',
+                                                    value: '${entry['id']}')),
+                                        ],
+                                        SizedBox(height: Design.dz(8)),
+                                        Text('系统应用提供的入口不会随时都在，缺失时「重新检索」。',
+                                            style: TextStyle(
+                                                fontSize: Design.dz(11.5),
+                                                color: s.muted))
+                                      ]))))),
                 ]));
       });
 }

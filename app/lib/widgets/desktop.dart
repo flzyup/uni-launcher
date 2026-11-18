@@ -19,6 +19,7 @@ import '../model/card_layout.dart';
 import 'card_content.dart';
 import 'uni_icon.dart';
 import 'native_slice_builder.dart';
+import 'scene_background.dart';
 
 part 'desktop_drag.dart';
 
@@ -47,7 +48,11 @@ class _HeaderState extends State<Header> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => WallpaperInk(
+      appearance: widget.controller.appearance,
+      child: Builder(builder: _content));
+
+  Widget _content(BuildContext context) {
     final s = SurfaceStyle.of(context), d = DateTime.now();
     return SizedBox(
         height: Design.px(64),
@@ -184,6 +189,7 @@ class _DesktopState extends State<Desktop> with _DesktopDrag {
   late final _pagePosition =
       widget.position ?? ValueNotifier(controller.page.toDouble());
   bool warmed = false;
+
   /// 上一次建好的卡片树，和它的「布局签名」（见 _gridsFor）。
   List<Widget>? _cachedGrids;
   int _gridsSignature = 0;
@@ -405,49 +411,53 @@ class _DesktopState extends State<Desktop> with _DesktopDrag {
             for (final card in items)
               if (!focusHere || card.id != focusCard.id)
                 AnimatedPositioned(
-                  key: ValueKey('position-${card.id}'),
-                  duration: !c.editing ||
-                          MediaQuery.disableAnimationsOf(context) ||
-                          (c.placementResizing &&
-                              card.id == c.placementOrigin?.id)
-                      ? Duration.zero
-                      : const Duration(milliseconds: 150),
-                  curve: Curves.easeOutCubic,
-                  left: card.x * unitX,
-                  top: card.y * unitY,
-                  width: card.w * unitX - gap,
-                  height: card.h * unitY - gap,
+                    key: ValueKey('position-${card.id}'),
+                    duration: !c.editing ||
+                            MediaQuery.disableAnimationsOf(context) ||
+                            (c.placementResizing &&
+                                card.id == c.placementOrigin?.id)
+                        ? Duration.zero
+                        : const Duration(milliseconds: 150),
+                    curve: Curves.easeOutCubic,
+                    left: card.x * unitX,
+                    top: card.y * unitY,
+                    width: card.w * unitX - gap,
+                    height: card.h * unitY - gap,
                     child: IgnorePointer(
                         ignoring: focusHere,
                         child: Opacity(
-                        opacity: focusHere || card.id == _feedbackId ? 0 : 1,
-                        child: RepaintBoundary(
-                            key: _cardBoundaries.putIfAbsent(
-                                card.id,
-                                () => GlobalKey(
-                                    debugLabel: 'card-boundary-${card.id}')),
-                            child: EditableCard(
-                              key: ValueKey(card.id),
-                              card: card,
-                              controller: c,
-                              unitX: unitX,
-                              unitY: unitY,
-                              onPlacementStart: (card, resize, position) =>
-                                  _beginGesture(
-                                      card,
-                                      resize,
-                                      position,
-                                      context.findRenderObject()! as RenderBox,
-                                      unitX,
-                                      unitY)))))), // EditableCard/RepaintBoundary/Opacity/IgnorePointer/AnimatedPositioned
+                            opacity:
+                                focusHere || card.id == _feedbackId ? 0 : 1,
+                            child: RepaintBoundary(
+                                key: _cardBoundaries.putIfAbsent(
+                                    card.id,
+                                    () => GlobalKey(
+                                        debugLabel:
+                                            'card-boundary-${card.id}')),
+                                child: EditableCard(
+                                    key: ValueKey(card.id),
+                                    card: card,
+                                    controller: c,
+                                    unitX: unitX,
+                                    unitY: unitY,
+                                    onPlacementStart: (card, resize, position) =>
+                                        _beginGesture(
+                                            card,
+                                            resize,
+                                            position,
+                                            context.findRenderObject()! as RenderBox,
+                                            unitX,
+                                            unitY)))))), // EditableCard/RepaintBoundary/Opacity/IgnorePointer/AnimatedPositioned
             if (focusClosing)
               Positioned.fill(
                   child: _CardFocus(
                       key: ValueKey('card-focus-${focusCard.id}'),
                       controller: c,
                       card: focusHere ? focusCard : null,
-                      origin: Rect.fromLTWH(focusCard.x * unitX,
-                          focusCard.y * unitY, focusCard.w * unitX - gap,
+                      origin: Rect.fromLTWH(
+                          focusCard.x * unitX,
+                          focusCard.y * unitY,
+                          focusCard.w * unitX - gap,
                           focusCard.h * unitY - gap),
                       onClosed: () {
                         if (mounted) setState(() => _focus = null);
@@ -525,15 +535,13 @@ class _CardFocusState extends State<_CardFocus>
   }
 
   @override
-  Widget build(BuildContext context) => LayoutBuilder(
-      builder: (context, box) {
+  Widget build(BuildContext context) => LayoutBuilder(builder: (context, box) {
         final card = widget.card;
         final target = Rect.fromLTWH(0, 0, box.maxWidth, box.maxHeight);
         if (card == null) return const SizedBox.shrink();
         // 归一化的卡片：把尺寸换成整页，卡片自己的版式按「铺满档」排。
         final full = card.copyWith(w: 12, h: 6);
-        final scale = math.min(
-            widget.origin.width / math.max(target.width, 1),
+        final scale = math.min(widget.origin.width / math.max(target.width, 1),
             widget.origin.height / math.max(target.height, 1));
         return AnimatedBuilder(
             animation: _curve,

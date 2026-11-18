@@ -45,46 +45,49 @@ class _TransferRoute extends PopupRoute<void> {
     final panel = launcherController.native.value['hostMode'] == 'global-panel';
     // 浮层挂在 root overlay 上，不吃桌面那层 FittedBox；先归到 1600 画布坐标系，
     // 否则在「逻辑宽度 ≠ 1600」的屏上会按 1:1 像素落地、顶部被切掉。
-    return CanvasScope(
-        child: Builder(builder: (context) {
+    return CanvasScope(child: Builder(builder: (context) {
       final canvas = CanvasScopeInfo.of(context);
       final bottom = Design.dz(panel ? 14 : 91.67);
       // 稿子 716.67 高是给 900 高画布的；画布更矮（超宽屏 / 小窗）时按可用高度
       // 收，内容本身有 Expanded 与 ListView，收矮了也只是滚动，不会被裁。
-      final height = math.min(
-          Design.dz(716.67), math.max(Design.dz(240), canvas.height - bottom - Design.dz(12)));
+      final height = math.min(Design.dz(716.67),
+          math.max(Design.dz(240), canvas.height - bottom - Design.dz(12)));
       final width = math.min(Design.dz(533.33), canvas.width - Design.dz(24));
       return Stack(children: [
-      // 稿子只给右半边压一层渐隐，左半边保持桌面亮度。
-      const Positioned.fill(
-          child: IgnorePointer(
-              child: DecoratedBox(
-                  decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                          begin: Alignment.centerLeft,
-                          end: Alignment.centerRight,
-                          colors: [
-            Color(0x00020304),
-            Color(0x00020304),
-            Color(0x75020304)
-          ],
-          stops: [0, .38, 1]))))),
-      Positioned(
-          right: Design.dz(11.67),
-          bottom: bottom,
-          child: SizedBox(
-              width: width,
-              height: height,
-              child: GlassSurface(
-                  key: const ValueKey('transfer-popup'),
-                  sheet: true,
-                  // 不写死圆角：跟其它弹层一样吃「卡片圆角」设置（默认 25），
-                  // 否则用户调圆角时只有这个窗口四个角不动。
-                  padding: EdgeInsets.fromLTRB(Design.dz(20), Design.dz(20),
-                      Design.dz(20), Design.dz(15)),
-                  child: _TransferPanel(controller: launcherController))))
+        // 稿子只给右半边压一层渐隐，左半边保持桌面亮度。
+        const Positioned.fill(
+            child: IgnorePointer(
+                child: DecoratedBox(
+                    decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                            begin: Alignment.centerLeft,
+                            end: Alignment.centerRight,
+                            colors: [
+              Color(0x00020304),
+              Color(0x00020304),
+              Color(0x75020304)
+            ],
+                            stops: [
+              0,
+              .38,
+              1
+            ]))))),
+        Positioned(
+            right: Design.dz(11.67),
+            bottom: bottom,
+            child: SizedBox(
+                width: width,
+                height: height,
+                child: GlassSurface(
+                    key: const ValueKey('transfer-popup'),
+                    sheet: true,
+                    // 不写死圆角：跟其它弹层一样吃「卡片圆角」设置（默认 25），
+                    // 否则用户调圆角时只有这个窗口四个角不动。
+                    padding: EdgeInsets.fromLTRB(Design.dz(20), Design.dz(20),
+                        Design.dz(20), Design.dz(15)),
+                    child: _TransferPanel(controller: launcherController))))
       ]);
-        }));
+    }));
   }
 
   @override
@@ -152,9 +155,7 @@ class _TransferPanelState extends State<_TransferPanel> {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               softWrap: false,
-              style: TextStyle(
-                  fontSize: Design.dz(10.5),
-                  color: s.text.withValues(alpha: .42)))));
+              style: TextStyle(fontSize: Design.dz(10.5), color: s.muted))));
 
   /// `.ft-b`：13px 纯文字按钮，没有底和描边；dim 版本是删除。
   ///
@@ -210,9 +211,8 @@ class _TransferPanelState extends State<_TransferPanel> {
                     Text(note,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                            fontSize: Design.dz(11),
-                            color: s.text.withValues(alpha: .30))),
+                        style:
+                            TextStyle(fontSize: Design.dz(11), color: s.muted)),
                   ],
                 ])),
             ...actions,
@@ -231,10 +231,14 @@ class _TransferPanelState extends State<_TransferPanel> {
         note: _linkStatus(link),
         actions: [
           // 手机只能入队；真正开始下载必须由车机点这一下触发。
-          _button(busy ? '下载中' : '下载',
-              busy ? null : () => controller.command('transfer-link-download', value: id)),
-          _button('删除',
-              () => controller.command('transfer-link-remove', value: id),
+          _button(
+              busy ? '下载中' : '下载',
+              busy
+                  ? null
+                  : () =>
+                      controller.command('transfer-link-download', value: id)),
+          _button(
+              '删除', () => controller.command('transfer-link-remove', value: id),
               dim: true),
         ]);
   }
@@ -251,12 +255,14 @@ class _TransferPanelState extends State<_TransferPanel> {
             behavior: HitTestBehavior.opaque,
             onTap: () => _copyText(id, text),
             child: Container(
-                padding: EdgeInsets.fromLTRB(Design.dz(9), Design.dz(6),
-                    Design.dz(9), Design.dz(7)),
+                padding: EdgeInsets.fromLTRB(
+                    Design.dz(9), Design.dz(6), Design.dz(9), Design.dz(7)),
                 decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(Design.dz(9)),
                     border: Border.all(
-                        color: copied ? s.accent.withValues(alpha: .5) : s.text.withValues(alpha: .13))),
+                        color: copied
+                            ? s.accent.withValues(alpha: .5)
+                            : s.text.withValues(alpha: .13))),
                 child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -269,11 +275,13 @@ class _TransferPanelState extends State<_TransferPanel> {
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
                                     fontSize: Design.dz(10.5),
-                                    color: copied ? s.accent : s.text.withValues(alpha: .34)))),
-                        _button(copied ? '已复制' : '复制',
-                            () => _copyText(id, text)),
-                        _button('删除',
-                            () => controller.command('transfer-text-remove', value: id),
+                                    color: copied ? s.accent : s.muted))),
+                        _button(
+                            copied ? '已复制' : '复制', () => _copyText(id, text)),
+                        _button(
+                            '删除',
+                            () => controller.command('transfer-text-remove',
+                                value: id),
                             dim: true),
                       ]),
                       SizedBox(height: Design.dz(5)),
@@ -293,8 +301,10 @@ class _TransferPanelState extends State<_TransferPanel> {
         source: (host == null || host.isEmpty) ? '手机上传' : host,
         title: name,
         actions: [
-          _button('安装', () => controller.command('transfer-install', value: name)),
-          _button('删除', () => controller.command('transfer-delete', value: name),
+          _button(
+              '安装', () => controller.command('transfer-install', value: name)),
+          _button(
+              '删除', () => controller.command('transfer-delete', value: name),
               dim: true),
         ]);
   }
@@ -325,9 +335,7 @@ class _TransferPanelState extends State<_TransferPanel> {
                           fontSize: Design.dz(15),
                           fontWeight:
                               active ? FontWeight.w500 : FontWeight.w400,
-                          color: active
-                              ? s.accent
-                              : s.text.withValues(alpha: .52))))));
+                          color: active ? s.accent : s.muted)))));
     }
 
     return Padding(
@@ -343,8 +351,8 @@ class _TransferPanelState extends State<_TransferPanel> {
   Widget _switchRow(SurfaceStyle s, bool running) => GestureDetector(
       key: const ValueKey('transfer-switch'),
       behavior: HitTestBehavior.opaque,
-      onTap: () => controller
-          .command(running ? 'transfer-stop' : 'transfer-start'),
+      onTap: () =>
+          controller.command(running ? 'transfer-stop' : 'transfer-start'),
       child: Container(
           height: Design.dz(50),
           decoration: BoxDecoration(
@@ -361,9 +369,7 @@ class _TransferPanelState extends State<_TransferPanel> {
                           color: s.text.withValues(alpha: .88))),
                   SizedBox(height: Design.dz(3)),
                   Text(running ? '手机与车机连接同一网络' : '开启后扫码上传文件',
-                      style: TextStyle(
-                          fontSize: Design.dz(12),
-                          color: s.text.withValues(alpha: .36)))
+                      style: TextStyle(fontSize: Design.dz(12), color: s.muted))
                 ]),
             const Spacer(),
             DesignSwitch(
@@ -376,22 +382,22 @@ class _TransferPanelState extends State<_TransferPanel> {
   Widget _closeButton(SurfaceStyle s) => Tooltip(
       message: '关闭传文件',
       child: Semantics(
-      button: true,
-      label: '关闭传文件',
-      child: GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: () => Navigator.pop(context),
-          child: Container(
-              width: Design.dz(36),
-              height: Design.dz(36),
-              decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: s.text.withValues(alpha: .06),
-                  border: Border.all(color: s.text.withValues(alpha: .09))),
-              child: Center(
-                  child: Icon(Icons.close,
-                      size: Design.dz(15),
-                      color: s.text.withValues(alpha: .70)))))));
+          button: true,
+          label: '关闭传文件',
+          child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => Navigator.pop(context),
+              child: Container(
+                  width: Design.dz(36),
+                  height: Design.dz(36),
+                  decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: s.text.withValues(alpha: .06),
+                      border: Border.all(color: s.text.withValues(alpha: .09))),
+                  child: Center(
+                      child: Icon(Icons.close,
+                          size: Design.dz(15),
+                          color: s.text.withValues(alpha: .70)))))));
 
   /// `.ft-qr`：204 见方的浅色码箱（内衬 8）→ 188 的码，下面地址与说明。
   Widget _qrBlock(SurfaceStyle s, String url) => Padding(
@@ -436,9 +442,7 @@ class _TransferPanelState extends State<_TransferPanel> {
                   color: s.accent.withValues(alpha: .8))),
           SizedBox(width: Design.dz(6)),
           Text('WiFi 局域网 · 手机扫码后浏览器打开上传页',
-              style: TextStyle(
-                  fontSize: Design.dz(11.5),
-                  color: s.text.withValues(alpha: .34)))
+              style: TextStyle(fontSize: Design.dz(11.5), color: s.muted))
         ])
       ]));
 
@@ -467,8 +471,7 @@ class _TransferPanelState extends State<_TransferPanel> {
               '${link['name'] ?? ''}': '${link['host'] ?? ''}'
         };
         final rows = <Widget>[
-          for (final note in texts)
-            _textRow(s, note is Map ? note : const {}),
+          for (final note in texts) _textRow(s, note is Map ? note : const {}),
           for (final link in links) _linkRow(s, link),
           for (final file in files)
             _fileRow(s, file is Map ? file : const {},
@@ -498,12 +501,10 @@ class _TransferPanelState extends State<_TransferPanel> {
                 else
                   Padding(
                       padding: EdgeInsets.symmetric(vertical: Design.dz(26)),
-                      child: Text(
-                          running ? '未检测到可用网络地址' : '开启后显示二维码与访问地址',
+                      child: Text(running ? '未检测到可用网络地址' : '开启后显示二维码与访问地址',
                           textAlign: TextAlign.center,
                           style: TextStyle(
-                              fontSize: Design.dz(12),
-                              color: s.text.withValues(alpha: .36)))),
+                              fontSize: Design.dz(12), color: s.muted))),
                 // `.ft-lh`：左「已接收 N」，右「清空文本」。
                 Container(
                     padding: EdgeInsets.only(
@@ -517,7 +518,7 @@ class _TransferPanelState extends State<_TransferPanel> {
                           style: TextStyle(
                               fontSize: Design.dz(11.5),
                               letterSpacing: Design.dz(1.15),
-                              color: s.text.withValues(alpha: .40))),
+                              color: s.muted)),
                       const Spacer(),
                       if (texts.isNotEmpty)
                         GestureDetector(
@@ -526,8 +527,7 @@ class _TransferPanelState extends State<_TransferPanel> {
                                 controller.command('transfer-text-clear'),
                             child: Text('清空文本',
                                 style: TextStyle(
-                                    fontSize: Design.dz(11.5),
-                                    color: s.text.withValues(alpha: .42))))
+                                    fontSize: Design.dz(11.5), color: s.muted)))
                     ]))
               ] else
                 SizedBox(
@@ -545,9 +545,8 @@ class _TransferPanelState extends State<_TransferPanel> {
                                   textAlign: TextAlign.center,
                                   style: TextStyle(
                                       fontSize: Design.dz(12),
-                                      color: s.text.withValues(alpha: .34)))))
-                      : ListView(
-                          padding: EdgeInsets.zero, children: rows)),
+                                      color: s.muted))))
+                      : ListView(padding: EdgeInsets.zero, children: rows)),
               if (_tab == 0)
                 Container(
                     padding: EdgeInsets.only(top: Design.dz(9)),
