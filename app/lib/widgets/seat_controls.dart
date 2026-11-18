@@ -6,7 +6,7 @@ import '../model/seat_control.dart';
 import '../theme/design_tokens.dart';
 import '../theme/launcher_theme.dart';
 import 'choice_button.dart';
-import 'uni_icon.dart';
+import 'oem_climate_icon.dart';
 import 'spec_panel.dart';
 
 /// 设计稿 `.sg`：44 高、圆角 12、15px；通风是青色系（`.b`）、加热是橙色系
@@ -45,17 +45,28 @@ class SeatControls extends StatelessWidget {
               ],
               chips: [
                 _SeatChip(
-                    icon: 'climate-seat-vent',
+                    icon: OemSeatIcon(
+                        ventilation: true,
+                        level: driverVent.level,
+                        color: _ventColor,
+                        size: Design.dz(22)),
                     color: _ventColor,
                     label: driverVent.level == null
                         ? '通风 · —'
-                        : (driverVent.level == 0 ? '通风 · 关' : '通风 · ${driverVent.level}')),
+                        : (driverVent.level == 0
+                            ? '通风 · 关'
+                            : '通风 · ${driverVent.level}')),
                 _SeatChip(
-                    icon: 'climate-seat-heat',
+                    icon: OemSeatIcon(
+                        level: driverHeat.level,
+                        color: _heatColor,
+                        size: Design.dz(22)),
                     color: _heatColor,
                     label: driverHeat.level == null
                         ? '加热 · —'
-                        : (driverHeat.level == 0 ? '加热 · 关' : '加热 · ${driverHeat.level}')),
+                        : (driverHeat.level == 0
+                            ? '加热 · 关'
+                            : '加热 · ${driverHeat.level}')),
               ],
               writable: driverHeat.writable || driverVent.writable,
               steps: [
@@ -111,7 +122,11 @@ class SeatControls extends StatelessWidget {
               unknown: [if (passengerHeat.level == null) 'passengerHeat'],
               chips: [
                 _SeatChip(
-                    icon: 'climate-seat-heat',
+                    icon: OemSeatIcon(
+                        passenger: true,
+                        level: passengerHeat.level,
+                        color: _heatColor,
+                        size: Design.dz(22)),
                     color: _heatColor,
                     label: passengerHeat.level == null
                         ? '加热 · —'
@@ -146,27 +161,26 @@ class SeatControls extends StatelessWidget {
 
 /// 标题右侧那枚「通风 · 关」小标签：7% 同色底 + 22% 描边 + 11.5 字号。
 class _SeatChip extends StatelessWidget {
-  final String icon, label;
+  final Widget icon;
+  final String label;
   final Color color;
   const _SeatChip(
       {required this.icon, required this.label, required this.color});
   @override
-  Widget build(BuildContext context) =>
-      Container(
-          padding: EdgeInsets.fromLTRB(
-              Design.dz(6), Design.dz(3), Design.dz(9), Design.dz(3)),
-          decoration: BoxDecoration(
-              color: color.withValues(alpha: .07),
-              border: Border.all(color: color.withValues(alpha: .22)),
-              borderRadius: BorderRadius.circular(Design.dz(9))),
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            UniIcon(icon, size: Design.dz(15), color: color.withValues(alpha: .85)),
-            SizedBox(width: Design.dz(5)),
-            Text(label,
-                style: TextStyle(
-                    fontSize: Design.dz(11.5),
-                    color: color.withValues(alpha: .85)))
-          ]));
+  Widget build(BuildContext context) => Container(
+      padding: EdgeInsets.fromLTRB(
+          Design.dz(6), Design.dz(3), Design.dz(9), Design.dz(3)),
+      decoration: BoxDecoration(
+          color: color.withValues(alpha: .07),
+          border: Border.all(color: color.withValues(alpha: .22)),
+          borderRadius: BorderRadius.circular(Design.dz(9))),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        icon,
+        SizedBox(width: Design.dz(5)),
+        Text(label,
+            style: TextStyle(
+                fontSize: Design.dz(11.5), color: color.withValues(alpha: .85)))
+      ]));
 }
 
 class _SeatCard extends StatelessWidget {
@@ -174,6 +188,7 @@ class _SeatCard extends StatelessWidget {
   final List<_SeatChip> chips;
   final List<String> unknown;
   final bool writable;
+
   /// 稿子里主驾的「通风」标签紧跟车名，其余（主驾的加热、副驾的加热）都靠右。
   final bool leadingChip;
   final List<_SeatStep> steps;
@@ -214,19 +229,16 @@ class _SeatCard extends StatelessWidget {
               chips.first
             ],
             const Spacer(),
-            for (final (i, chip)
-                in (leadingChip ? chips.skip(1) : chips).indexed) ...[
-              if (i > 0) SizedBox(width: Design.dz(8)),
-              chip
-            ]
+            for (final (i, chip) in (leadingChip ? chips.skip(1) : chips)
+                .indexed) ...[if (i > 0) SizedBox(width: Design.dz(8)), chip]
           ]),
           SizedBox(height: Design.dz(12)),
           Row(children: [
             for (final (index, step) in steps.indexed)
               Expanded(
                   child: Padding(
-                      padding: EdgeInsets.only(
-                          left: index == 0 ? 0 : Design.dz(8)),
+                      padding:
+                          EdgeInsets.only(left: index == 0 ? 0 : Design.dz(8)),
                       child: SizedBox(
                           height: Design.dz(44), child: _step(step, s, ink))))
           ]),
@@ -241,7 +253,7 @@ class _SeatCard extends StatelessWidget {
   Widget _step(_SeatStep step, SurfaceStyle s, Color ink) {
     final accent = step.color;
     final on = step.selected;
-    final radius = BorderRadius.circular(Design.dz(12));
+    final radius = BorderRadius.circular(s.controlRadius);
     // 经典 / 蓝玻璃没有「通风青」「加热橙」这套档位色，交给统一的选择控件，
     // 选中态由皮肤自己给（蓝玻璃是四角短弧框），与同页的空调模式一致。
     if (!s.nocturne) {
@@ -271,7 +283,8 @@ class _SeatCard extends StatelessWidget {
         ? ink.withValues(alpha: .22)
         : on
             ? (accent != null ? onInk : s.accent)
-            : accent?.withValues(alpha: accent == SeatControls._ventColor ? .75 : .8) ??
+            : accent?.withValues(
+                    alpha: accent == SeatControls._ventColor ? .75 : .8) ??
                 ink.withValues(alpha: .6);
     return DecoratedBox(
         decoration: BoxDecoration(

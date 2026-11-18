@@ -4,6 +4,7 @@ package xyz.i4o.uni.launcher.core;
 public final class ClimateState {
     public double left = 22.5, right = 22.5;
     public int fan = 3;
+    public String blowing = "auto";
     public int driverHeat = 0, driverVent = 0, passengerHeat = 0;
     public boolean power = true, auto = true, ac = true, sync = false, recirc = false;
     public boolean apply(String action, String zone, String value) {
@@ -14,6 +15,9 @@ public final class ClimateState {
             if (sync) left = right = next;
         } else if ("fan-up".equals(action) || "fan-down".equals(action)) {
             fan = CommandPolicy.fan(fan + ("fan-up".equals(action) ? 1 : -1));
+        } else if ("climate-blowing".equals(action)) {
+            if (!CommandPolicy.validBlowing(value)) return false;
+            blowing = value;
         } else if ("climate-power".equals(action)) power = !power;
         else if ("climate-mode".equals(action)) {
             if (!CommandPolicy.validMode(value)) return false;

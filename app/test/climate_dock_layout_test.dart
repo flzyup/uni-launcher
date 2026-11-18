@@ -4,7 +4,7 @@ import 'package:uni_launcher/controller/launcher_controller.dart';
 import 'package:uni_launcher/launcher_app.dart';
 import 'package:uni_launcher/theme/design_tokens.dart';
 import 'package:uni_launcher/widgets/circulation_icon.dart';
-import 'package:uni_launcher/widgets/uni_icon.dart';
+import 'package:uni_launcher/widgets/oem_climate_icon.dart';
 import 'fake_gateway.dart';
 
 void main() {
@@ -35,17 +35,15 @@ void main() {
     final climateFrame =
         t.getRect(find.byKey(const ValueKey('dock-climate-frame')));
     expect(climateFrame.height, closeTo(music.height, .1));
-    // 设计稿尺寸体系：导航键 64，空调 cb 格 72（比导航键大一号），胶囊高 72。
-    expect(home.width, closeTo(64, .1));
-    expect(home.height, closeTo(64, .1));
+    // 底栏按钮与胶囊高度固定；七个空调操作位等间距排列。
+    expect(home.width, closeTo(56, .1));
+    expect(home.height, closeTo(56, .1));
     expect(climateFrame.height, closeTo(72, .1));
-    // 六格不再各占 72 方格（2026-11-15 方案 C）：宽度跟内容走、高度撑满胶囊，
-    // 间距由 `Row(spaceBetween)` 平分——所以「相邻间隙」必须彼此相等，
-    // 左右留白也必须对称。
     final items = [
       ac,
       left,
       fan,
+      find.byKey(const ValueKey('dock-airflow')),
       circulation,
       right,
       find.byKey(const ValueKey('climate-power'))
@@ -56,14 +54,13 @@ void main() {
       expect(rects[i].width, greaterThan(0), reason: '${items[i]}');
     }
     final gaps = [
-      for (var i = 1; i < rects.length; i++)
-        rects[i].left - rects[i - 1].right
+      for (var i = 1; i < rects.length; i++) rects[i].left - rects[i - 1].right
     ];
     for (final gap in gaps) {
-      expect(gap, closeTo(gaps.first, .6), reason: '六格间距应完全相等：$gaps');
+      expect(gap, closeTo(gaps.first, .6), reason: '七格间距应完全相等：$gaps');
     }
-    expect(rects.first.left - climateFrame.left, closeTo(20, .6));
-    expect(climateFrame.right - rects.last.right, closeTo(20, .6));
+    expect(rects.first.left - climateFrame.left, closeTo(12, .6));
+    expect(climateFrame.right - rects.last.right, closeTo(12, .6));
     final pressColors = <Color>{
       for (final key in [
         'system-back',
@@ -74,6 +71,7 @@ void main() {
         'dock-ac-indicator',
         'dock-temperature-left',
         'climate',
+        'dock-airflow',
         'dock-circulation-indicator',
         'dock-temperature-right',
         'climate-power',
@@ -115,7 +113,10 @@ void main() {
     await t.tap(fan);
     await t.pumpAndSettle();
     expect(
-        t.widget<UniIcon>(find.byKey(const ValueKey('climate-fan-icon'))).size,
+        t
+            .widget<OemClimateIcon>(
+                find.byKey(const ValueKey('climate-fan-icon')))
+            .size,
         greaterThanOrEqualTo(Design.px(36)));
     expect(
         t.getCenter(find.byKey(const ValueKey('climate-card-left'))).dy,

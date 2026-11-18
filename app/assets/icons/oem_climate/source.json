@@ -1,0 +1,172 @@
+{
+  "sourcePackage": "com.ecarx.systemui.plugin",
+  "sourceApkSha256": "c9b940ff7ded2396745353ea0a17a8c4a1fafde3b26fb56efcfc7e1420d83023",
+  "note": "OEM night resources: only transparent canvas margins cropped; seat family shares one viewport. Modulate tint preserves inactive OEM segments.",
+  "assets": [
+    {
+      "asset": "climate_inner_circulation.png",
+      "source": "res/drawable-night/climate_inner_circulation.png",
+      "sourceSha256": "aad372171f5c92da74118799f009f7162b469f2e10d692a15679fc066944bf96",
+      "crop": [
+        5,
+        25,
+        76,
+        59
+      ]
+    },
+    {
+      "asset": "climate_outer_circulation.png",
+      "source": "res/drawable-night/climate_outer_circulation.png",
+      "sourceSha256": "caf5fa2eff158a808af1cdeaf6366533cc481e1ff8e70d0f8948e5db7b4bc7fc",
+      "crop": [
+        5,
+        25,
+        76,
+        59
+      ]
+    },
+    {
+      "asset": "climate_fan.png",
+      "source": "res/drawable-night/climate_fan.png",
+      "sourceSha256": "0c0777393f03ded6112aaf9e17f2945f5c44e04a75848443a226824c11bea501",
+      "crop": [
+        20,
+        11,
+        76,
+        67
+      ]
+    },
+    {
+      "asset": "seat_fan_1_left.png",
+      "source": "res/drawable-night/seat_fan_1_left.png",
+      "sourceSha256": "a8f013814dcf0e73255e64867a4ba0f3ba373c4a8d854386a477da3f87d3e3ff",
+      "crop": [
+        14,
+        12,
+        66,
+        68
+      ]
+    },
+    {
+      "asset": "seat_fan_1_right.png",
+      "source": "res/drawable-night/seat_fan_1_right.png",
+      "sourceSha256": "e085c92538ef8ac40fea26b8f7077e49cb6771866b5357ce32badf2b2049be29",
+      "crop": [
+        14,
+        12,
+        66,
+        68
+      ]
+    },
+    {
+      "asset": "seat_fan_2_left.png",
+      "source": "res/drawable-night/seat_fan_2_left.png",
+      "sourceSha256": "f7ad4abfac75b965c039d4f15860f04e29fff33e58ea6097b6b343813985fdbf",
+      "crop": [
+        14,
+        12,
+        66,
+        68
+      ]
+    },
+    {
+      "asset": "seat_fan_2_right.png",
+      "source": "res/drawable-night/seat_fan_2_right.png",
+      "sourceSha256": "153bbd6c1ca60e2948ab6233c31678061116f9301d4db84246b523eb9c805d7e",
+      "crop": [
+        14,
+        12,
+        66,
+        68
+      ]
+    },
+    {
+      "asset": "seat_fan_3_left.png",
+      "source": "res/drawable-night/seat_fan_3_left.png",
+      "sourceSha256": "8c7957156905bf7e894936c2ad05e485deaaca883324b5085af53b04ebf03bdb",
+      "crop": [
+        14,
+        12,
+        66,
+        68
+      ]
+    },
+    {
+      "asset": "seat_fan_3_right.png",
+      "source": "res/drawable-night/seat_fan_3_right.png",
+      "sourceSha256": "8a7e3582874b5c8028f1c92f2fd89a11a7f200f6d962ffc9fb906643c805f6f7",
+      "crop": [
+        14,
+        12,
+        66,
+        68
+      ]
+    },
+    {
+      "asset": "seat_heat_1_left.png",
+      "source": "res/drawable-night/seat_heat_1_left.png",
+      "sourceSha256": "1ee5942fc5f2b2d612c5987381af1f47c23383b11f2dfa7c2ffc3a95c6a80a77",
+      "crop": [
+        14,
+        12,
+        66,
+        68
+      ]
+    },
+    {
+      "asset": "seat_heat_1_right.png",
+      "source": "res/drawable-night/seat_heat_1_right.png",
+      "sourceSha256": "23e3ba9959334b1c18f3d60b90170809e1b7047440038eff6e046eb899097ff1",
+      "crop": [
+        14,
+        12,
+        66,
+        68
+      ]
+    },
+    {
+      "asset": "seat_heat_2_left.png",
+      "source": "res/drawable-night/seat_heat_2_left.png",
+      "sourceSha256": "52f0b7d3643406dd2172b88985af2c6d1ea2ea1838e3d903406b0dd79ae8570d",
+      "crop": [
+        14,
+        12,
+        66,
+        68
+      ]
+    },
+    {
+      "asset": "seat_heat_2_right.png",
+      "source": "res/drawable-night/seat_heat_2_right.png",
+      "sourceSha256": "55d4f7b66a1b7314aff3620a635b56de242e6438526d90ad2953d490fec40b67",
+      "crop": [
+        14,
+        12,
+        66,
+        68
+      ]
+    },
+    {
+      "asset": "seat_heat_3_left.png",
+      "source": "res/drawable-night/seat_heat_3_left.png",
+      "sourceSha256": "663c11d493ddf5557f8c4e49e7c6cedd5b3400d848421fdf7e6f920c609694b5",
+      "crop": [
+        14,
+        12,
+        66,
+        68
+      ]
+    },
+    {
+      "asset": "seat_heat_3_right.png",
+      "source": "res/drawable-night/seat_heat_3_right.png",
+      "sourceSha256": "5f51cdb6497049e95fd35d47c5a05aeadaf9f9fd229144aa42fa2da6558f3432",
+      "crop": [
+        14,
+        12,
+        66,
+        68
+      ]
+    }
+  ]
+}

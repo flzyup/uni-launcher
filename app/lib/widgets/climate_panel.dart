@@ -5,6 +5,8 @@ import '../controller/launcher_controller.dart';
 import '../theme/design_tokens.dart';
 import '../theme/launcher_theme.dart';
 import 'circulation_icon.dart';
+import 'oem_climate_icon.dart';
+import 'climate_airflow.dart';
 import 'choice_button.dart';
 import 'spec_panel.dart';
 import 'uni_icon.dart';
@@ -84,10 +86,10 @@ Future<void> showClimatePanel(
                 Widget Function(Color fg)? icon}) {
               final writable = climateWritable(n, mode);
               final fg = !writable
-                  ? ink.withValues(alpha: .3)
+                  ? s.disabled
                   : selected
                       ? s.accentText
-                      : ink.withValues(alpha: .58);
+                      : s.text;
               final onTap = !writable
                   ? null
                   : () => mode == 'power'
@@ -113,7 +115,7 @@ Future<void> showClimatePanel(
                 return Expanded(
                     flex: (flex * 100).round(),
                     child: Opacity(
-                        opacity: writable ? 1 : .45,
+                        opacity: 1,
                         child: ChoiceButton(
                             key: ValueKey('climate-mode-$mode'),
                             selected: selected,
@@ -122,8 +124,10 @@ Future<void> showClimatePanel(
                             height: 48,
                             radius: 13,
                             padding: EdgeInsets.zero,
-                            child: content(ChoiceButton.foregroundOf(
-                                s, ChoiceKind.filled, selected)))));
+                            child: content(!writable
+                                ? s.disabled
+                                : ChoiceButton.foregroundOf(
+                                    s, ChoiceKind.filled, selected)))));
               }
               return Expanded(
                   flex: (flex * 100).round(),
@@ -138,7 +142,7 @@ Future<void> showClimatePanel(
                               height: Design.dz(48),
                               decoration: BoxDecoration(
                                   borderRadius:
-                                      BorderRadius.circular(Design.dz(13)),
+                                      BorderRadius.circular(s.controlRadius),
                                   color: selected
                                       ? null
                                       : ink.withValues(alpha: .06),
@@ -195,24 +199,24 @@ Future<void> showClimatePanel(
                     Tooltip(
                         message: '关闭空调',
                         child: Semantics(
-                        button: true,
-                        label: '关闭空调',
-                        child: GestureDetector(
-                            behavior: HitTestBehavior.opaque,
-                            onTap: () => Navigator.pop(context),
-                            child: Container(
-                                width: Design.dz(36),
-                                height: Design.dz(36),
-                                decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: ink.withValues(alpha: .06),
-                                    border: Border.all(
-                                        color: ink.withValues(alpha: .09))),
-                                child: Center(
-                                    child: Icon(Icons.close,
-                                        size: Design.dz(15),
-                                        color:
-                                            ink.withValues(alpha: .70)))))))
+                            button: true,
+                            label: '关闭空调',
+                            child: GestureDetector(
+                                behavior: HitTestBehavior.opaque,
+                                onTap: () => Navigator.pop(context),
+                                child: Container(
+                                    width: Design.dz(36),
+                                    height: Design.dz(36),
+                                    decoration: BoxDecoration(
+                                        shape: BoxShape.circle,
+                                        color: ink.withValues(alpha: .06),
+                                        border: Border.all(
+                                            color: ink.withValues(alpha: .09))),
+                                    child: Center(
+                                        child: Icon(Icons.close,
+                                            size: Design.dz(15),
+                                            color:
+                                                ink.withValues(alpha: .70)))))))
                   ]),
                   SizedBox(height: Design.dz(16)),
                   _caption(context, '温度与风量', top: 0),
@@ -237,8 +241,7 @@ Future<void> showClimatePanel(
                             climate['ac'] == true,
                         flex: 1),
                     SizedBox(width: Design.dz(14)),
-                    modePill('auto', 'AUTO',
-                        selected: automatic, flex: 1),
+                    modePill('auto', 'AUTO', selected: automatic, flex: 1),
                     SizedBox(width: Design.dz(14)),
                     Builder(builder: (context) {
                       final field = VehicleField.fromNative(n, 'recirc');
@@ -247,7 +250,8 @@ Future<void> showClimatePanel(
                           : (field.valid
                               ? field.value as bool?
                               : climate['recirc'] as bool?);
-                      return modePill('recirc',
+                      return modePill(
+                          'recirc',
                           recirc == null
                               ? '循环状态未知'
                               : recirc
@@ -268,9 +272,75 @@ Future<void> showClimatePanel(
                     modePill('power', '电源',
                         selected: climate['power'] == true,
                         flex: .9,
-                        icon: (fg) => UniIcon('power',
-                            size: Design.dz(18), color: fg))
+                        icon: (fg) =>
+                            UniIcon('power', size: Design.dz(18), color: fg))
                   ]),
+                  Builder(builder: (context) {
+                    final field = VehicleField.fromNative(n, 'blowing');
+                    final mode = demo
+                        ? climate['blowing'] as String?
+                        : field.value as String?;
+                    final mask = airflowMask(mode);
+                    final writable = climateWritable(n, 'blowing');
+                    return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Padding(
+                            padding: EdgeInsets.only(
+                                top: Design.dz(16), bottom: Design.dz(10)),
+                            child: Row(children: [
+                              Text('出风方向',
+                                  style: TextStyle(
+                                      fontSize: Design.dz(12.5),
+                                      letterSpacing: Design.dz(1),
+                                      color: s.muted)),
+                              SizedBox(width: Design.dz(12)),
+                              Semantics(
+                                  label: airflowLabel(mode),
+                                  child: AirflowIcon(
+                                      mode: mode,
+                                      color: mode == null ? s.muted : s.accent,
+                                      size: Design.dz(32))),
+                              SizedBox(width: Design.dz(4)),
+                              Text(airflowLabel(mode),
+                                  style: TextStyle(
+                                      fontSize: Design.dz(12.5),
+                                      color: s.muted)),
+                            ]),
+                          ),
+                          Row(children: [
+                            for (final item in const [
+                              (1, '前挡风'),
+                              (2, '面部'),
+                              (4, '脚部'),
+                              (0, '自动')
+                            ]) ...[
+                              if (item.$1 != 1) SizedBox(width: Design.dz(14)),
+                              Expanded(
+                                  child: ChoiceButton(
+                                key: ValueKey('climate-airflow-${item.$1}'),
+                                height: 48,
+                                kind: ChoiceKind.filled,
+                                selected: item.$1 == 0
+                                    ? mode == 'auto'
+                                    : (mask & item.$1) != 0,
+                                onPressed: !writable
+                                    ? null
+                                    : () {
+                                        final next = item.$1 == 0
+                                            ? 'auto'
+                                            : airflowMode(mask ^ item.$1);
+                                        // 原车协议没有确认的全关状态，保留最后一个方向。
+                                        if (next != null)
+                                          c.command('climate-blowing',
+                                              value: next);
+                                      },
+                                child: Text(item.$2),
+                              )),
+                            ],
+                          ]),
+                        ]);
+                  }),
                   _caption(context, '座椅舒适', top: 16),
                   SeatControls(controller: c, native: n),
                   if (!demo && vehicleCommandLabel(n).isNotEmpty)
@@ -285,17 +355,23 @@ Future<void> showClimatePanel(
           }));
 }
 
-Widget _caption(BuildContext context, String text, {double top = 16}) => Padding(
-    padding: EdgeInsets.only(top: Design.dz(top), bottom: Design.dz(10)),
-    child: Text(text,
-        style: TextStyle(
-            fontSize: Design.dz(12.5),
-            letterSpacing: Design.dz(1),
-            color: SurfaceStyle.of(context).muted)));
+Widget _caption(BuildContext context, String text, {double top = 16}) =>
+    Padding(
+        padding: EdgeInsets.only(top: Design.dz(top), bottom: Design.dz(10)),
+        child: Text(text,
+            style: TextStyle(
+                fontSize: Design.dz(12.5),
+                letterSpacing: Design.dz(1),
+                color: SurfaceStyle.of(context).muted)));
 
 /// 主驾 / 副驾温度卡：42 加减键夹一个 40/200 的大数字，下面一根冷热渐变条。
-Widget _tempCard(String zone, String Function(String) value,
-    bool Function(String) live, Color ink, SurfaceStyle s, Map<String, dynamic> n,
+Widget _tempCard(
+    String zone,
+    String Function(String) value,
+    bool Function(String) live,
+    Color ink,
+    SurfaceStyle s,
+    Map<String, dynamic> n,
     LauncherController c) {
   final title = zone == 'left' ? '主驾温度' : '副驾温度';
   final raw = value(zone);
@@ -305,58 +381,60 @@ Widget _tempCard(String zone, String Function(String) value,
   return KeyedSubtree(
       key: ValueKey('climate-card-$zone'),
       child: SpecPanel(
-      padding: EdgeInsets.fromLTRB(
-          Design.dz(16), Design.dz(14), Design.dz(16), Design.dz(15)),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(title,
-            style: TextStyle(
-                fontSize: Design.dz(12.5),
-                color: ink.withValues(alpha: .42))),
-        SizedBox(height: Design.dz(8)),
-        // 与风量卡那 44 高的虚线圆环同高，三张卡的中线才对得齐。
-        SizedBox(
-            height: Design.dz(44),
-            child: Row(children: [
-          SpecStepButton(
-              icon: Icons.remove,
-              label: '降低$title',
-              onTap: climateWritable(n, zone)
-                  ? () => c.command('temp-down', zone: zone)
-                  : null),
-          Expanded(
-              child: Center(
-                  child: FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: Text('$raw°',
-                          maxLines: 1,
-                          softWrap: false,
-                          style: TextStyle(
-                              fontSize: Design.dz(40),
-                              height: 1.0,
-                              fontWeight: FontWeight.w200,
-                              letterSpacing: Design.dz(-.8),
-                              color: live(zone)
-                                  ? ink.withValues(alpha: .95)
-                                  : ink.withValues(alpha: .3)))))),
-          SpecStepButton(
-              icon: Icons.add,
-              label: '提高$title',
-              onTap: climateWritable(n, zone)
-                  ? () => c.command('temp-up', zone: zone)
-                  : null)
-        ])),
-        SizedBox(height: Design.dz(10)),
-        Row(children: [
-          Icon(Icons.ac_unit,
-              size: Design.dz(11), color: const Color(0xFF6FD3FF).withValues(alpha: .6)),
-          SizedBox(width: Design.dz(8)),
-          Expanded(child: _TempBar(position: pos)),
-          SizedBox(width: Design.dz(8)),
-          Icon(Icons.wb_sunny_outlined,
-              size: Design.dz(11),
-              color: const Color(0xFFFFB057).withValues(alpha: .65))
-        ])
-      ])));
+          padding: EdgeInsets.fromLTRB(
+              Design.dz(16), Design.dz(14), Design.dz(16), Design.dz(15)),
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(title,
+                style: TextStyle(
+                    fontSize: Design.dz(12.5),
+                    color: ink.withValues(alpha: .42))),
+            SizedBox(height: Design.dz(8)),
+            // 与风量卡那 44 高的虚线圆环同高，三张卡的中线才对得齐。
+            SizedBox(
+                height: Design.dz(44),
+                child: Row(children: [
+                  SpecStepButton(
+                      icon: Icons.remove,
+                      label: '降低$title',
+                      onTap: climateWritable(n, zone)
+                          ? () => c.command('temp-down', zone: zone)
+                          : null),
+                  Expanded(
+                      child: Center(
+                          child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text('$raw°',
+                                  maxLines: 1,
+                                  softWrap: false,
+                                  style: TextStyle(
+                                      fontSize: Design.dz(40),
+                                      height: 1.0,
+                                      fontWeight: FontWeight.w200,
+                                      letterSpacing: Design.dz(-.8),
+                                      color: live(zone)
+                                          ? ink.withValues(alpha: .95)
+                                          : ink.withValues(alpha: .3)))))),
+                  SpecStepButton(
+                      icon: Icons.add,
+                      label: '提高$title',
+                      onTap: climateWritable(n, zone)
+                          ? () => c.command('temp-up', zone: zone)
+                          : null)
+                ])),
+            SizedBox(height: Design.dz(10)),
+            Row(children: [
+              Icon(Icons.ac_unit,
+                  size: Design.dz(11),
+                  color: const Color(0xFF6FD3FF).withValues(alpha: .6)),
+              SizedBox(width: Design.dz(8)),
+              Expanded(child: _TempBar(position: pos)),
+              SizedBox(width: Design.dz(8)),
+              Icon(Icons.wb_sunny_outlined,
+                  size: Design.dz(11),
+                  color: const Color(0xFFFFB057).withValues(alpha: .65))
+            ])
+          ])));
 }
 
 /// 冷热渐变条：4 高，左侧冷蓝、右侧暖橙，中间过渡到墨色，旋钮 9 见方。
@@ -415,9 +493,15 @@ class _TempBar extends StatelessWidget {
 }
 
 /// 风量卡：虚线圆环里一枚风扇 + AUTO/档位，下面七段刻度。
-Widget _fanCard(Map<String, dynamic> n, bool automatic,
-    String Function(String) value, bool Function(String) live, bool demo,
-    Color ink, SurfaceStyle s, LauncherController c) {
+Widget _fanCard(
+    Map<String, dynamic> n,
+    bool automatic,
+    String Function(String) value,
+    bool Function(String) live,
+    bool demo,
+    Color ink,
+    SurfaceStyle s,
+    LauncherController c) {
   // 稿子里七段刻度的透明度就是这一串，最后一段 100%。
   const steps = [.14, .24, .36, .50, .66, .82, 1.0];
   final writable = climateWritable(n, 'fan');
@@ -425,74 +509,76 @@ Widget _fanCard(Map<String, dynamic> n, bool automatic,
   return KeyedSubtree(
       key: const ValueKey('climate-card-fan'),
       child: SpecPanel(
-      padding: EdgeInsets.fromLTRB(
-          Design.dz(16), Design.dz(14), Design.dz(16), Design.dz(15)),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('风量',
-            style: TextStyle(
-                fontSize: Design.dz(12.5), color: ink.withValues(alpha: .42))),
-        SizedBox(height: Design.dz(8)),
-        Row(children: [
-          SpecStepButton(
-              icon: Icons.remove,
-              label: '降低风量',
-              onTap: writable ? () => c.command('fan-down') : null),
-          Expanded(
-              child: Center(
-                  child: Row(mainAxisSize: MainAxisSize.min, children: [
-            CustomPaint(
-                painter: _DashedCircle(s.accent.withValues(alpha: .40)),
-                child: SizedBox(
-                    width: Design.dz(44),
-                    height: Design.dz(44),
-                    child: Center(
-                        child: UniIcon('fan',
-                            key: const ValueKey('climate-fan-icon'),
-                            size: Design.dz(32),
-                            color: s.accent)))),
-            SizedBox(width: Design.dz(10)),
-            FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Text(automatic ? 'AUTO' : value('fan'),
-                    key: const ValueKey('climate-fan-value'),
-                    maxLines: 1,
-                    softWrap: false,
-                    style: TextStyle(
-                        fontSize: Design.dz(28),
-                        fontWeight: FontWeight.w300,
-                        letterSpacing: Design.dz(1.1),
-                        color: automatic || live('fan')
-                            ? ink.withValues(alpha: .92)
-                            : ink.withValues(alpha: .3))))
-          ]))),
-          SpecStepButton(
-              icon: Icons.add,
-              label: '提高风量',
-              onTap: writable ? () => c.command('fan-up') : null)
-        ]),
-        SizedBox(height: Design.dz(10)),
-        Row(children: [
-          for (int i = 0; i < 7; i++) ...[
-            if (i > 0) SizedBox(width: Design.dz(5)),
-            Expanded(
-                child: Container(
-                    height: Design.dz(3),
-                    decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(Design.dz(2)),
-                        color: s.accent.withValues(
-                            alpha: i < level ? steps[i] : .14)))),
-          ],
-          SizedBox(width: Design.dz(6)),
-          Text('1-7 档',
-              maxLines: 1,
-              softWrap: false,
-              style: TextStyle(
-                  fontSize: Design.dz(10.5),
-                  height: 1.0,
-                  letterSpacing: Design.dz(.6),
-                  color: s.accent.withValues(alpha: .75)))
-        ])
-      ])));
+          padding: EdgeInsets.fromLTRB(
+              Design.dz(16), Design.dz(14), Design.dz(16), Design.dz(15)),
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('风量',
+                style: TextStyle(
+                    fontSize: Design.dz(12.5),
+                    color: ink.withValues(alpha: .42))),
+            SizedBox(height: Design.dz(8)),
+            Row(children: [
+              SpecStepButton(
+                  icon: Icons.remove,
+                  label: '降低风量',
+                  onTap: writable ? () => c.command('fan-down') : null),
+              Expanded(
+                  child: Center(
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                CustomPaint(
+                    painter: _DashedCircle(s.accent.withValues(alpha: .40)),
+                    child: SizedBox(
+                        width: Design.dz(44),
+                        height: Design.dz(44),
+                        child: Center(
+                            child: OemClimateIcon('climate_fan',
+                                key: const ValueKey('climate-fan-icon'),
+                                size: Design.dz(32),
+                                color: s.accent)))),
+                SizedBox(width: Design.dz(10)),
+                FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(automatic ? 'AUTO' : value('fan'),
+                        key: const ValueKey('climate-fan-value'),
+                        maxLines: 1,
+                        softWrap: false,
+                        style: TextStyle(
+                            fontSize: Design.dz(28),
+                            fontWeight: FontWeight.w300,
+                            letterSpacing: Design.dz(1.1),
+                            color: automatic || live('fan')
+                                ? ink.withValues(alpha: .92)
+                                : ink.withValues(alpha: .3))))
+              ]))),
+              SpecStepButton(
+                  icon: Icons.add,
+                  label: '提高风量',
+                  onTap: writable ? () => c.command('fan-up') : null)
+            ]),
+            SizedBox(height: Design.dz(10)),
+            Row(children: [
+              for (int i = 0; i < 7; i++) ...[
+                if (i > 0) SizedBox(width: Design.dz(5)),
+                Expanded(
+                    child: Container(
+                        height: Design.dz(3),
+                        decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(Design.dz(2)),
+                            color: s.accent.withValues(
+                                alpha: i < level ? steps[i] : .14)))),
+              ],
+              SizedBox(width: Design.dz(6)),
+              Text('1-7 档',
+                  maxLines: 1,
+                  softWrap: false,
+                  style: TextStyle(
+                      fontSize: Design.dz(10.5),
+                      height: 1.0,
+                      letterSpacing: Design.dz(.6),
+                      color: s.accent.withValues(alpha: .75)))
+            ])
+          ])));
 }
 
 /// 风量卡里的虚线圆环（设计稿 `border:1px dashed` 的等价物）。
@@ -501,8 +587,7 @@ class _DashedCircle extends CustomPainter {
   const _DashedCircle(this.color);
   @override
   void paint(Canvas canvas, Size size) {
-    final center = size.center(Offset.zero),
-        radius = size.width / 2 - .5;
+    final center = size.center(Offset.zero), radius = size.width / 2 - .5;
     final paint = Paint()
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1
@@ -518,4 +603,3 @@ class _DashedCircle extends CustomPainter {
   @override
   bool shouldRepaint(covariant _DashedCircle old) => old.color != color;
 }
-

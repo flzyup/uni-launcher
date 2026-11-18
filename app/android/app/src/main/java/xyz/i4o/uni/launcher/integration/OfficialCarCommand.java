@@ -47,6 +47,7 @@ final class OfficialCarCommand {
         if ("temp-up".equals(action) || "temp-down".equals(action))
             return "left".equals(zone) || "right".equals(zone) ? zone : null;
         if ("fan-up".equals(action) || "fan-down".equals(action)) return "fan";
+        if ("climate-blowing".equals(action)) return "blowing";
         if ("climate-power".equals(action)) return "power";
         if ("climate-mode".equals(action))
             return "auto".equals(mode) || "ac".equals(mode) || "recirc".equals(mode) || "sync".equals(mode) ? mode : null;
@@ -60,6 +61,15 @@ final class OfficialCarCommand {
                                     int driverZone, double min, double max, double step) {
         String key = key(action, uiZone, mode);
         if (key == null) return null;
+        if ("blowing".equals(key)) {
+            if (!(current instanceof String)) return null;
+            for (int raw = 0; raw < 8; raw++) {
+                if (OfficialCarContract.blowingMode(raw).equals(mode))
+                    return new OfficialCarCommand(key, OfficialCarContract.BLOWING, 0,
+                            OfficialCarContract.blowingSdkValue(raw), null, mode);
+            }
+            return null;
+        }
         if ("left".equals(key) || "right".equals(key)) {
             if (!(current instanceof Number) || !finite(min) || !finite(max) || !finite(step)
                     || min != 16 || max != 31 || step != 0.5) return null;

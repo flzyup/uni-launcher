@@ -33,6 +33,13 @@ public final class OfficialCarCommandTest {
         check(plan("climate-mode", "", "sync", false).function == 0x10060500, "sync function");
         check(plan("climate-mode", "", "recirc", false).intValue == 0x10030101, "inner enum");
         check(plan("climate-mode", "", "recirc", true).intValue == 0x10030102, "outside enum");
+        String[] directions = {"face", "floor", "floor-face", "defrost", "face-defrost", "floor-defrost", "all", "auto"};
+        for (int i = 0; i < directions.length; i++) {
+            OfficialCarCommand air = plan("climate-blowing", "", directions[i], "auto");
+            check(air != null && air.intValue == 0x10070101 + i && directions[i].equals(air.expected), "airflow " + directions[i]);
+        }
+        check(plan("climate-blowing", "", "off", "auto") == null, "unknown off encoding rejected");
+        check(plan("climate-blowing", "", "face", null) == null, "no unobserved airflow write");
         check(plan("climate-power", "", "", 2) == null, "unknown power never coerces to false");
         check(plan("seat-heat", "left", "2", 0).intValue == 0x10050202, "driver heat SDK enum");
         check(plan("seat-heat", "right", "3", 0).zone == 4, "passenger heat zone");

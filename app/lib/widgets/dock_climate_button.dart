@@ -4,6 +4,7 @@ import '../model/vehicle_data.dart';
 import '../theme/design_tokens.dart';
 import '../theme/launcher_theme.dart';
 import 'climate_panel.dart';
+import 'oem_climate_icon.dart';
 
 /// 底栏风量柱：七根斜柱，柱顶偏右、柱底偏左（`/` 方向倾斜 24°）。
 ///
@@ -34,13 +35,14 @@ class FanBars extends StatelessWidget {
 
   /// 七根柱子的总布局宽度（含间距），供上层排版预留。
   static double width(double scale) =>
-      Design.px((levels - 1) * (_barWidth + _barGap) + _barWidth);
+      Design.px(((levels - 1) * (_barWidth + _barGap) + _barWidth) * scale);
 
   @override
   Widget build(BuildContext context) {
     final s = SurfaceStyle.of(context);
     final demo = native['demo'] == true;
-    final climate = native['climate'] is Map ? native['climate'] as Map : const {};
+    final climate =
+        native['climate'] is Map ? native['climate'] as Map : const {};
     final fanField = VehicleField.fromNative(native, 'fan');
     final fanKnown = demo || fanField.valid;
     final fanRaw = demo ? climate['fan'] : fanField.value;
@@ -52,12 +54,12 @@ class FanBars extends StatelessWidget {
       final lit = fanKnown && index <= fanLevel;
       bars.add(Padding(
           padding: EdgeInsets.only(
-              right: index == levels ? 0 : Design.px(_barGap)),
+              right: index == levels ? 0 : Design.px(_barGap * scale)),
           child: Transform.rotate(
               angle: _tilt,
               child: Container(
                   key: ValueKey('dock-fan-segment-$index'),
-                  width: Design.px(_barWidth),
+                  width: Design.px(_barWidth * scale),
                   height: Design.px(12 * scale),
                   decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(Design.px(2.4)),
@@ -132,8 +134,7 @@ class DockFanCluster extends StatelessWidget {
                 child: Material(
                     color: Colors.transparent,
                     child: InkWell(
-                        borderRadius:
-                            BorderRadius.circular(s.controlRadius),
+                        borderRadius: BorderRadius.circular(s.controlRadius),
                         onTap: () => showClimatePanel(context, controller),
                         hoverColor: s.accent.withValues(alpha: .08),
                         focusColor: s.accent.withValues(alpha: .16),
@@ -152,59 +153,17 @@ class DockFanCluster extends StatelessWidget {
                               SizedBox(
                                   width: Design.px(25.2 * scale),
                                   height: Design.px(25.2 * scale),
-                                  child: CustomPaint(
+                                  child: OemClimateIcon('climate_fan',
                                       key: const ValueKey('dock-fan-flower'),
-                                      painter: FanFlowerPainter(
-                                          color:
-                                              fanKnown ? s.accent : s.muted))),
+                                      size: Design.px(25.2 * scale),
+                                      color: fanKnown ? s.accent : s.muted)),
                               SizedBox(height: Design.px(3.6)),
-                              FanBars(
-                                  controller: controller,
-                                  native: native,
-                                  scale: scale),
+                              FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  child: FanBars(
+                                      controller: controller,
+                                      native: native,
+                                      scale: scale)),
                             ])))))));
   }
-}
-
-/// 四瓣风车花：设计稿 `simulator.html` 的 cubic 花瓣，绕中心旋转四次，整花再斜 22°。
-///
-/// 2026-11-15 方案 C 定稿：花瓣是**细长杯形**（不是实心方块）。之前那版
-/// 四圆角方块在 21px 下会糊成一个带叉的圆角方框，实车参考图里其实是杯形瓣。
-class FanFlowerPainter extends CustomPainter {
-  final Color color;
-  const FanFlowerPainter({required this.color});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final box = size.width / 24;
-    final paint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.3 * box
-      ..strokeJoin = StrokeJoin.round
-      ..color = color;
-    // 一片花瓣（24 见方坐标系里从下往上收口的杯形），其余三片靠旋转复制。
-    // 坐标先换算成「以中心为原点」——写成 `Path.shift()` 不管用，
-    // 那个方法返回新 Path，级联调用会把它丢掉，花就会散成四个分离的圈。
-    double p(double v) => (v - 12) * box;
-    final petal = Path()
-      ..moveTo(p(12), p(11.7))
-      ..cubicTo(p(9.4), p(10.7), p(8.2), p(5.9), p(10.2), p(3))
-      ..cubicTo(p(11.2), p(2.3), p(12.8), p(2.3), p(13.8), p(3))
-      ..cubicTo(p(15.8), p(5.9), p(14.6), p(10.7), p(12), p(11.7))
-      ..close();
-    canvas.save();
-    canvas.translate(12 * box, 12 * box);
-    // 整花倾斜 22°，与原设计稿的 rotate(22 12 12) 一致。
-    canvas.rotate(22 * 3.14159265 / 180);
-    for (var quarter = 0; quarter < 4; quarter++) {
-      canvas.save();
-      canvas.rotate(quarter * 3.14159265 / 2);
-      canvas.drawPath(petal, paint);
-      canvas.restore();
-    }
-    canvas.restore();
-  }
-
-  @override
-  bool shouldRepaint(FanFlowerPainter oldDelegate) => oldDelegate.color != color;
 }

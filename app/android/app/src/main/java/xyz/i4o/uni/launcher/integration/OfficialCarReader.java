@@ -708,7 +708,7 @@ public final class OfficialCarReader implements VehicleAdapter {
                         .put("reason", field.optBoolean("valid") ? "官方接口已读取" : field.optString("reason")));
             }
             JSONObject capabilities = new JSONObject(); boolean anyWritable = false;
-            for (String key : new String[]{"left", "right", "fan", "power", "auto", "ac", "recirc", "sync"}) {
+            for (String key : new String[]{"left", "right", "fan", "power", "auto", "ac", "recirc", "sync", "blowing"}) {
                 JSONObject field = fields.getJSONObject(key); boolean writable = freshWritable(field);
                 if ("power".equals(key) && !writable && lastPowerField != null
                         && Boolean.FALSE.equals(retainedClimate.opt("power"))) {
@@ -898,7 +898,8 @@ public final class OfficialCarReader implements VehicleAdapter {
             boolean control = function == OfficialCarContract.TEMP || function == OfficialCarContract.FAN
                     || function == OfficialCarContract.POWER || function == OfficialCarContract.AUTO
                     || function == OfficialCarContract.AC || function == OfficialCarContract.CIRCULATION
-                    || function == OfficialCarContract.SYNC || function == OfficialCarContract.HEAT || function == OfficialCarContract.VENT;
+                    || function == OfficialCarContract.SYNC || function == OfficialCarContract.HEAT || function == OfficialCarContract.VENT
+                    || function == OfficialCarContract.BLOWING;
             field.put("writable", control && writeSignaturesAvailable && permitted()
                     && mappingConsistent
                     && (!"temp".equals(kind) || "°C".equals(field.optString("sourceUnit")))

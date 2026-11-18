@@ -26,6 +26,8 @@ flutter:
   uses-material-design: true
   assets:
     - assets/icons/
+    - assets/icons/airflow/
+    - assets/icons/oem_climate/
     - assets/art/
     - assets/wallpapers/
   shaders:
