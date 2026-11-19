@@ -29,8 +29,12 @@ class VehicleField {
       'pressureRearLeft',
       'pressureRearRight',
     ].contains(key);
+    final rawVal = field['value'];
+    final isPressure = key.startsWith('pressure');
+    final validPressure = !isPressure || (rawVal is num && rawVal >= 0.5 && rawVal <= 4.5);
     final valid = vehicle['connected'] == true &&
         field['valid'] == true &&
+        validPressure &&
         timestamp > 0 &&
         age >= -1000 &&
         (isDrivingOrFuel || age <= 5000);
