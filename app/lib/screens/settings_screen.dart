@@ -346,7 +346,7 @@ class DockSettings extends StatelessWidget {
               label: '进度条烟雾流体',
               // 文案三套皮肤必须一模一样：three_skin_geometry 会比文字盒宽度，
               // 换一句就会误报成「几何不一致」。
-              note: '仅暗夜皮肤生效；关掉回落细渐变进度',
+              note: '仅暗夜深色生效；关掉回落细渐变进度',
               height: 48,
               divider: false,
               trailing: DesignSwitch(
@@ -640,7 +640,7 @@ class _AmbientLightSettingsTabState extends State<AmbientLightSettingsTab> {
 
 /// sim f9：左栏五组（主题样式 / 主题风格 / 主题配色 / 桌面壁纸 / 卡片圆角），
 /// 右栏 516.67 宽的实时预览。`#f9 .blk` 把块内边距收到 8/16/9、块间距 7。
-class AppearanceSettings extends StatelessWidget {
+class AppearanceSettings extends StatefulWidget {
   final LauncherController controller;
   const AppearanceSettings({super.key, required this.controller});
 
@@ -654,34 +654,86 @@ class AppearanceSettings extends StatelessWidget {
       Design.dz(16), Design.dz(6), Design.dz(16), Design.dz(7));
 
   @override
+  State<AppearanceSettings> createState() => _AppearanceSettingsState();
+}
+
+class _AppearanceSettingsState extends State<AppearanceSettings> {
+  final _scroll = ScrollController();
+
+  /// 内容真的超出一屏时才挂滚动条。
+  ///
+  /// 这页按设计是一屏，常驻一根细条既压卡片右缘、又暗示「下面还有东西」，
+  /// 所以默认不画；只有 `maxScrollExtent > 0` 才亮出来。
+  bool _overflowing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // 首帧的 metrics 通知不一定赶在第一次绘制前派发，补一次。
+    WidgetsBinding.instance.addPostFrameCallback((_) => _syncBar());
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  void _syncBar() {
+    if (!mounted || !_scroll.hasClients) return;
+    final over = _scroll.position.maxScrollExtent > 0;
+    if (over != _overflowing) setState(() => _overflowing = over);
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final c = controller;
+    final c = widget.controller;
     return Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Expanded(child: LayoutBuilder(builder: (context, box) {
         // 五块加起来比可视高度短一点点（约 8 画布）。原来那点空隙全落在底部：
         // 上沿离边线 25 画布、下沿 33，而右栏「返回桌面查看」由 Spacer 推到
         // 底，又比左栏下沿低 8——三处互不齐。
         //
-        // 这里给整列「正好一屏」的高度、余量由 spaceBetween 均分到块间距，
+        // 这里给整列「至少一屏」的高度、余量由 spaceBetween 均分到块间距，
         // 于是上下留白都是 25，左栏下沿与右栏按钮下沿落在同一条线上。
-        // 不用 `IntrinsicHeight` 把列缩到内容高：壁纸那块内部有 `LayoutBuilder`
-        // （按可用宽反算缩略图宽度），整页求 intrinsic 会直接抛异常；也不必再
-        // 套一层滚动——这页按设计就是一屏，真放不下时先由 `design_contract_test`
-        // 的那条「one screen」用例拦下来。
-        return SizedBox(
-            height: box.maxHeight,
-            key: const PageStorageKey('appearance-settings-scroll'),
-            child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                spacing: Design.dz(5),
-                children: [
-                  _ThemeStyleBlock(controller: c),
-                  _ThemeModeBlock(controller: c),
-                  _PaletteBlock(controller: c),
-                  WallpaperSetting(controller: c),
-                  RadiusSetting(controller: c),
-                ]));
+        //
+        // 用 `ConstrainedBox(minHeight)` + 滚动视图，而不是 `IntrinsicHeight`
+        // 把列缩到内容高：壁纸那块内部有 `LayoutBuilder`（按可用宽反算缩略图
+        // 宽度），整页求 intrinsic 会直接抛异常。
+        //
+        // 也不能像以前那样直接给死 `SizedBox(height: box.maxHeight)`：车机原生
+        // 状态栏和本页顶栏同时出现时，可视高度被啃掉一截，五块放不下，底部
+        // 「卡片圆角」就整块超出边界被裁掉（用户 2026-11-19 截图）。现在内容
+        // 超过一屏就滚动，够一屏时仍是原来那套 spaceBetween 的一屏版式。
+        return NotificationListener<ScrollMetricsNotification>(
+            onNotification: (_) {
+              _syncBar();
+              return false;
+            },
+            child: Scrollbar(
+                controller: _scroll,
+                thumbVisibility: _overflowing,
+                thickness: Design.dz(4),
+                radius: Radius.circular(Design.dz(2)),
+                child: SingleChildScrollView(
+                    controller: _scroll,
+                    key: const PageStorageKey('appearance-settings-scroll'),
+                    // 溢出时给滚动条让出右缘，免得它压在卡片描边上。
+                    padding: EdgeInsets.only(
+                        right: _overflowing ? Design.dz(10) : 0),
+                    child: ConstrainedBox(
+                        constraints: BoxConstraints(minHeight: box.maxHeight),
+                        child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            spacing: Design.dz(5),
+                            children: [
+                              _ThemeStyleBlock(controller: c),
+                              _ThemeModeBlock(controller: c),
+                              _PaletteBlock(controller: c),
+                              WallpaperSetting(controller: c),
+                              RadiusSetting(controller: c),
+                            ])))));
       })),
       SizedBox(width: Design.dz(20)),
       SizedBox(width: Design.dz(516.67), child: const DesktopPreview()),
@@ -801,7 +853,7 @@ class _ThemeModeBlock extends StatelessWidget {
     ];
     return SettingBlock(
         title: '主题风格',
-        note: a.themeStyle == 'nocturne' ? '暗夜固定深色，不跟随明暗' : '智能调色会匹配壁纸明暗',
+        note: a.themeStyle == 'nocturne' ? '浅色为透明玻璃，深色为近黑玻璃' : '智能调色会匹配壁纸明暗',
         dense: true,
         padding: AppearanceSettings.blockPadding(),
         child: Row(children: [
@@ -1224,6 +1276,11 @@ class RadiusSetting extends StatelessWidget {
                   style: TextStyle(fontSize: Design.dz(15), color: s.accent),
                   decoration: const InputDecoration(
                       isDense: true,
+                      // 全局 InputDecorationTheme 是 filled + s.soft：在暗夜深色
+                      // 有壁纸时 s.soft 是 70% 近黑，这个 40×30 的小字段就带了
+                      // 一块比面板更深的黑底（用户 2026-11-19 截图指出）。
+                      // 这一格设计上就是无框小数字，直接关掉填充。
+                      filled: false,
                       border: InputBorder.none,
                       enabledBorder: InputBorder.none,
                       focusedBorder: InputBorder.none,
@@ -1287,62 +1344,19 @@ class DesktopPreview extends StatelessWidget {
             .firstWhere((p) => p.id == a.palette,
                 orElse: () => accentPresets.first)
             .name;
+    // 上半部分（说明 + 预览 + 开关）放进可滚区，底部按钮固定贴底。
+    //
+    // 原来是整列加一个 `Spacer` 把按钮推到底；高度被车机原生状态栏啃掉一截
+    // 时，这一列自己先溢出 45（用户 2026-11-19 的矮屏场景）。改用
+    // 「Expanded + 滚动」后，够一屏时版式与 Spacer 完全一致（内容顶部对齐、
+    // 按钮贴底），不够时上半部分能滚，按钮永远点得到。
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Row(children: [
-        Text('实时预览',
-            style: TextStyle(
-                fontSize: Design.dz(21.67), fontWeight: FontWeight.w500)),
-        const Spacer(),
-        Text('${s.dark ? '深色' : '浅色'} · $palette',
-            style: TextStyle(fontSize: Design.dz(15), color: s.muted))
-      ]),
-      SizedBox(height: Design.dz(18.33)),
-      _LiveDesktopPreview(controller: c),
-      SizedBox(height: Design.dz(16.67)),
-      Row(children: [
-        Container(
-            width: Design.dz(43.33),
-            height: Design.dz(43.33),
-            decoration: BoxDecoration(
-                color: s.accent,
-                borderRadius: BorderRadius.circular(Design.dz(14)),
-                boxShadow: [
-                  BoxShadow(
-                      color: s.accent.withValues(alpha: .35),
-                      blurRadius: Design.dz(18))
-                ])),
-        SizedBox(width: Design.dz(16.67)),
-        Expanded(
-            child: Text('路线、播放按钮与选中状态\n使用同一组主题色',
-                style: TextStyle(
-                    fontSize: Design.dz(15), height: 1.5, color: s.muted)))
-      ]),
-      SizedBox(height: Design.dz(10)),
-      Container(
-          height: Design.dz(58),
-          decoration: BoxDecoration(
-              border: Border(
-                  bottom: BorderSide(color: s.text.withValues(alpha: .055)))),
-          child: Row(children: [
-            Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('实时玻璃效果',
-                      style: TextStyle(
-                          fontSize: Design.dz(15),
-                          color: s.text.withValues(alpha: .82))),
-                  SizedBox(height: Design.dz(3)),
-                  Text('背景模糊与半透明材质',
-                      style: TextStyle(fontSize: Design.dz(12), color: s.muted))
-                ]),
-            const Spacer(),
-            DesignSwitch(
-                key: const ValueKey('glass-switch'),
-                value: a.glass,
-                onChanged: (v) => c.setAppearance(a.copyWith(glass: v)))
-          ])),
-      const Spacer(),
+      Expanded(
+          child: SingleChildScrollView(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: _aboveButton(s, c, a, palette)))),
+      SizedBox(height: Design.dz(12)),
       LiquidPress(
           child: SizedBox(
               height: Design.dz(50),
@@ -1361,6 +1375,67 @@ class DesktopPreview extends StatelessWidget {
                       ]))))
     ]);
   }
+
+  /// 按钮以上的那几段。拆出来是为了让它们整块能滚。
+  List<Widget> _aboveButton(
+          SurfaceStyle s, LauncherController c, Appearance a, String palette) =>
+      [
+        Row(children: [
+          Text('实时预览',
+              style: TextStyle(
+                  fontSize: Design.dz(21.67), fontWeight: FontWeight.w500)),
+          const Spacer(),
+          Text('${s.dark ? '深色' : '浅色'} · $palette',
+              style: TextStyle(fontSize: Design.dz(15), color: s.muted))
+        ]),
+        SizedBox(height: Design.dz(18.33)),
+        _LiveDesktopPreview(controller: c),
+        SizedBox(height: Design.dz(16.67)),
+        Row(children: [
+          Container(
+              width: Design.dz(43.33),
+              height: Design.dz(43.33),
+              decoration: BoxDecoration(
+                  color: s.accent,
+                  borderRadius: BorderRadius.circular(Design.dz(14)),
+                  boxShadow: [
+                    BoxShadow(
+                        color: s.accent.withValues(alpha: .35),
+                        blurRadius: Design.dz(18))
+                  ])),
+          SizedBox(width: Design.dz(16.67)),
+          Expanded(
+              child: Text('路线、播放按钮与选中状态\n使用同一组主题色',
+                  style: TextStyle(
+                      fontSize: Design.dz(15), height: 1.5, color: s.muted)))
+        ]),
+        SizedBox(height: Design.dz(10)),
+        Container(
+            height: Design.dz(58),
+            decoration: BoxDecoration(
+                border: Border(
+                    bottom: BorderSide(color: s.text.withValues(alpha: .055)))),
+            child: Row(children: [
+              Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('实时玻璃效果',
+                        style: TextStyle(
+                            fontSize: Design.dz(15),
+                            color: s.text.withValues(alpha: .82))),
+                    SizedBox(height: Design.dz(3)),
+                    Text('背景模糊与半透明材质',
+                        style:
+                            TextStyle(fontSize: Design.dz(12), color: s.muted))
+                  ]),
+              const Spacer(),
+              DesignSwitch(
+                  key: const ValueKey('glass-switch'),
+                  value: a.glass,
+                  onChanged: (v) => c.setAppearance(a.copyWith(glass: v)))
+            ])),
+      ];
 }
 
 /// 真桌面缩略：和桌面用同一套组件（[Header] / [Desktop] / [BottomDock]），
