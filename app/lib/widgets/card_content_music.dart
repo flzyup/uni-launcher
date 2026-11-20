@@ -117,6 +117,13 @@ class _MusicMetadata extends StatelessWidget {
   final bool compact, centered;
   final Map<String, dynamic> media;
   final LauncherController controller;
+
+  /// 歌名右侧挂不挂「收藏 / 播放模式」两颗键。
+  ///
+  /// 两行档（4×2）把这两颗键挪到了播放键左边——曲目信息一列本来就窄，
+  /// 键留在歌名后面会把歌手/专辑挤成一截省略号；挪到右边反而正好填掉
+  /// 播放键左侧那块空白，跟 4×1 的收藏键也落在同一条线上。
+  final bool showActions;
   const _MusicMetadata(
       {required this.title,
       required this.artist,
@@ -124,7 +131,8 @@ class _MusicMetadata extends StatelessWidget {
       required this.media,
       required this.controller,
       this.compact = false,
-      this.centered = false});
+      this.centered = false,
+      this.showActions = true});
   @override
   Widget build(BuildContext context) {
     final s = SurfaceStyle.of(context);
@@ -150,10 +158,11 @@ class _MusicMetadata extends StatelessWidget {
                             fontSize: Design.px(compact ? 25 : 30),
                             height: 1.2,
                             fontWeight: FontWeight.w500))),
-                MusicActionButtons(
-                    media: media,
-                    controller: controller,
-                    iconSize: compact ? 19 : 22),
+                if (showActions)
+                  MusicActionButtons(
+                      media: media,
+                      controller: controller,
+                      iconSize: compact ? 19 : 22),
               ]),
           SizedBox(height: Design.px(compact ? 6 : 10)),
           MarqueeText(
@@ -268,6 +277,11 @@ class _MusicCard extends StatelessWidget {
     // 一格外档（4×1）：卡高只有 ~100 逻辑像素，卡头和 86 的封面都放不下。
     // 这一档不画卡头，封面按卡高算，只留「封面 + 曲目 + 播放键」一行。
     final bare = card.h <= 1;
+    // 小卡（4×1 / 4×2）的收藏键：原生按音源实际能力报 actionCaps，不支持就
+    // 连这块留白都不占（见 MusicActionButtons 的类注释）。
+    final caps = mapOf(media['actionCaps']);
+    final canFavorite = caps['favorite'] == true;
+    final canPlayMode = caps['playMode'] == true;
     // 稿子 f1 给的是 4×4（502×482）：封面 + 信息块在上、迷你歌词窗在中、细进度条
     // 与音柱贴在底下。4×5 / 4×6 只是多给歌词行，8×6 太宽仍走两列。
     final draft = card.w == 4 && card.h >= 4;
@@ -281,7 +295,9 @@ class _MusicCard extends StatelessWidget {
         media: media,
         controller: controller,
         compact: compact,
-        centered: false);
+        centered: false,
+        // 两行档把两颗键挪到播放键左边（见 compact 分支），歌名行不再挂。
+        showActions: !compact);
     final double spectrumHeight = compact
         ? 0.0
         : draft
@@ -516,8 +532,23 @@ class _MusicCard extends StatelessWidget {
             .clamp(Design.px(20), Design.px(28))
             .toDouble();
         final canToggle = media['canToggle'] == true;
-        final textWidth = math.max(Design.px(40),
-            box.maxWidth - side - Design.px(16) - play - Design.px(12));
+        // 一格档跟 4×2 用同一套「收藏 + 播放模式」，两档的区别只留有没有卡片头。
+        // 例外是 3 格宽（`CardSpec.minW` 的最小档）：曲目列被封面和播放键吃到只剩
+        // 几十画布，再挂一颗播放模式就只剩横滚的一条缝，这一档只留收藏。
+        final onlyFavorite = canFavorite && card.w <= 3;
+        final actions =
+            (canFavorite ? 1 : 0) + (canPlayMode && !onlyFavorite ? 1 : 0);
+        // 键的宽度（可点区 38 + 前留白 4，一起乘 sizeFactor 1.5）先从文字宽度里
+        // 扣掉，否则 FittedBox 会拿「整卡宽 - 播放键」去排字，字被缩成一团。
+        final actionWidth = Design.px(63) * actions;
+        final textWidth = math.max(
+            Design.px(40),
+            box.maxWidth -
+                side -
+                Design.px(16) -
+                play -
+                actionWidth -
+                Design.px(12));
         return Row(children: [
           _MediaCover(demo: demo, size: side, media: media),
           SizedBox(width: Design.px(16)),
@@ -551,6 +582,18 @@ class _MusicCard extends StatelessWidget {
                                     fontSize: titleSize * .68, color: s.muted)),
                           ])))),
           SizedBox(width: Design.px(12)),
+          // 「收藏 / 播放模式」填进播放键左侧那块留白，和 4×2 用同一套键：
+          // 这两档的区别只留「有没有卡片头」。3 格宽只画收藏（见 onlyFavorite）。
+          if (actions > 0) ...[
+            FittedBox(
+                fit: BoxFit.scaleDown,
+                child: MusicActionButtons(
+                    media: media,
+                    controller: controller,
+                    iconSize: 19,
+                    favoriteOnly: onlyFavorite)),
+            SizedBox(width: Design.px(2)),
+          ],
           // 播放键用 FittedBox 兜一层：卡再被压矮时跟着缩，不会顶出边界。
           FittedBox(
               fit: BoxFit.scaleDown,
@@ -570,7 +613,14 @@ class _MusicCard extends StatelessWidget {
           _MediaCover(demo: demo, size: compactCover, media: media),
           SizedBox(width: Design.px(16)),
           Expanded(child: metadata),
-          SizedBox(width: Design.px(14)),
+          // 「收藏 / 播放模式」紧挨播放键：曲目那列本来就窄，键挂回歌名后面
+          // 只能把歌手挤成省略号，放这边正好填掉播放键左侧的空白。
+          if (canFavorite || canPlayMode) ...[
+            SizedBox(width: Design.px(6)),
+            MusicActionButtons(
+                media: media, controller: controller, iconSize: 19),
+            SizedBox(width: Design.px(2)),
+          ],
           _CompactPlayButton(
               key: const ValueKey('music-card-compact-play'),
               playing: !demo && media['playing'] == true,

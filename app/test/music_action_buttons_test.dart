@@ -17,7 +17,7 @@ import 'fake_gateway.dart';
 void main() {
   Future<LauncherController> pumpMusicCard(
       WidgetTester tester, Map<String, dynamic> media,
-      {int w = 4, int h = 4}) async {
+      {int w = 4, int h = 4, bool settle = true}) async {
     tester.view.physicalSize = const Size(1920, 1080);
     tester.view.devicePixelRatio = 1;
     final g = FakeGateway();
@@ -30,7 +30,13 @@ void main() {
     await c.initialize();
     c.cards = [LauncherCard('music-1', 'music', '正在播放', 0, 0, w, h, 0)];
     await tester.pumpWidget(LauncherApp(controller: c));
-    await tester.pumpAndSettle();
+    if (settle) {
+      await tester.pumpAndSettle();
+    } else {
+      // 歌名横滚是一条无限循环的动画，pumpAndSettle 会一直等下去。
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+    }
     return c;
   }
 
@@ -212,5 +218,91 @@ void main() {
       }, w: size.$1, h: size.$2);
       expect(tester.takeException(), isNull, reason: '${size.$1}×${size.$2} 版式');
     }
+  });
+
+  // 小卡（4×1 / 4×2）的收藏键落在播放键左边那块留白里：曲目信息那一列本来就
+  // 窄，键挂在歌名后面会把歌手挤成省略号；靠右反而正好填掉一颗圆键的空白。
+  testWidgets('4×1 两颗键都给，贴在播放键左侧', (tester) async {
+    await pumpMusicCard(tester, {
+      'actionCaps': {'favorite': true, 'playMode': true},
+      'favorited': true,
+      'playMode': 'REPEAT_ONE',
+    }, w: 4, h: 1);
+    final heart = find.byKey(const ValueKey('music-favorite-button'));
+    final mode = find.byKey(const ValueKey('music-play-mode-button'));
+    final play = find.byKey(const ValueKey('music-card-compact-play'));
+    // 跟 4×2 保持同一套键：两档只差「有没有卡片头」。
+    expect(heart, findsOneWidget);
+    expect(mode, findsOneWidget);
+    expect(tester.getCenter(heart).dx, lessThan(tester.getCenter(play).dx));
+    expect(tester.getCenter(mode).dx, lessThan(tester.getCenter(play).dx));
+    // 落在播放键的中线上，看着是一组传输键
+    expect((tester.getCenter(heart).dy - tester.getCenter(play).dy).abs(),
+        lessThan(2.0));
+    // 曲目名与歌手都还在，没被键挤掉
+    expect(find.byKey(const ValueKey('music-card-title')), findsOneWidget);
+    expect(find.byKey(const ValueKey('music-card-artist')), findsOneWidget);
+  });
+
+  testWidgets('4×2 两颗键都在播放键左侧，歌名行不再重复', (tester) async {
+    await pumpMusicCard(tester, {
+      'actionCaps': {'favorite': true, 'playMode': true},
+      'favorited': true,
+      'playMode': 'REPEAT_ONE',
+    }, w: 4, h: 2);
+    final heart = find.byKey(const ValueKey('music-favorite-button'));
+    final mode = find.byKey(const ValueKey('music-play-mode-button'));
+    final play = find.byKey(const ValueKey('music-card-compact-play'));
+    // 各一颗，不能歌名行一颗、播放键边又一颗
+    expect(heart, findsOneWidget);
+    expect(mode, findsOneWidget);
+    expect(
+        find.descendant(
+            of: find.byKey(const ValueKey('music-card-title-row')),
+            matching: heart),
+        findsNothing);
+    expect(tester.getCenter(heart).dx, lessThan(tester.getCenter(play).dx));
+    expect(tester.getCenter(mode).dx, lessThan(tester.getCenter(play).dx));
+    expect((tester.getCenter(heart).dy - tester.getCenter(play).dy).abs(),
+        lessThan(2.0));
+  });
+
+  testWidgets('3 格宽的一格档只画收藏，不画播放模式', (tester) async {
+    // 3 格宽是 CardSpec.minW 允许的最小档，曲目列被封面和播放键吃到只剩几十
+    // 画布，再挂一颗播放模式歌名就没了。两行档（3×2）走 4×2 那套版式，不在此列。
+    await pumpMusicCard(tester, {
+      'actionCaps': {'favorite': true, 'playMode': true},
+      'favorited': true,
+      'playMode': 'REPEAT_ONE',
+    }, w: 3, h: 1);
+    expect(find.byKey(const ValueKey('music-favorite-button')), findsOneWidget);
+    expect(find.byKey(const ValueKey('music-play-mode-button')), findsNothing);
+  });
+
+  testWidgets('4×1 长歌名改成横向滚动，短歌名不滚', (tester) async {
+    // MarqueeText 只在超出容器宽度时才起滚动。一格档文字宽度是先算出来的，
+    // 键加进来之后余量变窄——长歌名靠横滚兜住，不靠缩字。
+    await pumpMusicCard(tester, {
+      'actionCaps': {'favorite': true, 'playMode': true},
+      'favorited': true,
+      'title': '沿着环线一直开到天亮再回家',
+    }, w: 4, h: 1, settle: false);
+    expect(find.byKey(const ValueKey('marquee-paint-music-card-title')),
+        findsOneWidget,
+        reason: '长歌名要横滚');
+
+    await pumpMusicCard(tester, {'title': '午夜立交'}, w: 4, h: 1);
+    expect(find.byKey(const ValueKey('marquee-paint-music-card-title')),
+        findsNothing,
+        reason: '短歌名不滚');
+  });
+
+  testWidgets('小卡的收藏键仍按音源能力决定画不画', (tester) async {
+    await pumpMusicCard(tester, {
+      'actionCaps': {'favorite': false, 'playMode': false},
+    }, w: 4, h: 1);
+    expect(find.byKey(const ValueKey('music-favorite-button')), findsNothing);
+    // 键不画，播放键还在
+    expect(find.byKey(const ValueKey('music-card-compact-play')), findsOneWidget);
   });
 }
