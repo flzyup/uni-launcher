@@ -28,6 +28,121 @@ abstract final class Nocturne {
   /// made every card look pasted onto graph paper.)
   static const background = Color(0xFF050607);
 
+  // ── 黑阶表 ───────────────────────────────────────────────────────────
+  // 暗夜所有近黑色只在这里定义。这套皮肤的「黑」有三种性质，混在一起最容易
+  // 调出问题，所以分组写清：
+  //   · 不透明底（background / dockPlane / panelDeep / strongFlat）
+  //   · 压在照片上的半透玻璃（cardGlass / *OnPhoto）——alpha 决定照片能透多少
+  //   · 装饰性压暗（scrim / shadowInk）
+  //
+  // 想整体调亮或调暗一档：改这一组即可。散在各 widget 里的字面量会让「统一
+  // 调色」变成逐个文件翻找，也正是这次收敛的原因。
+
+  /// 底栏底板。比画布略亮，好让底栏从桌面里浮出来。
+  static const dockPlane = Color(0xFF0B0D0E);
+
+  /// 深色底栏玻璃（压在壁纸上）。
+  ///
+  /// 原始值是不透明的 `#1A1E20 → #0B0D0E`。完全实心时它比卡片深一档，像一条
+  /// 黑条；但也不能一下放到 77% 半透——那样壁纸透太多，底栏反而飘起来。
+  /// 这里只让 5% 的光透过、并把底部最黑那端提到 `#0E1012`：观感仍是一条
+  /// 贴身的深色底栏，只是不再「死黑」，和卡片的明度差缩到最小。
+  static const dockGlass = <Color>[
+    Color(0xF21A1E20),
+    Color(0xF20E1012),
+  ];
+
+  /// 卡面玻璃四档（压在壁纸上，约 72–75% 不透明）。
+  /// 顶端留一点高光保住玻璃感，中段最深，底部回提一点避免整块死黑。
+  static const cardGlass = <Color>[
+    Color(0xB414181A),
+    Color(0xBC0D1012),
+    Color(0xC00A0C0E),
+    Color(0xB80E1113),
+  ];
+
+  /// 实底面：弹层、抽屉这类要压住底下卡片的面板。
+  static const panelDeep = Color(0xFF1A1E20);
+
+  /// 无壁纸时的实心强底。
+  static const strongFlat = Color(0xFF131619);
+
+  /// 有壁纸时的控件底（按钮、底栏胶囊）。必须够实，否则整块浮在照片上。
+  static const surfaceOnPhoto = Color(0xE60E1113);
+  static const strongOnPhoto = Color(0xFA131619);
+  static const softOnPhoto = Color(0xB30B0D0E);
+
+  /// 整页底（「全部应用」这类铺满的页面）。
+  ///
+  /// 和设置页那两栏同一个思路（一层半透明底 + 细描边、不模糊），但要**再实
+  /// 一档**：整页面积大、背后是整张桌面，按设置页那档（55% 白 / 90% 近黑）
+  /// 铺上去，浅色下几乎和壁纸融成一片，字全糊了（2026-11-19 实车反馈
+  /// 「太透，看不清」）。这里留 8~20% 的透视量：壁纸还认得出，字压得住。
+  static const pageOnPhoto = Color(0xED0E1113);
+  static const pageFlat = Color(0xF5151719);
+
+  /// 浅色浮层（弹窗、整页、抽屉）**统一**的一层底。
+  ///
+  /// 弹窗和整页原来各调各的（72–78%），背后页面的正文会透上来，两层字叠在
+  /// 一起，既脏又读不清（2026-11-19 实车反馈「既要通透又不能太透」）。现在
+  /// 统一到 88–91%：背后的形状和色块还看得见（玻璃感就在这儿），正文字形
+  /// 已经糊不掉前景。两档只差那 12° 的渐变，不代表两种面。
+  static const veilLight = Color(0xE8FFFFFF);
+  static const veilDeep = Color(0xE0FFFFFF);
+
+  /// 浅色整页：单色即可（面积大，渐变看不出来，还多一层绘制）。
+  static const pageLight = veilDeep;
+
+  /// 卡片投影。有壁纸时收紧收淡：90% + 54 模糊落在照片上是一坨黑。
+  static const shadowInk = Color(0xE6000000);
+  static const shadowInkOnPhoto = Color(0x8C000000);
+
+  /// 整屏压暗（暗夜 + 壁纸时叠在照片上）。
+  static const scrim = Color(0x66050506);
+
+  /// 「叠加主题渐变」那条的暗端。
+  static const scrimDeep = Color(0x8C050506);
+
+  // ── 浅色形态 ─────────────────────────────────────────────────────────
+  // 定位：同一套造型（圆角规则、按卡片类型分色的光晕、强调色体系），质感换成
+  // 透明玻璃。和 blueGlass 的差别不在透明度，而在光晕与配色纪律。
+  //
+  // 这里没有一个黑色：所有表面都是「白 + alpha」，照片从底下透上来。
+
+  /// 无壁纸时的浅色画布。有壁纸时不画它，直接让照片当底。
+  static const backgroundLight = Color(0xFFE8EDEF);
+
+  /// 浅色底栏底板。
+  static const dockPlaneLight = Color(0x80FFFFFF);
+
+  /// 浅色底栏玻璃（压在照片上，两档：上沿略实、下沿更透）。
+  ///
+  /// 底栏原来走的是 95%/88% 白，和卡面（约 40% 白）完全是两种材质，摆在
+  /// 一起就是一条实心白塑料条（用户 2026-11-19 截图：「状态栏太白太实体，
+  /// 要像卡片那种通透度」）。收到 55%/47%，桌面能透上来；边界靠
+  /// `s.text` 11% 的墨细线勾住，不需要靠白底分界。
+  static const dockGlassLight = <Color>[
+    Color(0x8CFFFFFF),
+    Color(0x78FFFFFF),
+  ];
+
+  /// 浅色卡面玻璃四档（压在照片上）。alpha 决定照片透出多少，
+  /// 四档的明暗关系与深色版一致：顶端略实、中段偏透、底部回提。
+  static const cardGlassLight = <Color>[
+    Color(0x73FFFFFF),
+    Color(0x66FFFFFF),
+    Color(0x5CFFFFFF),
+    Color(0x6BFFFFFF),
+  ];
+
+  /// 浅色控件底（按钮、底栏胶囊、面板）。
+  static const surfaceOnGlass = Color(0x8CFFFFFF);
+  static const strongOnGlass = Color(0xB3FFFFFF);
+  static const softOnGlass = Color(0x4DFFFFFF);
+
+  /// 浅色投影：近黑会显脏，用一点点冷灰压边即可。
+  static const shadowInkLight = Color(0x1A0A1A1A);
+
   /// 切到暗夜时写进「圆角」的初始值。设计稿是 34，按实机观感收到 25：
   /// 34 在 1600 画布上是 1:1 单位，比经典主题的换算值大一圈。
   static const defaultRadius = 25.0;
@@ -124,7 +239,11 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
     // 只有暗夜需要这个标记：另两套皮肤本来就靠玻璃底色吃照片。
     final backed = a.wallpaper != 'gradient';
     if (a.themeStyle == 'nocturne') {
-      return SurfaceStyle._nocturne(a, lowPower, backed);
+      // 暗夜也分深浅：浅色是「同一套造型 + 透明玻璃」。
+      final dark = adaptToWallpaper && a.mode == 'smart'
+          ? a.backgroundIsDark(systemDark)
+          : a.isDark(systemDark);
+      return SurfaceStyle._nocturne(a, lowPower, backed, dark);
     }
     final dark = adaptToWallpaper && a.mode == 'smart'
         ? a.backgroundIsDark(systemDark)
@@ -189,13 +308,14 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
   /// Nocturne; mapping 0 → 25 here would make the left end of the slider a
   /// dead zone.
   factory SurfaceStyle._nocturne(Appearance a,
-      [bool lowPower = false, bool wallpaperBacked = false]) {
-    final accent = _readableAccent(a.accent(true), true);
+      [bool lowPower = false, bool wallpaperBacked = false, bool dark = true]) {
+    final accent = _readableAccent(a.accent(dark), dark);
+    final light = !dark;
     return SurfaceStyle(
         nocturne: true,
         lowPower: lowPower,
         wallpaperBacked: wallpaperBacked,
-        dark: true,
+        dark: dark,
         glass: a.glass,
         spectrumStyle: a.spectrumStyle,
         radius: Design.dz(a.radius),
@@ -203,20 +323,29 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
         // `--acc-d`：实心渐变上的字色，hsl(h,60%,9%) 的近黑同色系。
         accentText: foregroundOn(accent),
         seed: a.seed(),
-        text: const Color(0xFFEFF4F6),
-        muted: const Color(0xFFB5C3D2),
-        disabled: const Color(0xFF8394A6),
-        // 有壁纸时：几个表层色改成「压得住照片」的近黑实底，否则按钮、底栏胶囊、
-        // 面板全都半透明地浮在照片上（实车反馈）。没壁纸时保持原值。
-        surface:
-            wallpaperBacked ? const Color(0xE60E1113) : const Color(0x14FFFFFF),
-        strong:
-            wallpaperBacked ? const Color(0xFA131619) : const Color(0xFF131619),
-        soft:
-            wallpaperBacked ? const Color(0xB30B0D0E) : const Color(0x0FFFFFFF),
-        edge:
-            wallpaperBacked ? const Color(0x24FFFFFF) : const Color(0x16FFFFFF),
-        shadow: const Color(0xE6000000));
+        text: light ? const Color(0xFF16211F) : const Color(0xFFEFF4F6),
+        muted: light ? const Color(0xFF4A5B63) : const Color(0xFFB5C3D2),
+        disabled: light ? const Color(0xFF7A8A93) : const Color(0xFF8394A6),
+        // 深色：有壁纸时改成「压得住照片」的近黑实底，否则按钮、底栏胶囊、
+        // 面板全都半透明地浮在照片上（实车反馈）；没壁纸时保持原值。
+        // 浅色：反过来——表面全是白 + alpha，不出现任何黑色。
+        surface: light
+            ? (wallpaperBacked ? Nocturne.surfaceOnGlass : const Color(0x73FFFFFF))
+            : (wallpaperBacked
+                ? Nocturne.surfaceOnPhoto
+                : const Color(0x14FFFFFF)),
+        strong: light
+            ? (wallpaperBacked ? Nocturne.strongOnGlass : const Color(0xA6FFFFFF))
+            : (wallpaperBacked ? Nocturne.strongOnPhoto : Nocturne.strongFlat),
+        soft: light
+            ? (wallpaperBacked ? Nocturne.softOnGlass : const Color(0x3DFFFFFF))
+            : (wallpaperBacked ? Nocturne.softOnPhoto : const Color(0x0FFFFFFF)),
+        edge: light
+            ? const Color(0x80FFFFFF)
+            : (wallpaperBacked
+                ? const Color(0x24FFFFFF)
+                : const Color(0x16FFFFFF)),
+        shadow: light ? Nocturne.shadowInkLight : Nocturne.shadowInk);
   }
 
   /// 820A 上逐帧离屏高斯会直接吃掉帧预算，暗夜按设计稿只用静态色阶，
@@ -227,10 +356,10 @@ class SurfaceStyle extends ThemeExtension<SurfaceStyle> {
       technicalFrame ? (radius * .5).clamp(0, Design.px(16)) : radius * .64;
   Color get corner => dark ? const Color(0xFF829AB2) : const Color(0xFF738DA8);
   Color get dock => nocturne
-      ? const Color(0xFF0B0D0E)
+      ? (dark ? Nocturne.dockPlane : Nocturne.dockPlaneLight)
       : (dark ? const Color(0xFF0C1929) : const Color(0xFFF5F8FC));
   Color get background => nocturne
-      ? Nocturne.background
+      ? (dark ? Nocturne.background : Nocturne.backgroundLight)
       : technicalFrame || liquidGlass
           ? (dark ? const Color(0xFF07111F) : const Color(0xFFE8EEF5))
           : (dark ? const Color(0xFF0E1920) : const Color(0xFFE1ECE7));

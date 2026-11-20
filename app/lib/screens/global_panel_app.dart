@@ -78,7 +78,11 @@ class _GlobalPanelAppState extends State<GlobalPanelApp> {
       }
       return;
     }
-    if (widget.controller.appearance.usesBackdropBlur &&
+    // 「全部应用」在暗夜 / 蓝玻璃下是压着桌面的整页玻璃，靠这张桌面截图当背景：
+    // 外观里没开玻璃时没有截图，整页就只能叠在透明窗口上（浅色会直接变深灰）。
+    final appearance = widget.controller.appearance;
+    if ((appearance.usesBackdropBlur ||
+            appearance.themeStyle == 'nocturne') &&
         widget.controller.gateway is AndroidGateway) {
       final bytes = await AndroidGateway.methods
           .invokeMethod<Uint8List>('panel-backdrop');
@@ -150,8 +154,7 @@ class _GlobalPanelAppState extends State<GlobalPanelApp> {
                               'panel'] ==
                           'recents'
                       ? RecentTasksPanel(controller: widget.controller)
-                      : backdrop != null &&
-                              widget.controller.appearance.usesBackdropBlur
+                      : backdrop != null
                           ? SizedBox.expand(
                               child: Image.memory(backdrop!,
                                   fit: BoxFit.fill, gaplessPlayback: true))

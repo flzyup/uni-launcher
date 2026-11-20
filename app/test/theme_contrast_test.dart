@@ -145,8 +145,10 @@ void main() {
     final base = Color.alphaBlend(box.color!, Colors.white);
     expect(contrastRatio(style.text, base), greaterThanOrEqualTo(4.5));
     expect(contrastRatio(style.muted, base), greaterThanOrEqualTo(4.5));
-    final scrim = find.byKey(const ValueKey('scene-text-contrast-scrim'));
-    expect(scrim, findsWidgets);
+    // 暗夜不画顶部黑带（2026-11-18）：用户要求顶栏露出壁纸。
+    // 可读性仍由设置页自己的不透明面板保证，上面已断言 alpha >= .90。
+    expect(find.byKey(const ValueKey('scene-text-contrast-scrim')),
+        findsNothing);
     expect(t.takeException(), isNull);
     await t.pumpWidget(const SizedBox());
     c.dispose();
@@ -180,6 +182,36 @@ void main() {
       expect(DefaultTextStyle.of(t.element(title)).style.color, style.text);
       expect(contrastRatio(style.text, dark ? Colors.black : Colors.white),
           greaterThanOrEqualTo(4.5));
+      expect(t.takeException(), isNull);
+      await t.pumpWidget(const SizedBox());
+      c.dispose();
+      await gateway.dispose();
+      t.view.resetPhysicalSize();
+      t.view.resetDevicePixelRatio();
+    });
+  }
+
+  // 经典主题的顶部文本带：深色不再画（顶栏一整块发黑，用户 2026-11-19 报的
+  // 就是这条），浅色仍保留兜底——深色照片配深色字时它还是那道可读性保险。
+  for (final (mode, wallpaper, scrim) in [
+    ('dark', 'coastal', false),
+    ('light', 'graphite', true)
+  ]) {
+    testWidgets('classic $mode header band on $wallpaper is '
+        '${scrim ? 'kept' : 'removed'}', (t) async {
+      t.view.physicalSize = const Size(1920, 1080);
+      t.view.devicePixelRatio = 1;
+      final gateway = FakeGateway();
+      final c = LauncherController(gateway);
+      await c.initialize();
+      c.setAppearance(
+          Appearance(themeStyle: 'classic', mode: mode, wallpaper: wallpaper),
+          save: false);
+      c.openSettings();
+      await t.pumpWidget(LauncherApp(controller: c));
+      await t.pumpAndSettle();
+      expect(find.byKey(const ValueKey('scene-text-contrast-scrim')),
+          scrim ? findsWidgets : findsNothing);
       expect(t.takeException(), isNull);
       await t.pumpWidget(const SizedBox());
       c.dispose();

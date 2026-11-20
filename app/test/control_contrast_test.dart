@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:uni_launcher/model/appearance.dart';
 import 'package:uni_launcher/theme/launcher_theme.dart';
-import 'package:uni_launcher/theme/contrast.dart';
 import 'package:uni_launcher/widgets/choice_button.dart';
 import 'package:uni_launcher/widgets/glass_surface.dart';
 
@@ -34,13 +33,27 @@ void main() {
     expect(knobColor(t), isNot(s.text), reason: '深墨色圆点就是那个 bug');
   });
 
-  testWidgets('暗夜开关圆点与主题轨道保持对比度', (t) async {
+  testWidgets('暗夜开关圆点同样是白色部件，靠投影与青轨道分开', (t) async {
     final s = SurfaceStyle.from(
         const Appearance(mode: 'dark', themeStyle: 'nocturne'), true);
     expect(s.dark, isTrue);
     await t.pumpWidget(host(s, const DesignSwitch(value: true)));
-    expect(knobColor(t), s.accentText);
-    expect(contrastRatio(knobColor(t), s.accentLo), greaterThanOrEqualTo(4.5));
+
+    // 开态曾经取 s.accentText —— 那是给青底上的**文字**用的深色，圆点
+    // 于是变成一颗黑洞（用户 2026-11-19 在暗夜深色开关截图上指出来）。
+    // 圆点一律白，不分明暗、不分开态。
+    expect(knobColor(t), Colors.white);
+    expect(knobColor(t), isNot(s.accentText), reason: '青底上那个深色圆点就是 bug');
+
+    // 白点压在亮青轨道上，对比度天然到不了 4.5（白 vs 亮青只有 1 点几），
+    // 所以边界靠一圈黑投影勾出来。这里锁住投影，避免以后有人为了「对比度」
+    // 把圆点又改回深色。
+    final box = t.widget<Container>(find
+        .descendant(
+            of: find.byType(DesignSwitch), matching: find.byType(Container))
+        .last);
+    expect((box.decoration as BoxDecoration).boxShadow, isNotNull,
+        reason: '没有投影的话白点会糊进亮青轨道');
   });
 
   testWidgets('降级时暗夜卡片阴影收一半，正常态不动', (t) async {

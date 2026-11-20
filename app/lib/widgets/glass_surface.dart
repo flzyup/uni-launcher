@@ -48,6 +48,13 @@ class GlassSurface extends StatelessWidget {
   /// panels sit on other cards and would otherwise show them through.
   final bool sheet;
 
+  /// Nocturne only: a full-screen page surface («全部应用» 这类铺满的页面)。
+  ///
+  /// 它和 [sheet] 是两件事：弹层压在别的**卡片**上，必须给实底；整页压在
+  /// **桌面**上，给实底就等于把桌面整片盖住 —— 暗夜原来就是这么被做成一块
+  /// 灰板的。这里只留一层薄雾 + 一次全屏高斯，桌面还认得出，字也压得住。
+  final bool page;
+
   /// 桌面卡片（主页那几页的卡）才为 true。
   ///
   /// 卡底压暗带**只属于桌面卡片**：设计稿里它是 `.card` 的装饰，设置面板、
@@ -67,6 +74,7 @@ class GlassSurface extends StatelessWidget {
       this.dockFramed = false,
       this.flat = false,
       this.sheet = false,
+      this.page = false,
       this.card = false});
 
   @override
@@ -198,10 +206,39 @@ class GlassSurface extends StatelessWidget {
           shadow: shadow,
           child: body);
 
+  /// 整页玻璃：压在**桌面**上的一整张（「全部应用」这类铺满的页面）。
+  ///
+  /// 和 [_nocturne] 里的 sheet 分支正相反：弹层要给 98% 实底是因为底下还有
+  /// 卡片会透上来，整页要是给实底，桌面就被整片盖住 —— 之前这块传的是
+  /// `sheet: true`，加上 route 又是 opaque，桌面上看到的就只剩一块灰板。
+  ///
+  /// 质感沿用设置页那两栏（`_SettingsNav` / `_SettingsMain`）的做法：一层
+  /// 半透明底 + 细描边，**不模糊、不渐变、不投影**。区别只有浓度——整页要
+  /// 比那两栏再实一档，理由见 `Nocturne.pageOnPhoto`。
+  Widget _nocturnePage(SurfaceStyle s, BorderRadius shape, Widget body) {
+    final light = !s.dark;
+    final fill = light
+        ? Nocturne.pageLight
+        : (s.wallpaperBacked ? Nocturne.pageOnPhoto : Nocturne.pageFlat);
+    // 浅色这层到 91% 白，白描边会整条消失，改用深墨细线：边界清楚，玻璃才
+    // 像「一张浮起来的片」而不是糊在壁纸上的一团。
+    final edge = borderColor ??
+        (light
+            ? s.text.withValues(alpha: .12)
+            : s.text.withValues(alpha: .08));
+    return DecoratedBox(
+        decoration: BoxDecoration(
+            color: fill,
+            borderRadius: shape,
+            border: Border.all(color: edge)),
+        child: ClipRRect(borderRadius: shape, child: body));
+  }
+
   /// Nocturne surface: a hairline white-alpha gradient over the near-black
   /// canvas, an optional bottom glow, and no blur at all (the design is built
   /// for the 820A GPU — no backdrop-filter, no floating lights).
   Widget _nocturne(SurfaceStyle s, BorderRadius shape, Widget body) {
+    if (page) return _nocturnePage(s, shape, body);
     if (flat) {
       // 底栏音乐块：只给一层平整的淡底和细边，不叠玻璃高光与底部压暗
       // （那两样铺在 72 高的胶囊里会糊成一块黑）。底色是必须的——没有它，
@@ -212,17 +249,22 @@ class GlassSurface extends StatelessWidget {
             Positioned.fill(
                 child: DecoratedBox(
                     decoration: BoxDecoration(
-                        // 和经典主题底栏音乐块的 soft 底色同一个值：暗夜要的是
-                        // 「显示方式跟经典一样」，不是另立一套。
-                        // 有壁纸时这块必须给实底，否则胶囊、播放键、进度全浮在照片上。
-                        color: s.wallpaperBacked
-                            ? const Color(0xCC0B0D0E)
-                            : const Color(0x1AB3D9D9),
+                        // 深色：完全透明 = 和底栏外壳同一块底，不再多叠一层。
+                        // 外壳本身是 95% 半透的渐变，音乐块再叠任何一个固定色
+                        // 都会在渐变上多出一个色阶（5% 白 = +5 灰阶，肉眼刚好
+                        // 能看出边界）。透明之后两者是同一片面，只剩这圈描边
+                        // 勾出「这是一块可按的控件」。
+                        // 浅色：和外壳同档的淡白，描边墨线。
+                        color: !s.dark
+                            ? const Color(0x3DFFFFFF)
+                            : Colors.transparent,
                         borderRadius: shape,
                         border: Border.all(
-                            color: s.wallpaperBacked
-                                ? const Color(0x26FFFFFF)
-                                : const Color(0x2BFFFFFF))))),
+                            color: !s.dark
+                                ? const Color(0x1F000000)
+                                : (s.wallpaperBacked
+                                    ? const Color(0x26FFFFFF)
+                                    : const Color(0x2BFFFFFF)))))),
             body,
           ]));
     }
@@ -231,46 +273,60 @@ class GlassSurface extends StatelessWidget {
     // 纯黑画布，所以必须给一个实底，否则会透出底下的卡片；光晕也要收敛，
     // 同样强度的椭圆铺在整块面板上会糊成一片色雾。
     final glass = isCard || sheet;
+    // 浅色暗夜：表面一律「白 + alpha」，不出现任何黑色。
+    final lightNocturne = s.nocturne && !s.dark;
     final fill = glass
         ? (s.wallpaperBacked
-            // 有壁纸：5% 白的玻璃会把照片透上来，卡片和按钮就「全透明」了。
-            // 换成一层近黑半透底（约 72%），照片隐约透出来、内容仍然读得清；
-            // 顶端留一点高光保住玻璃感。这里**不加实时模糊**：820A 上每页要多
-            // 5~7ms，而降级开关又要跟着动一轮（用户 2026-11-13 定的）。
-            ? const LinearGradient(
-                begin: Alignment(-.2, -.98),
-                end: Alignment(.2, .98),
-                stops: [
+            // 有壁纸：深色是近黑半透底（约 72%），浅色是白玻璃——照片从白里
+            // 透上来，而不是被压黑。两套都不加实时模糊：820A 上每页多 5~7ms。
+            ? LinearGradient(
+                begin: const Alignment(-.2, -.98),
+                end: const Alignment(.2, .98),
+                stops: const [
                     0,
                     .42,
                     .74,
                     1
                   ],
-                colors: [
-                    Color(0xB414181A),
-                    Color(0xBC0D1012),
-                    Color(0xC00A0C0E),
-                    Color(0xB80E1113)
-                  ])
-            : const LinearGradient(
-                begin: Alignment(-.2, -.98),
-                end: Alignment(.2, .98),
-                stops: [
+                // 四档颜色统一在 Nocturne 里定义（黑阶表 / 浅色表）。
+                colors:
+                    lightNocturne ? Nocturne.cardGlassLight : Nocturne.cardGlass)
+            : LinearGradient(
+                begin: const Alignment(-.2, -.98),
+                end: const Alignment(.2, .98),
+                stops: const [
                     0,
                     .42,
                     .74,
                     1
                   ],
-                colors: [
-                    Color(0x16FFFFFF),
-                    Color(0x08FFFFFF),
-                    Color(0x04FFFFFF),
-                    Color(0x0AFFFFFF)
-                  ]))
-        : const LinearGradient(
+                colors: lightNocturne
+                    ? const [
+                        Color(0x3DFFFFFF),
+                        Color(0x26FFFFFF),
+                        Color(0x1AFFFFFF),
+                        Color(0x2EFFFFFF)
+                      ]
+                    : const [
+                        Color(0x16FFFFFF),
+                        Color(0x08FFFFFF),
+                        Color(0x04FFFFFF),
+                        Color(0x0AFFFFFF)
+                      ]))
+        : LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [Color(0xFF1A1E20), Color(0xFF0B0D0E)]);
+            colors: lightNocturne
+                // 底栏要和卡片同一个通透度：原来给 95%/88% 白，是整条最实的
+                // 一块面，和卡面（约 40% 白）摆在一起像两种材质。
+                ? (dock
+                    ? Nocturne.dockGlassLight
+                    : const [Color(0xF2FFFFFF), Color(0xE0FFFFFF)])
+                // 深色底栏：原来是不透明 #1A1E20→#0B0D0E，比卡片深一档，
+                // 看上去是一条实心黑条。换成和卡面同档的半透玻璃。
+                : (dock
+                    ? Nocturne.dockGlass
+                    : const [Nocturne.panelDeep, Nocturne.dockPlane]));
     return DecoratedBox(
         decoration: BoxDecoration(
             borderRadius: shape,
@@ -284,9 +340,11 @@ class GlassSurface extends StatelessWidget {
                     BoxShadow(
                         // 有壁纸时：90% 黑 + 54 模糊会变成卡片底下一坨黑（近黑画布上
                         // 本来看不见）。改成更紧、更淡的一圈，只用来「托一下」。
-                        color: s.wallpaperBacked
-                            ? const Color(0x8C000000)
-                            : const Color(0xE6000000),
+                        color: lightNocturne
+                            ? Nocturne.shadowInkLight
+                            : (s.wallpaperBacked
+                                ? Nocturne.shadowInkOnPhoto
+                                : Nocturne.shadowInk),
                         offset: Offset(0, s.wallpaperBacked ? 18 : 26),
                         blurRadius: s.wallpaperBacked
                             ? (s.lowPower ? 20 : 34)
@@ -308,19 +366,38 @@ class GlassSurface extends StatelessWidget {
                             // 稿子每个 `.dlg` 的底：
                             // `linear-gradient(168deg,#2C3136,#181B1E)`。
                             // 纯色渐变，不叠模糊也不叠光晕，三个皮肤同一块底。
-                            gradient: const LinearGradient(
+                            //
+                            // 但这块底很实（98%），浅色暗夜如果沿用，白玻璃
+                            // 叠在它上面只会调出一块中灰——所有弹层都「跟着
+                            // 深色走」，和桌面脱节。所以浅色换成白底，只留
+                            // 一点透明度让照片透上来；深色保持原值不变。
+                            gradient: LinearGradient(
                                 begin: Alignment.topCenter,
                                 end: Alignment.bottomCenter,
                                 transform:
                                     GradientRotation(-12 * math.pi / 180),
-                                colors: [Color(0xFA2C3136), Color(0xFA181B1E)]),
+                                colors: lightNocturne
+                                    // 和整页共用一套浓度（见 Nocturne.veilLight）。
+                                    ? const [
+                                        Nocturne.veilLight,
+                                        Nocturne.veilDeep
+                                      ]
+                                    : const [
+                                        Color(0xFA2C3136),
+                                        Color(0xFA181B1E)
+                                      ]),
                             borderRadius: shape))),
               Positioned.fill(
                   child: DecoratedBox(
                       decoration: BoxDecoration(
                           gradient: fill,
                           borderRadius: shape,
-                          border: Border.all(color: borderColor ?? s.edge)))),
+                          // 浅色这层已经很实，白描边看不见，换深墨细线。
+                          border: Border.all(
+                              color: borderColor ??
+                                  (lightNocturne
+                                      ? s.text.withValues(alpha: .11)
+                                      : s.edge))))),
               if (glow != null && glass)
                 sheet
                     // 弹层只让光从底部三分之一升起：整块面板做椭圆会糊满。
@@ -332,23 +409,8 @@ class GlassSurface extends StatelessWidget {
                                 widthFactor: 1,
                                 child: _glowLayer(glow!, .75, ryScale: 1.15))))
                     : Positioned.fill(child: _glowLayer(glow!, 1)),
-              if (card && kCardBottomShade)
-                Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    height: Design.dz(66),
-                    child: DecoratedBox(
-                        decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
-                                colors: [
-                          const Color(0x00000000),
-                          // 设计稿 .card::after：底部 66px 压到黑 34%。
-                          Colors.black.withValues(alpha: s.material.cardShade)
-                        ])))),
-              if (card && kCardBottomShade)
+              // 浅色暗夜 cardShade = 0，不画这层：透明底上压黑会直接变脏。
+              if (card && kCardBottomShade && s.material.cardShade > 0)
                 Positioned(
                     left: 0,
                     right: 0,
