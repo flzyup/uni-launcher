@@ -17,6 +17,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
@@ -26,6 +27,7 @@ import 'package:flutter/services.dart';
 import 'package:uni_launcher/controller/launcher_controller.dart';
 import 'package:uni_launcher/launcher_app.dart';
 import 'package:uni_launcher/model/appearance.dart';
+import 'package:uni_launcher/model/card_layout.dart';
 import 'package:uni_launcher/ota/update_controller.dart';
 import 'package:uni_launcher/platform/cluster_lyrics.dart';
 import 'package:uni_launcher/platform/ui_routes.dart';
@@ -129,8 +131,10 @@ class _PreviewGateway extends FakeGateway {
         put('vehicleMemory',
             {...sub('vehicleMemory'), 'startStop': value == 'on'});
       case 'auto-play-music':
-        put('integrationPreferences',
-            {...sub('integrationPreferences'), 'autoPlayMusic': enabled == true});
+        put('integrationPreferences', {
+          ...sub('integrationPreferences'),
+          'autoPlayMusic': enabled == true
+        });
       case 'wireless-adb-enabled':
         put('wirelessAdb', {...sub('wirelessAdb'), 'enabled': enabled == true});
       case 'boot-launch-enabled':
@@ -149,6 +153,19 @@ class _PreviewGateway extends FakeGateway {
         });
       case 'transfer-stop':
         put('transfer', {...sub('transfer'), 'running': false, 'url': ''});
+      // 收藏 / 播放模式：真机上这两个是往原生下发命令、由播放器回写状态。
+      // 预览没有播放器，点下去不会有任何回包 —— 不在这里自己翻转，按钮就
+      // 永远是同一个态，看不出「点完变实心」的效果。
+      case 'favorite-toggle':
+        put('media',
+            {...sub('media'), 'favorited': sub('media')['favorited'] != true});
+      case 'play-mode-toggle':
+        const modes = ['REPEAT_ALL', 'REPEAT_ONE', 'SHUFFLE'];
+        final current = sub('media')['playMode'] as String? ?? 'REPEAT_ALL';
+        put('media', {
+          ...sub('media'),
+          'playMode': modes[(modes.indexOf(current) + 1) % modes.length],
+        });
     }
     await super.action(action, value: value, zone: zone, enabled: enabled);
   }
@@ -163,7 +180,8 @@ Future<void> main() async {
   // UNI_PREVIEW_MEDIA=<起始秒数>：假数据本来没有播放时间轴，进度恒为 0，
   // 底栏流体进度就永远贴在左边缘。默认给 45 秒起点，让进度条一直在走；
   // 想从特定位置看形态再覆盖这个值。
-  final double? mediaSec = double.tryParse(env['UNI_PREVIEW_MEDIA'] ?? '') ?? 45;
+  final double? mediaSec =
+      double.tryParse(env['UNI_PREVIEW_MEDIA'] ?? '') ?? 45;
   // 假媒体时长（3:23），回绕时按它取模。
   const mediaDurationMs = 203000;
   if (mediaSec != null) {
@@ -177,6 +195,29 @@ Future<void> main() async {
         'positionMs': (mediaSec * 1000).round(),
         'sampledAtMs': DateTime.now().millisecondsSinceEpoch,
         'speed': 1.0,
+      },
+    };
+  }
+  // UNI_PREVIEW_MEDIA_ACTIONS=favorite|playMode|both：音乐卡上「收藏 / 播放
+  // 模式」两个按钮的显示条件只有一条 —— 原生上报的 `actionCaps` 里对应位为
+  // true。而假网关的 media 只有标题/艺人/播放态，没有这个字段，所以预览里
+  // 两个按钮**永远不画**（真机上也只有 QQ 音乐 / 网易云 / 汽水这三家白名单，
+  // 或运行时探测到心形评分 / 播放模式字段才会亮）。
+  //
+  // 校版要看这两个按钮的位置和选中态时，用这个开关补一份能力位；配合上面的
+  // `favorite-toggle` / `play-mode-toggle` 回写，点下去能看到实心心形和模式
+  // 图标跟着换。
+  final previewActions = env['UNI_PREVIEW_MEDIA_ACTIONS'] ?? '';
+  if (previewActions.isNotEmpty && previewActions != 'none') {
+    final favorite = previewActions == 'both' || previewActions == 'favorite';
+    final playMode = previewActions == 'both' || previewActions == 'playMode';
+    gateway.state = {
+      ...gateway.state,
+      'media': {
+        ...Map<String, dynamic>.from(gateway.state['media'] as Map),
+        'actionCaps': {'favorite': favorite, 'playMode': playMode},
+        'favorited': env['UNI_PREVIEW_MEDIA_FAVORITED'] == '1',
+        'playMode': env['UNI_PREVIEW_MEDIA_PLAY_MODE'] ?? 'REPEAT_ALL',
       },
     };
   }
@@ -246,8 +287,7 @@ Future<void> main() async {
       ...gateway.state,
       'apps': [
         for (final m in maps) entry(m),
-        for (final o in others)
-          entry(o, music: o[0].contains('music'))
+        for (final o in others) entry(o, music: o[0].contains('music'))
       ],
       'navigation': {
         'package': maps.first[0],
@@ -256,6 +296,34 @@ Future<void> main() async {
         'canEmbed': false,
         'options': [
           for (final m in maps) {'package': m[0], 'label': m[1]}
+        ],
+      },
+    };
+  }
+  // UNI_PREVIEW_TRAFFIC=<绿灯秒数>：桌面预览没有高德的信号广播，往假网关塞
+  // 一份红绿灯快照，用来看卡片版式。UNI_PREVIEW_TRAFFIC_AGE=<ms> 让它「已经
+  // 走过这么久」——归零那一段（绿灯读数 → 黄灯 + 无倒计时）就靠它复现。
+  final trafficSec = int.tryParse(env['UNI_PREVIEW_TRAFFIC'] ?? '');
+  if (trafficSec != null) {
+    final age = int.tryParse(env['UNI_PREVIEW_TRAFFIC_AGE'] ?? '') ?? 0;
+    gateway.state = {
+      ...gateway.state,
+      // 假网关默认是演示态（demo=true 时 TrafficLightSnapshot 直接返回内置
+      // 快照），要看到自己塞的这份就必须先关掉。
+      'demo': false,
+      'trafficLights': {
+        'available': true,
+        'reason': 'live',
+        'ageMs': age,
+        'ttlMs': 5000,
+        'enumVerified': true,
+        'lights': [
+          {'direction': 'left', 'lamp': 'red', 'countdownSeconds': 42},
+          {
+            'direction': 'straight',
+            'lamp': 'green',
+            'countdownSeconds': trafficSec
+          },
         ],
       },
     };
@@ -323,8 +391,18 @@ Future<void> main() async {
   // （星蓝）的画面主色是蓝，用「冰川」才看得出设计意图。默认仍是青屿。
   final accent = env['UNI_PREVIEW_PALETTE'];
   if (accent != null && accentPresets.any((p) => p.id == accent)) {
+    controller.setAppearance(controller.appearance.copyWith(palette: accent),
+        save: false);
+  }
+  // 壁纸也可以指定。默认是 gradient（纯渐变底），而顶栏顶部压暗带、
+  // 卡片的透明质感、壁纸叠加层这些效果**只有压在真照片上才出得来**，
+  // 纯渐变底永远不会触发那一支，拍出来等于没拍。
+  // UNI_PREVIEW_WALLPAPER=coastal|graphite|dawn|neon|precision|terrain
+  final wallpaper = env['UNI_PREVIEW_WALLPAPER'];
+  if (wallpaper != null && wallpaperPresets.any((p) => p.id == wallpaper)) {
     controller.setAppearance(
-        controller.appearance.copyWith(palette: accent), save: false);
+        controller.appearance.copyWith(wallpaper: wallpaper),
+        save: false);
   }
   // UNI_PREVIEW_MODE=light|dark 钉死明暗，不看系统。
   //
@@ -332,12 +410,17 @@ Future<void> main() async {
   // 看不出来，而 Windows 预览机的系统主题又不一定是什么——必须能手动指定。
   final previewMode = env['UNI_PREVIEW_MODE'];
   if (previewMode == 'light' || previewMode == 'dark') {
-    controller.setAppearance(
-        controller.appearance.copyWith(mode: previewMode), save: false);
+    controller.setAppearance(controller.appearance.copyWith(mode: previewMode),
+        save: false);
   }
   // UNI_PREVIEW_SCREEN=settings 直接把设置页当根页面：设置页的配色问题
   // （选中态前景、深色弹层）在桌面主界面上根本看不到，得单独拍。
-  final settings = env['UNI_PREVIEW_SCREEN'] == 'settings';
+  //
+  // =shell-settings 则保留外壳（Header + 底栏）只把设置页翻开，模拟「从
+  // 桌面点设置进来」的那一层栈——顶栏被遮挡这类问题只在有外壳时才出现。
+  final screen = env['UNI_PREVIEW_SCREEN'];
+  final inShellSettings = screen == 'shell-settings';
+  final settings = screen == 'settings' || inShellSettings;
   if (settings) {
     // Windows 上没有安卓的日志服务：`log:status` 无人应答，「系统与调试」页
     // 的占用、份数与落盘策略四行全是「—」，看不出渲染对不对。塞一份与
@@ -357,19 +440,45 @@ Future<void> main() async {
       'minFreeBytes': 16 * 1024 * 1024,
     };
     controller.tab(env['UNI_PREVIEW_TAB'] ?? 'appearance');
+    if (inShellSettings) controller.settings = true;
   }
   // UNI_PREVIEW_PAGE=1 直接落到第二页：第二页的卡片类型（车况/电池/时钟天气/
   // 快捷应用/行车信息/空气）跟首页完全不同，配色问题只在那边才暴露。
   // 必须在 runApp 之前切，否则首帧还是第一页，截到的图会是错的。
   final page = int.tryParse(env['UNI_PREVIEW_PAGE'] ?? '') ?? 0;
   if (page > 0 && !settings) await controller.switchPage(page);
+  // UNI_PREVIEW_CARDS=music:4x1,music:4x2：把整页卡片换成指定尺寸的几张，
+  // 一排排从左往右摆（摆满 12 格换行）。库里各类型的 minW/minH 允许的尺寸
+  // 组合很多，同一个组件在不同尺寸下是不同版式，得能把它们单独拎出来拍。
+  final cardsSpec = env['UNI_PREVIEW_CARDS'];
+  if (cardsSpec != null && cardsSpec.trim().isNotEmpty) {
+    final cards = <LauncherCard>[];
+    var x = 0, y = 0, rowHeight = 0;
+    for (final entry in cardsSpec.split(',')) {
+      final parts = entry.trim().split(':');
+      final size = parts.length == 2 ? parts[1].split('x') : const <String>[];
+      final w = size.length == 2 ? int.tryParse(size[0]) : null;
+      final h = size.length == 2 ? int.tryParse(size[1]) : null;
+      if (parts.isEmpty || w == null || h == null) continue;
+      if (x + w > 12) {
+        x = 0;
+        y += rowHeight;
+        rowHeight = 0;
+      }
+      cards.add(LauncherCard('preview-${cards.length}', parts[0],
+          '预览卡 ${cards.length + 1}', x, y, w, h, 0));
+      x += w;
+      rowHeight = math.max(rowHeight, h);
+    }
+    if (cards.isNotEmpty) controller.cards = cards;
+  }
   // UNI_PREVIEW_PANEL=navigation|music-picker：弹层的触发按钮挂在全局面板里，
   // 桌面上没有入口，靠 tap-key 点不到，只能直接开面板。
   runApp(_PreviewHost(
       controller: controller,
       shot: env['UNI_PREVIEW_SHOT'],
       panel: env['UNI_PREVIEW_PANEL'],
-      settings: settings));
+      settings: settings && !inShellSettings));
 }
 
 class _PreviewHost extends StatefulWidget {
@@ -378,10 +487,7 @@ class _PreviewHost extends StatefulWidget {
   final String? panel;
   final bool settings;
   const _PreviewHost(
-      {required this.controller,
-      this.shot,
-      this.panel,
-      this.settings = false});
+      {required this.controller, this.shot, this.panel, this.settings = false});
 
   @override
   State<_PreviewHost> createState() => _PreviewHostState();
@@ -397,8 +503,8 @@ class _PreviewHostState extends State<_PreviewHost> {
     if (shot == null) return;
     // 等入场动画与底栏音乐进度走稳再拍，否则同一份代码两次出图会差几个像素。
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final ms = int.tryParse(Platform.environment['UNI_PREVIEW_DELAY'] ?? '') ??
-          1500;
+      final ms =
+          int.tryParse(Platform.environment['UNI_PREVIEW_DELAY'] ?? '') ?? 1500;
       await Future<void>.delayed(Duration(milliseconds: ms));
       final panel = widget.panel;
       if (panel != null) {
@@ -460,7 +566,8 @@ class _PreviewHostState extends State<_PreviewHost> {
     return found;
   }
 
-  Offset? _centerOfKey(String name) {    Element? found;
+  Offset? _centerOfKey(String name) {
+    Element? found;
     void visit(Element e) {
       if (found != null) return;
       if (e.widget.key == ValueKey(name)) {
@@ -598,8 +705,8 @@ class _PreviewShortcutsState extends State<_PreviewShortcuts> {
           final c = widget.controller;
           if (event.logicalKey == LogicalKeyboardKey.f2) {
             final styles = Appearance.themeStyles;
-            final next =
-                styles[(styles.indexOf(c.appearance.themeStyle) + 1) % styles.length];
+            final next = styles[
+                (styles.indexOf(c.appearance.themeStyle) + 1) % styles.length];
             c.setAppearance(
                 c.appearance.copyWith(themeStyle: next, radius: _radius[next]),
                 save: false);
@@ -643,7 +750,8 @@ class _PreviewShortcutsState extends State<_PreviewShortcuts> {
 }
 
 /// 假快照：类目、体积、分组都照 sim f34 的样子配。
-Map<String, dynamic> _fakeCleaner({String phase = 'idle'}) => {      'running': phase != 'idle',
+Map<String, dynamic> _fakeCleaner({String phase = 'idle'}) => {
+      'running': phase != 'idle',
       'phase': phase,
       'progress': phase == 'scan'
           ? 0.62
