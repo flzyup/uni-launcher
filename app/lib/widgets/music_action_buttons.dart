@@ -36,6 +36,12 @@ class MusicActionButtons extends StatelessWidget {
   /// 整体缩放。稿子 f1 的 4×4 版式整块按比例缩，两个按钮跟着走。
   final double scale;
 
+  /// 只画收藏，不画播放模式。
+  ///
+  /// 4×1 的卡只有 ~100 高、一行内容，塞两颗键会把曲目名挤成两个字；
+  /// 但收藏是「一眼看/一下点」的操作，留它、把播放模式交给大一点的版式。
+  final bool favoriteOnly;
+
   /// 相对设计稿基准尺寸的**放大倍数**。
   ///
   /// 车机是 1920×1080 实屏、观看距离又远，19~22 画布的心形/播放模式图标
@@ -48,7 +54,8 @@ class MusicActionButtons extends StatelessWidget {
       required this.media,
       required this.controller,
       this.iconSize = 22,
-      this.scale = 1});
+      this.scale = 1,
+      this.favoriteOnly = false});
 
   /// 当前音源支不支持收藏。
   bool get _supportsFavorite => _caps['favorite'] == true;
@@ -98,7 +105,7 @@ class MusicActionButtons extends StatelessWidget {
           foregroundColor: color,
           onTap: () => controller.command('favorite-toggle')));
     }
-    if (_supportsPlayMode) {
+    if (_supportsPlayMode && !favoriteOnly) {
       final mode = _playMode;
       widgets.add(IconAction(
           key: const ValueKey('music-play-mode-button'),

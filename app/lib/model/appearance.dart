@@ -263,9 +263,10 @@ class Appearance {
 
   bool get usesBackdropBlur => glass;
 
-  /// 暗夜是纯深色体系，不跟随明暗与壁纸亮度；否则浅色壁纸会把卡片拉成亮面。
+  /// 暗夜原本是纯深色体系，不跟随明暗；现在它有浅色形态（同一套造型 +
+  /// 透明玻璃，见 [Nocturne.cardGlassLight]），所以 mode 重新生效：
+  /// dark / light 强制，smart / system 跟随壁纸与系统。
   bool isDark(bool systemDark) =>
-      themeStyle == 'nocturne' ||
       mode == 'dark' ||
       ({'smart', 'system'}.contains(mode) && systemDark);
   bool backgroundIsDark(bool systemDark) {

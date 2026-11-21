@@ -64,24 +64,29 @@ class _DockMusicProgressBackgroundState
   }
 
   Future<void> _load() async {
-    // 编不出来（老驱动 / 资源缺失）就回落细渐变，不能把异步异常抛进 zone。
-    // 失败重试一次：首帧前后引擎还在预热，偶发一次 stderr 不值得永久关掉装饰。
+    final built = await _build(_asset);
+    if (!mounted) return;
+    setState(() => _shader = built);
+    _syncAnimation();
+    _reportMode();
+  }
+
+  /// 编不出来（老驱动 / 资源缺失）就回落细渐变，不能把异步异常抛进 zone。
+  /// 失败重试一次：首帧前后引擎还在预热，偶发一次 stderr 不值得永久关掉装饰。
+  Future<ui.FragmentShader?> _build(String asset) async {
     for (var attempt = 0; attempt < 2; attempt++) {
       try {
-        final program = await ui.FragmentProgram.fromAsset(_asset);
-        if (!mounted) return;
-        setState(() => _shader = program.fragmentShader());
-        _syncAnimation();
-        _reportMode();
-        return;
+        final program = await ui.FragmentProgram.fromAsset(asset);
+        return program.fragmentShader();
       } catch (error) {
-        debugPrint('UniDock fluid shader=failed attempt=${attempt + 1} '
+        debugPrint('UniDock fluid shader=$asset failed attempt=${attempt + 1} '
             'error=$error');
-        if (attempt == 1) return;
+        if (attempt == 1) return null;
         await Future<void>.delayed(const Duration(milliseconds: 1200));
-        if (!mounted) return;
+        if (!mounted) return null;
       }
     }
+    return null;
   }
 
   /// 热更新（hot reload）会把已持有的 FragmentShader 句柄弄失效，paint 里
@@ -153,11 +158,15 @@ class _DockMusicProgressBackgroundState
     return ((_posMs + elapsed) / _durMs).clamp(0.0, 1.0);
   }
 
-  /// 流体只属于暗夜皮肤。
+  /// 流体只在**暗夜深色**下生效，而且只有一份 shader（`fluid_progress.frag`）。
   ///
-  /// shader 的调色板是写死的暗夜色（#0F1A18 底 + 近白刀口），浅色底栏上没有
-  /// 对得上的版本——试过反着推一版浅色调色板，出来仍是灰糊一块。所以浅色两套
-  /// 皮肤回落到原来那条细渐变发光，开关也只在暗夜下露出来。
+  /// 深色版是「加法发光」+ 墨绿底，只能在近黑底上成立；浅色底栏是 55% 白的
+  /// 玻璃，那层墨绿铺上去就是一块脏色（用户 2026-11-19：「浅色模式下明显
+  /// 不好看，看上去很脏」）。浅色试过单写一份 over 合成的 shader、也试过「只让
+  /// 刀口走 shader」，用户最后定的都是回到原来的进度条 ——「浅色下就还是用原来
+  /// 的进度条，相当于关闭了烟雾流动」，只保留刀口颜色跟主题色走。所以浅色那份
+  /// shader 与配套的 HSL 旋转调色板已于同日删除，浅色走
+  /// [_DockMusicProgressPainter]。
   ///
   /// **不再跟着帧预算降级走**（2026-11-13 实车反馈）：这一档是用户在设置里显式
   /// 打开的，`AdaptiveQuality` 一降级就把它悄悄换成细渐变，用户看到的就是
@@ -167,6 +176,7 @@ class _DockMusicProgressBackgroundState
   bool get _fluid =>
       widget.fluid &&
       _style?.nocturne == true &&
+      (_style?.dark ?? true) &&
       _shader != null &&
       widget.enabled;
 
@@ -217,17 +227,21 @@ class _DockMusicProgressBackgroundState
   /// 只在**状态组合**变化时打，不跟着进度/帧号刷屏（一台车一整天也就几行）。
   String _lastMode = '';
   void _reportMode() {
-    final fluid =
-        widget.fluid && (_style?.nocturne ?? false) && _shader != null && widget.enabled;
+    final dark = _style?.dark ?? true;
+    final fluid = widget.fluid &&
+        (_style?.nocturne ?? false) &&
+        dark &&
+        _shader != null &&
+        widget.enabled;
     final mode = '${fluid ? 'fluid' : 'gradient'}|${widget.enabled}|'
-        '${widget.fluid}|${_style?.nocturne}|${_style?.lowPower}|'
+        '${widget.fluid}|${_style?.nocturne}|${_style?.lowPower}|$dark|'
         '${_shader != null}|$_playing';
     if (mode == _lastMode) return;
     _lastMode = mode;
     debugPrint('UniDock progress=${fluid ? 'fluid' : 'gradient'} '
         'enabled=${widget.enabled} setting=${widget.fluid} '
         'nocturne=${_style?.nocturne} lowPower=${_style?.lowPower} '
-        'shader=${_shader != null} playing=$_playing '
+        'dark=$dark shader=${_shader != null} playing=$_playing '
         'dur=$_durMs pos=$_posMs progress=${_progress.toStringAsFixed(3)}');
   }
 
@@ -237,14 +251,16 @@ class _DockMusicProgressBackgroundState
     final style = SurfaceStyle.of(context);
     final shader = _shader;
     final fluid =
-        widget.fluid && style.nocturne && shader != null;
+        widget.fluid && style.nocturne && style.dark && shader != null;
     _reportMode();
     return RepaintBoundary(
         child: fluid
             ? CustomPaint(
                 key: const ValueKey('dock-music-progress'),
                 painter: _FluidPainter(
-                    shader: shader, drive: _drive, radius: style.controlRadius),
+                    shader: shader,
+                    drive: _drive,
+                    radius: style.controlRadius),
                 child: widget.child)
             : AnimatedBuilder(
                 animation: _glow,
@@ -303,6 +319,7 @@ class _FluidPainter extends CustomPainter {
   final ui.FragmentShader shader;
   final _FluidDrive drive;
   final double radius;
+
   _FluidPainter({
     required this.shader,
     required this.drive,
@@ -313,7 +330,20 @@ class _FluidPainter extends CustomPainter {
   // 明度节奏沿用原版蓝紫（深靛→紫→蓝→浅蓝→近白），只把色相整体转到 165° 左右，
   // 所以刀口亮度和烟雾层次都不变，纯粹换色。
   static const _seed = 2.54;
-  static const _darkRight = [.058, .104, .096]; // #0F1A18 极深墨绿
+
+  /// 右端基色 = 底栏外壳合成后的颜色（95% 半透 `#1A1E20→#0E1012` 叠壁纸，
+  /// 取音乐块中位约 `#14171A`）。
+  ///
+  /// **不能直接把目标色填进来。** shader 尾部还有两道处理：
+  /// `color = color/(1+color*0.14)` 再 `pow(color, 0.94)` —— 后者对暗部是
+  /// 明显提亮（0.058 → 0.068，+18%）。上一版把目标色 `#15191B` 原样填进去，
+  /// 出来实际是 `≈#181B1E`，比外壳亮一档，所以「还是接不上」。
+  ///
+  /// 这里填的是反推值：先按 `m = y/(1-0.14y)`、`y = t^(1/0.94)` 把目标
+  /// `#14171A` 还原到混色前的量，再按 rightMask 0.92 的权重除掉。
+  /// 之前的 `#0F1A18` 则是纯墨绿（g-b 高、r 低），色相上就和中性灰的外壳
+  /// 不在一条线上，光调亮度永远对不上。
+  static const _darkRight = [.0706, .0784, .0902]; // #121517 对齐外壳合成色
   static const _darkLeft = [.032, .075, .069]; // #081311
   static const _c0 = [.039, .180, .161]; // #0A2E29 拖尾最深
   static const _c1 = [.071, .412, .353]; // #12695A 深青
@@ -354,7 +384,15 @@ class _FluidPainter extends CustomPainter {
     f(drive.echoAct);
     f(_fitAmp(size));
     f(_bladeK);
-    for (final c in [_darkRight, _darkLeft, _c0, _c1, _c2, _c3, _c4]) {
+    for (final c in const [
+      _darkRight,
+      _darkLeft,
+      _c0,
+      _c1,
+      _c2,
+      _c3,
+      _c4,
+    ]) {
       f(c[0]);
       f(c[1]);
       f(c[2]);
@@ -369,7 +407,9 @@ class _FluidPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _FluidPainter old) =>
-      old.shader != shader || old.radius != radius || old.drive != drive;
+      old.shader != shader ||
+      old.radius != radius ||
+      old.drive != drive;
 }
 
 class _DockMusicProgressPainter extends CustomPainter {
@@ -424,19 +464,48 @@ class _DockMusicProgressPainter extends CustomPainter {
         Rect.fromLTWH(glowLeft, 0, dividerX - glowLeft, size.height),
         glowPaint);
 
-    final lineColor = Color.lerp(accent, Colors.white, .22)!;
+    // 刀口：**和烟雾版同一个亮芯色**（`_FluidPainter` 那七段里的第七段，
+    // 按 accent 旋过来的饱和色），所以开关一开一关只换形态、不换颜色。
+    //
+    // 旧版是 `lerp(accent, Colors.white, .22)` —— 白底上那是一条**发灰**的线，
+    // 而且填充区本身已经被 accent 染到 ~45%，灰线压上去等于没有边界。换成
+    // 饱和色之后才读得出「一道透光的缝」（用户 2026-11-19：「把刀口和颜色
+    // 换一下」）。
+    final blade = _bladeColor;
     final lineHeight = size.height * .72;
     final lineTop = (size.height - lineHeight) / 2;
+    final alpha = animate ? .92 : .70;
+    // 外层一圈同色柔光，宽度按 8px 走；不用 MaskFilter.blur —— 小矩形上的
+    // 模糊在 Impeller 里反而更贵，两层纯色矩形看起来是一样的。
+    canvas.drawRRect(
+        RRect.fromRectAndRadius(
+            Rect.fromLTWH(dividerX - 4, lineTop, 8, lineHeight),
+            const Radius.circular(4)),
+        Paint()
+          ..color = blade.withValues(alpha: alpha * .17)
+          ..style = PaintingStyle.fill);
     canvas.drawRRect(
         RRect.fromRectAndRadius(
             Rect.fromLTWH(dividerX - 1, lineTop, 2, lineHeight),
             const Radius.circular(1)),
         Paint()
-          ..color = lineColor.withValues(alpha: animate ? .92 : .70)
+          ..color = blade.withValues(alpha: alpha)
           ..strokeWidth = 0
           ..style = PaintingStyle.fill);
     canvas.restore();
   }
+
+  /// 刀口颜色 = `accent` 提亮 22%，和经典 / 蓝玻璃同一条公式。
+  ///
+  /// 暗夜浅色 2026-11-19 对齐经典皮肤（用户拿经典截图对照后：「只要把浅色的
+  /// 按那个经典模式一样做就行了」）。经典里那条线其实比填充**暗**：填充靠刀口
+  /// 一侧 `#C096A3` → 刀口线 `#AF7487` → 未播放 `#E5DFE0`，靠的是「填充是极淡
+  /// 的同色、刀口是浓缩的同色」，不是提亮成一发光体。所以浅色不再取烟雾版
+  /// 调色板的饱和亮芯（那版 `#12E6BE` 艳得像荧光笔），直接复用经典这条公式；
+  /// 颜色仍随主题 `accent` 走。
+  ///
+  /// 深色走不进这里 —— 整块都由 shader 画，刀口是 shader 里那条近白亮芯。
+  Color get _bladeColor => Color.lerp(style.accent, Colors.white, .22)!;
 
   @override
   bool shouldRepaint(covariant _DockMusicProgressPainter oldDelegate) =>

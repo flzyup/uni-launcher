@@ -50,7 +50,22 @@ class SceneBackground extends StatelessWidget {
         const SizedBox.expand(),
       // Text outside cards (clock/status and settings heading) must remain
       // readable when a fixed light/dark mode is paired with the opposite photo.
-      if (hasWallpaper && !s.liquidGlass && (protectText || forceOverlay))
+      //
+      // 暗夜不画这条（2026-11-18，用户要求）：它已经把整屏压过一层 40% 黑
+      // （见 _nocturneBackdrop），再叠一条 96% 不透明的顶部黑带，壁纸基本就
+      // 看不见了。暗夜要的是「看到后面的桌面」，不是一条黑边。
+      // 液态玻璃本来就不画（走 WallpaperInk 的光晕）。
+      //
+      // 经典**深色**现在同样不画（2026-11-19，用户报「经典深色顶栏被一块黑
+      // 遮挡」）：它压在照片上时也整屏铺了一层 70% 深蓝（见 _classicBackdrop
+      // 的 0xB30A151C），白字本来就压得住，那条 96% 黑带只剩副作用——顶栏
+      // 一整块发黑，跟暗夜当初一模一样。浅色保留：深色照片 + 深色字时那张
+      // 浅色带仍然负担可读性，而它本身不刺眼。
+      if (hasWallpaper &&
+          !s.liquidGlass &&
+          !s.nocturne &&
+          !s.dark &&
+          (protectText || forceOverlay))
         Positioned(
             top: 0,
             left: 0,
@@ -88,6 +103,9 @@ class SceneBackground extends StatelessWidget {
   /// 一格一格，卡片压上去像贴在作业本上；而且它和「无边界黑」的设计意图
   /// 相反。暗角已经够给出距离感。
   Widget _nocturneBackdrop(SurfaceStyle s, bool hasWallpaper, bool overlay) {
+    // 浅色形态：一层压暗都不画。照片原样当底，任何黑色都会把「透明玻璃」
+    // 变成「灰玻璃」，也违背「我要看到后面的桌面」这个诉求。
+    if (!s.dark) return const SizedBox.shrink();
     if (hasWallpaper) {
       // 暗夜 + 壁纸：
       //  · 压暗从 60% 黑收到 40% —— 原来那层把照片吃得只剩一点灰影，选壁纸等于
@@ -96,7 +114,7 @@ class SceneBackground extends StatelessWidget {
       //    照片上再叠一层主题色渐变（左上亮、右下暗，跟 blueGlass 那条同一套做法），
       //    让照片跟主题同调；关掉就是纯照片 + 压暗。
       return Stack(fit: StackFit.expand, children: [
-        const DecoratedBox(decoration: BoxDecoration(color: Color(0x66050506))),
+        const DecoratedBox(decoration: BoxDecoration(color: Nocturne.scrim)),
         if (overlay)
           DecoratedBox(
               key: const ValueKey('nocturne-wallpaper-overlay'),
@@ -112,7 +130,7 @@ class SceneBackground extends StatelessWidget {
                       colors: [
                     s.accent.withValues(alpha: .22),
                     s.accent.withValues(alpha: .04),
-                    const Color(0x8C050506)
+                    Nocturne.scrimDeep
                   ]))),
       ]);
     }

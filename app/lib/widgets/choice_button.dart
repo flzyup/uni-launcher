@@ -334,7 +334,11 @@ class DesignSwitch extends StatelessWidget {
     // 圆点是「白色部件」，不能拿 s.text 当颜色：暗色皮肤下 s.text 恰好是白，
     // 所以一直看不出问题；浅色下 s.text 是深墨色，圆点就成了深蓝块。浅色改用
     // 固定白 + 一圈轻投影，否则白点压在同为浅灰的轨道上边界全糊。
-    final knob = value ? s.accentText : (s.dark ? s.text : Colors.white);
+    //
+    // 开态也不能用 s.accentText：暗夜深色的 accentText 是深色（给青底上的
+    // 字用的），圆点看着就是个黑洞（用户 2026-11-19 报的就是这个）。圆点
+    // 一律白，靠一圈轻投影和青轨道分开。
+    const knob = Colors.white;
     final trackRadius = s.technicalFrame
         ? (s.radius * .25).clamp(0.0, Design.dz(8))
         : Design.dz(Design.switchHeight / 2);
@@ -391,12 +395,15 @@ class DesignSwitch extends StatelessWidget {
                                         color: s.technicalFrame
                                             ? (value ? s.accent : s.muted)
                                             : knob,
-                                        boxShadow: s.dark
+                                        boxShadow: s.technicalFrame
                                             ? null
                                             : [
                                                 BoxShadow(
                                                     color: Colors.black
-                                                        .withValues(alpha: .18),
+                                                        .withValues(
+                                                            alpha: s.dark
+                                                                ? .30
+                                                                : .18),
                                                     blurRadius: Design.dz(3),
                                                     offset:
                                                         Offset(0, Design.dz(1)))

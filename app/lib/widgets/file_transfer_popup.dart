@@ -47,6 +47,7 @@ class _TransferRoute extends PopupRoute<void> {
     // 否则在「逻辑宽度 ≠ 1600」的屏上会按 1:1 像素落地、顶部被切掉。
     return CanvasScope(child: Builder(builder: (context) {
       final canvas = CanvasScopeInfo.of(context);
+      final s = SurfaceStyle.of(context);
       final bottom = Design.dz(panel ? 14 : 91.67);
       // 稿子 716.67 高是给 900 高画布的；画布更矮（超宽屏 / 小窗）时按可用高度
       // 收，内容本身有 Expanded 与 ListView，收矮了也只是滚动，不会被裁。
@@ -55,19 +56,29 @@ class _TransferRoute extends PopupRoute<void> {
       final width = math.min(Design.dz(533.33), canvas.width - Design.dz(24));
       return Stack(children: [
         // 稿子只给右半边压一层渐隐，左半边保持桌面亮度。
-        const Positioned.fill(
+        //
+        // 这层原来写死成近黑（0x75020304），浅色暗夜下右侧会被糊成一块黑。
+        // 深色保持原值；浅色换成同形状的白雾，作用一样（把桌面的细节压下去
+        // 让面板浮出来），但不会带进任何黑色。
+        Positioned.fill(
             child: IgnorePointer(
                 child: DecoratedBox(
                     decoration: BoxDecoration(
                         gradient: LinearGradient(
                             begin: Alignment.centerLeft,
                             end: Alignment.centerRight,
-                            colors: [
-              Color(0x00020304),
-              Color(0x00020304),
-              Color(0x75020304)
-            ],
-                            stops: [
+                            colors: s.dark
+                                ? const [
+                                    Color(0x00020304),
+                                    Color(0x00020304),
+                                    Color(0x75020304)
+                                  ]
+                                : const [
+                                    Color(0x00FFFFFF),
+                                    Color(0x00FFFFFF),
+                                    Color(0x8CFFFFFF)
+                                  ],
+                            stops: const [
               0,
               .38,
               1

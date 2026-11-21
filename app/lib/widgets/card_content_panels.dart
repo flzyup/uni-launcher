@@ -3,8 +3,13 @@ part of 'card_content.dart';
 Future<void> showAppsPanel(BuildContext context, LauncherController c) async {
   if (await c.presentGlobalPanel('apps') || !context.mounted) return;
   final dock = DockWindowScope.of(context);
+  final s = SurfaceStyle.of(context);
+  // 玻璃皮肤和暗夜都靠「采样下层」出效果：route 一旦不透明，桌面就整片不绘制，
+  // 玻璃没有东西可采，只剩一块实色底（暗夜之前就是这样变成灰板的）。
+  // 整页一律透：外观里的「玻璃」开关管的是模糊强度，不该把桌面重新挡住。
+  final glassy = s.liquidGlass || s.nocturne;
   final route = Navigator.of(context).push(PageRouteBuilder<void>(
-      opaque: !SurfaceStyle.of(context).liquidGlass,
+      opaque: !glassy,
       pageBuilder: (_, __, ___) =>
           RepaintBoundary(child: _AppsPage(controller: c)),
       transitionDuration: const Duration(milliseconds: 150),
@@ -73,15 +78,19 @@ class _AppsPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = SurfaceStyle.of(context);
     final content = AppPanel(controller: controller, fullPage: true);
+    // 玻璃必须能采样后面的场景；旧实色页面底板会抹掉壁纸细节。
+    // 暗夜同属玻璃一路：它也要看见桌面，只是靠自己那套近黑薄雾 + 高斯。
+    final glassy = s.liquidGlass || s.nocturne;
     return Scaffold(
-        // 玻璃必须能采样后面的场景；旧实色页面底板会抹掉壁纸细节。
-        backgroundColor: s.liquidGlass ? Colors.transparent : s.strong,
+        backgroundColor: glassy ? Colors.transparent : s.strong,
         body: Padding(
             padding: EdgeInsets.all(Design.px(32)),
-            child: s.liquidGlass
+            child: glassy
                 ? GlassSurface(
                     key: const ValueKey('apps-page-material'),
-                    sheet: true,
+                    // 整页压的是桌面，不是别的卡片：给实底就等于把桌面盖住。
+                    sheet: s.liquidGlass,
+                    page: s.nocturne,
                     padding: EdgeInsets.zero,
                     child: content)
                 : content));
@@ -119,61 +128,79 @@ class _AppPanelState extends State<AppPanel> {
             base.where((app) => app['enabled'] == false).toList();
         final apps = enabled ? enabledApps : disabledApps;
 
-        final panel = GlassSurface(
-            key: const ValueKey('apps-panel'),
-            sheet: s.liquidGlass,
-            // 稿子 `.ap-panel`：20.83 圆角、20/30/30 内边距——筛选和网格同住一张卡，
-            // 不再有左侧那条独立筛选列。
-            radius: s.radius,
-            padding: EdgeInsets.fromLTRB(
-                Design.px(36), Design.px(24), Design.px(36), Design.px(36)),
-            child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Row(children: [
-                    _FilterPills(
-                        enabled: enabled,
-                        enabledCount: enabledApps.length,
-                        disabledCount: disabledApps.length,
-                        onPick: (value) => setState(() => enabled = value)),
-                    const Spacer(),
-                    // `.ap-tools .tip`
-                    Text('长按图标可编辑',
-                        style: TextStyle(
-                            fontSize: Design.px(15.6),
-                            letterSpacing: Design.px(.24),
-                            color: s.muted)),
-                  ]),
-                  SizedBox(height: Design.px(24)),
-                  Expanded(
-                      child: apps.isEmpty
-                          ? Center(
-                              child: Text(enabled ? '暂无已启用应用' : '暂无已禁用应用',
-                                  style: TextStyle(
-                                      color: s.muted, fontSize: Design.px(24))))
-                          : LayoutBuilder(builder: (context, box) {
-                              if (box.maxWidth <= 1) {
-                                return const SizedBox.shrink();
-                              }
-                              return GridView.builder(
-                                  key: ValueKey(enabled
-                                      ? 'apps-enabled-grid'
-                                      : 'apps-disabled-grid'),
-                                  padding: EdgeInsets.zero,
-                                  itemCount: apps.length,
-                                  // 稿子 `.ap-grid`：7 列，行距 20 / 列距 8。
-                                  gridDelegate:
-                                      SliverGridDelegateWithFixedCrossAxisCount(
-                                          crossAxisCount: 7,
-                                          mainAxisSpacing: Design.px(24),
-                                          crossAxisSpacing: Design.px(9.6),
-                                          mainAxisExtent: Design.px(148)),
-                                  itemBuilder: (_, i) => _AppTile(
-                                      app: mapOf(apps[i]),
-                                      controller: widget.controller,
-                                      index: i));
-                            })),
-                ]));
+        // 稿子 `.ap-panel`：20.83 圆角、20/30/30 内边距——筛选和网格同住一张卡，
+        // 不再有左侧那条独立筛选列。
+        final innerPadding = EdgeInsets.fromLTRB(
+            Design.px(36), Design.px(24), Design.px(36), Design.px(36));
+        final inner = Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(children: [
+                _FilterPills(
+                    enabled: enabled,
+                    enabledCount: enabledApps.length,
+                    disabledCount: disabledApps.length,
+                    onPick: (value) => setState(() => enabled = value)),
+                const Spacer(),
+                // `.ap-tools .tip`
+                Text('长按图标可编辑',
+                    style: TextStyle(
+                        fontSize: Design.px(15.6),
+                        letterSpacing: Design.px(.24),
+                        color: s.muted)),
+              ]),
+              SizedBox(height: Design.px(24)),
+              Expanded(
+                  child: apps.isEmpty
+                      ? Center(
+                          child: Text(enabled ? '暂无已启用应用' : '暂无已禁用应用',
+                              style: TextStyle(
+                                  color: s.muted, fontSize: Design.px(24))))
+                      : LayoutBuilder(builder: (context, box) {
+                          if (box.maxWidth <= 1) {
+                            return const SizedBox.shrink();
+                          }
+                          return GridView.builder(
+                              key: ValueKey(enabled
+                                  ? 'apps-enabled-grid'
+                                  : 'apps-disabled-grid'),
+                              padding: EdgeInsets.zero,
+                              itemCount: apps.length,
+                              // 稿子 `.ap-grid`：7 列，行距 20 / 列距 8。
+                              gridDelegate:
+                                  SliverGridDelegateWithFixedCrossAxisCount(
+                                      crossAxisCount: 7,
+                                      mainAxisSpacing: Design.px(24),
+                                      crossAxisSpacing: Design.px(9.6),
+                                      mainAxisExtent: Design.px(148)),
+                              itemBuilder: (_, i) => _AppTile(
+                                  app: mapOf(apps[i]),
+                                  controller: widget.controller,
+                                  index: i));
+                        })),
+            ]);
+
+        // 整页 + 暗夜：底与边都由外层那张整页玻璃给。这里再画一层 70% 的
+        // 面板卡就是第二块板子，两层叠起来桌面又没了（而且内层还会再压一次
+        // 顶部高光，边界更硬）。
+        // 整页 + 暗夜：底与边由外层那张整页玻璃给。这里再铺一层和设置页
+        // `SettingBlock` 同一档的淡块（文字色 2% + 7% 描边）—— 不是为了挡光，
+        // 是让网格区从整页底上「浮」出来一层。没有这层，整页是一整块平面，
+        // 一眼看过去就只剩「透不透」（2026-11-19 实车反馈）。
+        final panel = widget.fullPage && s.nocturne
+            ? DecoratedBox(
+                key: const ValueKey('apps-panel'),
+                decoration: BoxDecoration(
+                    color: s.text.withValues(alpha: .02),
+                    borderRadius: BorderRadius.circular(s.radius),
+                    border: Border.all(color: s.text.withValues(alpha: .07))),
+                child: Padding(padding: innerPadding, child: inner))
+            : GlassSurface(
+                key: const ValueKey('apps-panel'),
+                sheet: s.liquidGlass,
+                radius: s.radius,
+                padding: innerPadding,
+                child: inner);
 
         if (!widget.fullPage) return panel;
         return Column(children: [

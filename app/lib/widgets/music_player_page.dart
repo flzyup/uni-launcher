@@ -25,7 +25,17 @@ class _MusicCardFull extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = SurfaceStyle.of(context);
     // 稿子 f5 的底色是 `rgba(3,4,6,.992)`。暗夜按稿子来；其他两套皮肤先不动。
-    final backdrop = s.nocturne ? const Color(0xFD030406) : Colors.transparent;
+    // 浅色暗夜不能再套这块近黑：整页会变成「桌面是白的、点开音乐就全黑」。
+    //
+    // 这一层是叠在**卡面玻璃已经压过一次**的壁纸上的（`_CardFocus` 外面套的是
+    // `GlassSurface(card: true)`），所以它不能按单层的观感取值：86% 白 + 卡面
+    // 40% 白实际是 92% 白，整页就是一块实心白板，壁纸一点都看不见（用户
+    // 2026-11-19 截图「放大以后太实」）。先降到 66%，用户仍觉得不够透，再降到
+    // 52%——合成后约 71%，桌面能认出来，字还压得住。深色维持 91%：那两团粉紫
+    // 光是对着近黑底调的，透出壁纸会显脏。
+    final backdrop = !s.nocturne
+        ? Colors.transparent
+        : (s.dark ? const Color(0xE8030406) : const Color(0x85F2F6F6));
     return ColoredBox(
         color: backdrop,
         child: NativeSliceBuilder(
@@ -53,7 +63,8 @@ class _MusicCardFull extends StatelessWidget {
         [artist, album].where((value) => value.isNotEmpty).join(' · ');
     return Stack(children: [
       // 稿子 `.ovl2`：左下粉光 + 右上紫光，暗夜才加（浅色皮肤先不动）。
-      if (s.nocturne) ...[
+      // 浅色暗夜也不加：这两团光是对着近黑底调出来的，铺在白雾上只会发脏。
+      if (s.nocturne && s.dark) ...[
         Positioned.fill(
             child: IgnorePointer(
                 child: DecoratedBox(

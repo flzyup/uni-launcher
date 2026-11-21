@@ -499,9 +499,9 @@ void main() {
     final (c, _) = await launch(t);
     c.openSettings();
     await t.pumpAndSettle();
-    // 外观页不是滚动页：五块由 spaceBetween 撑满一屏。要盯的是两端留白
+    // 外观页够一屏时不滚动：五块由 spaceBetween 撑满一屏。要盯的是两端留白
     // 一致、以及左栏下沿与右栏「返回桌面查看」落在同一条线上——之前左边
-    // 比按钮高 8、比上沿多空 8，看着就是不齐。
+    // 比按钮高 8、比上沿多空 8，看着就是不齐。（放不下时它会滚，见下一条。）
     final left = t.getRect(
         find.byKey(const PageStorageKey('appearance-settings-scroll')));
     final lastBlock = t.getRect(find.byType(RadiusSetting));
@@ -518,6 +518,54 @@ void main() {
     }
     expect(find.text('实现方式'), findsOneWidget);
     expect(find.text('字形与配色'), findsOneWidget);
+    expect(t.takeException(), null);
+  });
+
+  /// 外观页放不下时必须滚，而不是把「卡片圆角」裁掉。
+  ///
+  /// 车机原生状态栏和本桌面自己的顶栏同时出现时，可视高度被啃掉一截；
+  /// 以前这页写死 `SizedBox(height: maxHeight)`，内容直接溢出边线，
+  /// 最后一块（卡片圆角）只露出半截，用户 2026-11-19 截图就是它。
+  testWidgets('appearance page scrolls when the viewport shrinks', (t) async {
+    final (c, _) = await launch(t);
+    c.openSettings();
+    await t.pumpAndSettle();
+    const key = PageStorageKey('appearance-settings-scroll');
+    // 正常一屏：滚动条不亮，也不该有任何可滚距离。
+    expect(scrollByKey(t, key).maxScrollExtent, 0);
+    expect(
+        t
+            .widget<Scrollbar>(find
+                .descendant(
+                    of: find.byType(AppearanceSettings),
+                    matching: find.byType(Scrollbar))
+                .first)
+            .thumbVisibility,
+        isFalse);
+
+    // 少掉一条状态栏的高度：内容放不下，滚起来并亮出滚动条。
+    t.view.physicalSize = const Size(1920, 900);
+    await t.pumpAndSettle();
+    final pos = scrollByKey(t, key);
+    expect(pos.maxScrollExtent, greaterThan(0), reason: '高度不够时必须能滚');
+    expect(
+        t
+            .widget<Scrollbar>(find
+                .descendant(
+                    of: find.byType(AppearanceSettings),
+                    matching: find.byType(Scrollbar))
+                .first)
+            .thumbVisibility,
+        isTrue,
+        reason: '能滚的时候要给出滚动条，否则用户不知道下面还有东西');
+
+    // 滚到底，最后一块完整落在视口里——不再被裁掉半截。
+    pos.jumpTo(pos.maxScrollExtent);
+    await t.pumpAndSettle();
+    final view = t.getRect(find.byKey(key));
+    final lastBlock = t.getRect(find.byType(RadiusSetting));
+    expect(lastBlock.bottom, lessThanOrEqualTo(view.bottom + .5));
+    expect(find.text('卡片圆角'), findsOneWidget);
     expect(t.takeException(), null);
   });
 

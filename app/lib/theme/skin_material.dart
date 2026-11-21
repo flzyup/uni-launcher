@@ -46,9 +46,10 @@ class SkinMaterial {
     required this.capsuleEdge,
   });
 
-  /// 取某套皮肤在某个明暗态下的材质。eclipse 忽略 [dark]。
+  /// 取某套皮肤在某个明暗态下的材质。eclipse 的浅色是「透明玻璃」形态：
+  /// 造型不变，但不能再压黑，所以 cardShade 归零。
   static SkinMaterial resolve(LauncherSkin skin, bool dark) => switch (skin) {
-        LauncherSkin.eclipse => _eclipse,
+        LauncherSkin.eclipse => dark ? _eclipse : _eclipseLight,
         LauncherSkin.blueGlass => dark ? _glassDark : _glassLight,
         LauncherSkin.classic => dark ? _classicDark : _classicLight,
       };
@@ -57,8 +58,20 @@ class SkinMaterial {
     cardShade: .34,
     pageDot: Color(0x38FFFFFF),
     pageDotActive: Color(0xD9FFFFFF),
-    capsule: Color(0x0BFFFFFF),
+    // 和底栏音乐块同一档：音乐块那块 GlassSurface(flat) 已经是完全透明，
+    // 胶囊再叠 4% 白就会在底栏里显出第二条亮度线（2026-11-19 用户要求
+    // 「空调胶囊的底色和音乐块一样」）。留描边勾边界，底交给外壳。
+    capsule: Color(0x00000000),
     capsuleEdge: Color(0x16FFFFFF),
+  );
+
+  /// 浅色暗夜：卡片是白玻璃，压黑会把底变脏；页点反过来用深色。
+  static const _eclipseLight = SkinMaterial(
+    cardShade: 0,
+    pageDot: Color(0x59000000),
+    pageDotActive: Color(0xCC000000),
+    capsule: Color(0x3DFFFFFF),
+    capsuleEdge: Color(0x1F000000),
   );
 
   static const _classicDark = SkinMaterial(
