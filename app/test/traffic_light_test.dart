@@ -70,9 +70,9 @@ void main() {
     expect(green.lampAt(7000), 'amber'); // 剩 3 秒，切黄
     expect(green.lampAt(9000), 'amber'); // 剩 1 秒
     expect(green.lampLabelAt(7000), '黄灯');
-    // 归零后没有秒数可依据，不猜——保持数据里的绿灯，等下一批广播。
-    expect(green.lampAt(10000), 'green');
-    expect(green.lampAt(99000), 'green');
+    // 归零之后仍是黄灯：巡航模式包更新慢，这几秒就是黄灯在亮（2026-11-19）。
+    expect(green.lampAt(10000), 'amber');
+    expect(green.lampAt(99000), 'amber');
     const red =
         TrafficSignal(direction: 'straight', lamp: 'red', countdownSeconds: 3);
     expect(red.lampAt(0), 'red');
@@ -82,6 +82,22 @@ void main() {
     const unknown = TrafficSignal(
         direction: 'unknown', lamp: 'unknown', countdownSeconds: 2);
     expect(unknown.lampAt(0), 'unknown');
+  });
+
+  testWidgets('读数扣掉包龄已经走掉的那几秒', (t) async {
+    // 原生把包推上来时可能已经过了 2 秒（ageMs）。状态机的锚点必须落在
+    // 「包成形那一刻」，否则每包都白丢一个 ageMs，读数整体偏慢。
+    await t.pumpWidget(review(TrafficLightSnapshot(
+        available: true,
+        ageMs: 2000,
+        ttlMs: 5000,
+        lights: const [
+          TrafficSignal(
+              direction: 'straight', lamp: 'green', countdownSeconds: 5)
+        ])));
+    await t.pumpAndSettle();
+    expect(find.text('3'), findsOneWidget);
+    expect(t.takeException(), isNull);
   });
 
   testWidgets('绿灯最后 3 秒灯珠转黄、倒计时照常显示', (t) async {
@@ -103,6 +119,30 @@ void main() {
     expect(await ringBorder('red', 3), dark(const Color(0xFFFF8C7F)));
     // 秒数照常是 3，不会变成「—」。
     expect(find.text('3'), findsOneWidget);
+    expect(t.takeException(), isNull);
+  });
+
+  testWidgets('巡航绿灯读秒走完后停在 0，不再换成破折号', (t) async {
+    // 供应商最后一帧是 green@3、包龄 3.5 秒：读数已经走完。
+    // 以前这里会画「黄环 + —」，实车看着就是「变黄了却没有倒计时」。
+    await t.pumpWidget(review(TrafficLightSnapshot(
+        available: true,
+        ageMs: 3500,
+        sequence: 3,
+        lights: const [
+          TrafficSignal(
+              direction: 'straight', lamp: 'green', countdownSeconds: 3)
+        ])));
+    await t.pump();
+    expect(find.text('0'), findsOneWidget);
+    expect(find.text('—'), findsNothing);
+    final ring = t
+        .widget<Container>(
+            find.byKey(const ValueKey('traffic-ring-straight')))
+        .decoration! as BoxDecoration;
+    // 归零仍然按黄灯画（暗夜环色压到 88%）。
+    expect(ring.border!.top.color,
+        const Color(0xFFFFD17D).withValues(alpha: .88));
     expect(t.takeException(), isNull);
   });
 
