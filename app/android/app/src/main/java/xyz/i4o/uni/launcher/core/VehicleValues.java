@@ -8,7 +8,7 @@ public final class VehicleValues {
         if("left".equals(key)||"right".equals(key))return v>=24&&v<=72?v/2.0:null;
         if("fan".equals(key))return v>=0&&v<=15&&v==Math.rint(v)?raw.intValue():null;
         if("driverHeat".equals(key)||"driverVent".equals(key)||"passengerHeat".equals(key))return v>=0&&v<=3&&v==Math.rint(v)?raw.intValue():null;
-        if(key.startsWith("pressure"))return v>0&&v<=1000?v/100.0:null;
+        if(key.startsWith("pressure"))return v>=50&&v<=450?v/100.0:null;
         return null;
     }
     public static Boolean bool(Number raw){return raw!=null&&(raw.doubleValue()==0||raw.doubleValue()==1)?raw.intValue()==1:null;}

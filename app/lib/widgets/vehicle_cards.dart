@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import '../model/vehicle_data.dart';
 import '../model/vehicle_card_data.dart';
 import '../theme/design_tokens.dart';
 import '../theme/launcher_theme.dart';
@@ -252,8 +253,21 @@ class AirQualityCard extends StatelessWidget {
         final aqi = readings[0], pm = readings[1];
         final s = SurfaceStyle.of(context);
         final level = aqi.value == null ? '' : _aqiLevel(aqi.value!);
-        // 稿子 f2：168 环形表（AQC）+ 右列四行。甲醛 / 温度 / 净化 原车读不到，
-        // 按「待同步」占位，等原生补字段再填。
+        final temp =
+            VehicleField.fromNative(native, 'left', nowMs: nowMs?.call());
+        final climate =
+            native['climate'] is Map ? native['climate'] as Map : const {};
+        final vehicle =
+            native['vehicle'] is Map ? native['vehicle'] as Map : const {};
+        final fields =
+            vehicle['fields'] is Map ? vehicle['fields'] as Map : const {};
+        final autoVal = climate['auto'] == true ||
+            (fields['auto'] is Map && (fields['auto'] as Map)['value'] == true);
+        final acVal = climate['ac'] == true ||
+            (fields['ac'] is Map && (fields['ac'] as Map)['value'] == true);
+        final powerVal = climate['power'] == true ||
+            (fields['power'] is Map && (fields['power'] as Map)['value'] == true);
+        final isPurifying = powerVal || autoVal || acVal;
         return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -299,11 +313,13 @@ class AirQualityCard extends StatelessWidget {
                                   valueKey:
                                       const ValueKey('vehicle-value-pm25')),
                               if (!compact) ...[
-                                // 稿子这四行：PM2.5 / 甲醛 / 温度 / 净化。原车只上报
-                                // PM2.5 与 AQI，另三项没有数据源，按 A 方案占位。
-                                _CardRow('甲醛', '待同步', unit: 'mg/m³'),
-                                _CardRow('温度', '待同步', unit: '°C'),
-                                _CardRow('净化', '待同步'),
+                                _CardRow('温度', temp.valid ? temp.display() : '—',
+                                    unit: temp.valid ? '°C' : '',
+                                    valueKey:
+                                        const ValueKey('vehicle-value-cabin-temp')),
+                                _CardRow('净化', isPurifying ? '已开启' : '未开启',
+                                    valueKey:
+                                        const ValueKey('vehicle-value-air-purifier')),
                               ],
                             ],
                           ),

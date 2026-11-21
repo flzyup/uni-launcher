@@ -1169,7 +1169,9 @@ public final class OfficialCarReader implements VehicleAdapter {
         if ("pressure".equals(kind)) {
             Double raw = pa.doubleData();
             field.put("unit", "bar").put("unitVerified", true).put("scale", 0.01);
-            return raw != null && raw > 0 && raw <= 1000 ? raw / 100.0 : null;
+            // 乘用车正常胎压为 1.5 ~ 3.5 bar，极端上限不超过 4.5 bar。
+            // 领克/吉利 CAN 协议中 0xFF (255 / 6.375 bar / 637.5) 为熄火/离线/传感器休眠保留标志 (SNA)。
+            return raw != null && raw >= 50 && raw <= 450 ? raw / 100.0 : null;
         }
         Integer raw = pa.integerData();
         if (raw == null) return null;

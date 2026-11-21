@@ -26,6 +26,8 @@ class VehicleReadout extends StatelessWidget {
     final vehicle =
         native['vehicle'] is Map ? native['vehicle'] as Map : const {};
     final connected = vehicle['connected'] == true;
+    final powertrain = detectPowertrain(native);
+    final isIce = powertrain == PowertrainType.ice;
 
     String read(String key, {int decimals = 1}) =>
         VehicleField.fromNative(native, key).display(decimals: decimals);
@@ -356,15 +358,28 @@ class VehicleReadout extends StatelessWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Expanded(
-                                child: group('能量', s.accent, [
-                              row('动力电池', read('batteryPercent', decimals: 0),
-                                  unit: '%', color: s.accent),
-                              row('电池温度', read('batteryTemp', decimals: 0),
-                                  unit: '°C'),
-                              row('剩余续航', read('range', decimals: 0),
-                                  unit: 'km'),
-                              row('车内 PM2.5', read('pm25', decimals: 0),
-                                  unit: 'µg/m³')
+                                child: group(isIce ? '燃油' : '能量', s.accent, [
+                              if (isIce) ...[
+                                row('剩余油量', read('fuelLiters', decimals: 1),
+                                    unit: 'L', color: s.accent),
+                                row('油箱容积', vehicle['fuelCapacity'] is num
+                                    ? '${(vehicle['fuelCapacity'] as num).toStringAsFixed(0)}'
+                                    : read('fuelPercent', decimals: 0),
+                                    unit: vehicle['fuelCapacity'] is num ? 'L' : '%'),
+                                row('剩余续航', read('range', decimals: 0),
+                                    unit: 'km'),
+                                row('车内 PM2.5', read('pm25', decimals: 0),
+                                    unit: 'µg/m³')
+                              ] else ...[
+                                row('动力电池', read('batteryPercent', decimals: 0),
+                                    unit: '%', color: s.accent),
+                                row('电池温度', read('batteryTemp', decimals: 0),
+                                    unit: '°C'),
+                                row('剩余续航', read('range', decimals: 0),
+                                    unit: 'km'),
+                                row('车内 PM2.5', read('pm25', decimals: 0),
+                                    unit: 'µg/m³')
+                              ]
                             ])),
                             SizedBox(width: Design.dz(16)),
                             Expanded(
@@ -388,25 +403,49 @@ class VehicleReadout extends StatelessWidget {
                                     fontSize: Design.dz(17),
                                     color: ink.withValues(alpha: .90))))),
                         SizedBox(width: Design.dz(11)),
-                        stateBlock(
-                            '混动选择',
-                            stateValue(Text(
-                                '${vehicleStatusLabel(native, 'hybridSelected')}',
-                                style: TextStyle(
-                                    fontSize: Design.dz(15),
-                                    color: _amber.withValues(alpha: .9))))),
-                        SizedBox(width: Design.dz(11)),
-                        stateBlock(
-                            '能量流',
-                            Row(mainAxisSize: MainAxisSize.min, children: [
-                              dot(s.accent.withValues(alpha: .9), size: 5),
-                              SizedBox(width: Design.dz(7)),
-                              Text(vehicleStatusLabel(native, 'energyFlow'),
+                        if (!isIce) ...[
+                          stateBlock(
+                              '混动选择',
+                              stateValue(Text(
+                                  '${vehicleStatusLabel(native, 'hybridSelected')}',
                                   style: TextStyle(
                                       fontSize: Design.dz(15),
-                                      color: ink.withValues(alpha: .90)))
-                            ])),
-                        SizedBox(width: Design.dz(11)),
+                                      color: _amber.withValues(alpha: .9))))),
+                          SizedBox(width: Design.dz(11)),
+                          stateBlock(
+                              '能量流',
+                              Row(mainAxisSize: MainAxisSize.min, children: [
+                                dot(s.accent.withValues(alpha: .9), size: 5),
+                                SizedBox(width: Design.dz(7)),
+                                Text(vehicleStatusLabel(native, 'energyFlow'),
+                                    style: TextStyle(
+                                        fontSize: Design.dz(15),
+                                        color: ink.withValues(alpha: .90)))
+                              ])),
+                          SizedBox(width: Design.dz(11)),
+                        ] else ...[
+                          stateBlock(
+                              '动力系统',
+                              stateValue(Text('燃油版',
+                                  style: TextStyle(
+                                      fontSize: Design.dz(17),
+                                      color: ink.withValues(alpha: .90))))),
+                          SizedBox(width: Design.dz(11)),
+                          stateBlock(
+                              '剩余续航',
+                              Row(mainAxisSize: MainAxisSize.min, children: [
+                                dot(s.accent.withValues(alpha: .9), size: 5),
+                                SizedBox(width: Design.dz(7)),
+                                Text(
+                                    read('range', decimals: 0) == '—'
+                                        ? '—'
+                                        : '${read('range', decimals: 0)} km',
+                                    style: TextStyle(
+                                        fontSize: Design.dz(15),
+                                        color: ink.withValues(alpha: .90)))
+                              ])),
+                          SizedBox(width: Design.dz(11)),
+                        ],
                         stateBlock(
                             '车内 AQC',
                             Row(mainAxisSize: MainAxisSize.min, children: [
